@@ -309,17 +309,17 @@ class BillingController extends ChangeNotifier {
 
   Future<Map<String, dynamic>?> checkout() async {
     if (customer == null) {
-      error = 'Select or register a customer before issuing a GST invoice.';
+      error = 'Select or register a customer before issuing an estimate or GST invoice.';
       notifyListeners();
       return null;
     }
     if (lines.isEmpty) {
-      error = 'Scan or add at least one ornament tag to bill.';
+      error = 'Scan or add at least one tagged ornament to bill.';
       notifyListeners();
       return null;
     }
-    if (payments.isEmpty && netPayableDecimal > Decimal.zero) {
-      error = 'Record at least one payment tender (Cash, UPI, Card, or Bank).';
+    if (lines.any((l) => l.article.id.isEmpty)) {
+      error = 'Every billed line must reference a vault tagged article UUID.';
       notifyListeners();
       return null;
     }
@@ -327,46 +327,167 @@ class BillingController extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final d = await _api.post(
-        '/sales/pos/quick-bill',
-        idempotencyKey: _uuid.v4(),
+      // 1. Release temporary POS counter holds before estimate/invoice reservation
+      for (final l in lines) {
+        await _releaseIfHeld(l);
+      }
+
+      // 2. Discover published rateVersionId & approved taxProfileId from live workspace
+      final ratesRes = await _api.get('/rates');
+      String? rateVersionId;
+      final now = DateTime.now().toUtc();
+      for (final book in asList(ratesRes, keys: const ['rateBooks', 'books', 'items'])) {
+        for (final v in asList(book['versions'])) {
+          if ('${v['state']}' == 'PUBLISHED') {
+            final eff = DateTime.tryParse('${v['effectiveAt'] ?? ''}');
+            final exp = DateTime.tryParse('${v['expiresAt'] ?? ''}');
+            if ((eff == null || !eff.isAfter(now)) && (exp == null || exp.isAfter(now))) {
+              rateVersionId = '${v['id']}';
+              break;
+            }
+            rateVersionId ??= '${v['id']}';
+          }
+        }
+        if (rateVersionId != null && rateVersionId.isNotEmpty) break;
+      }
+      if (rateVersionId == null || rateVersionId.isEmpty) {
+        throw ApiException(
+          'RATE_VERSION_REQUIRED',
+          'Publish a Rate Version in Materials & Bullion Rates before generating a sales estimate or invoice.',
+        );
+      }
+
+      final salesWs = asMap(await _api.get('/sales'));
+      String? taxProfileId;
+      for (final tp in asList(salesWs['taxProfiles'])) {
+        if ('${tp['state']}' == 'APPROVED') {
+          taxProfileId = '${tp['id']}';
+          break;
+        }
+      }
+      if (taxProfileId == null || taxProfileId.isEmpty) {
+        throw ApiException(
+          'TAX_PROFILE_REQUIRED',
+          'Create & approve a GST Tax Profile in Sales Lifecycle → Tax Profiles before billing.',
+        );
+      }
+
+      // 3. Create authoritative Sales Estimate (`POST /sales/estimates`)
+      final discountPerFirst = oldGoldCreditDecimal > Decimal.zero
+          ? oldGoldCreditDecimal.toStringAsFixed(2)
+          : '0.00';
+      final estRaw = asMap(await _api.post(
+        '/sales/estimates',
+        idempotent: true,
         body: {
-          'customerId': customer!.id,
-          'barcodes': [for (final l in lines) l.article.barcode],
-          'items': [
-            for (final l in lines)
+          'customerPartyId': customer!.id,
+          'rateVersionId': rateVersionId,
+          'taxProfileId': taxProfileId,
+          'quoteDate': todayIso(),
+          'expiresAt': now.add(const Duration(hours: 24)).toIso8601String(),
+          'lines': [
+            for (var i = 0; i < lines.length; i++)
               {
-                if (l.article.id.isNotEmpty) 'articleId': l.article.id,
-                'barcode': l.article.barcode,
-                'ratePerGram': l.ratePerGram,
-                'makingCharges': l.makingCharge,
+                'articleId': lines[i].article.id,
+                'makingAmount': normAmount(lines[i].makingCharge),
+                'otherAmount': '0.00',
+                'discountAmount': i == 0 ? discountPerFirst : '0.00',
               },
           ],
-          'payments': [
-            for (final p in payments)
-              {
-                'mode': p.mode,
-                'amount': p.amount,
-                if (p.reference.isNotEmpty) 'reference': p.reference,
-              },
-          ],
-          if (oldGold != null && oldGold!.id.isNotEmpty) 'oldGoldVoucherId': oldGold!.id,
-          if (oldGold != null) 'oldGoldCreditAmount': normAmount(oldGold!.credit),
         },
-      );
-      final receipt = asMap(d);
+      ));
+      final estId = '${estRaw['id'] ?? ''}';
+
+      // 4. Attempt automatic conversion to Sales Invoice if GL accounts exist
+      Map<String, dynamic> finalDoc = estRaw;
+      try {
+        final acctWs = asMap(await _api.get('/accounting/workspace'));
+        final accts = asList(acctWs['accounts']);
+        String? findAcct(List<String> keys) {
+          for (final k in keys) {
+            final hit = accts.where((a) =>
+                '${a['controlType'] ?? ''}'.toUpperCase() == k ||
+                '${a['group'] ?? ''}'.toUpperCase() == k).firstOrNull;
+            if (hit != null) return '${hit['id']}';
+          }
+          return null;
+        }
+
+        final recvAcct = findAcct(const ['CUSTOMER_RECEIVABLE', 'ASSET']);
+        final revAcct = findAcct(const ['INCOME']);
+        final taxAcct = findAcct(const ['TAX_OUTPUT', 'LIABILITY']);
+        final cogsAcct = findAcct(const ['EXPENSE']);
+        final invAcct = findAcct(const ['INVENTORY', 'ASSET']);
+
+        if (estId.isNotEmpty &&
+            recvAcct != null &&
+            revAcct != null &&
+            cogsAcct != null &&
+            invAcct != null) {
+          final invDraft = asMap(await _api.post(
+            '/sales/invoices',
+            idempotent: true,
+            body: {
+              'estimateId': estId,
+              'invoiceDate': todayIso(),
+              'reservationExpiresAt': now.add(const Duration(hours: 4)).toIso8601String(),
+              'receivableAccountId': recvAcct,
+              'revenueAccountId': revAcct,
+              if (taxAcct != null) 'outputTaxAccountId': taxAcct,
+              'cogsAccountId': cogsAcct,
+              'inventoryAccountId': invAcct,
+            },
+          ));
+          finalDoc = invDraft;
+
+          // Post invoice if open period & series exist
+          final openPeriod = asList(acctWs['financialYears'])
+              .expand((fy) => asList(fy['periods']))
+              .where((p) => '${p['state']}' == 'OPEN')
+              .firstOrNull;
+          final allSeries = [
+            ...asList(acctWs['series']),
+            ...asList(acctWs['financialYears']).expand((fy) => asList(fy['series'])),
+          ];
+          final invSeries = allSeries
+              .where((s) => '${s['documentType']}'.toUpperCase().contains('INVOICE'))
+              .firstOrNull;
+          final jvSeries = allSeries
+              .where((s) => '${s['documentType']}'.toUpperCase() == 'JOURNAL')
+              .firstOrNull;
+
+          if (openPeriod != null && invSeries != null && jvSeries != null && invDraft['id'] != null) {
+            final posted = asMap(await _api.post(
+              '/sales/invoices/${invDraft['id']}/post',
+              idempotent: true,
+              body: {
+                'expectedVersion': asInt(invDraft['version'], fallback: 1),
+                'postingPeriodId': '${openPeriod['id']}',
+                'documentSeriesId': '${invSeries['id']}',
+                'journalSeriesId': '${jvSeries['id']}',
+                'reason': 'Posted showroom sales invoice from mobile POS checkout.',
+              },
+            ));
+            if (posted.isNotEmpty) finalDoc = posted;
+          }
+        }
+      } catch (_) {
+        // Estimate succeeded; keep estimate receipt if GL accounts/series are not yet set up
+      }
+
       final normalized = <String, dynamic>{
-        'invoiceNumber': receipt['invoiceNumber'] ??
-            receipt['documentNumber'] ??
-            'POS-${DateTime.now().millisecondsSinceEpoch % 100000}',
+        'invoiceNumber': finalDoc['documentNumber'] ??
+            finalDoc['quoteNumber'] ??
+            estRaw['quoteNumber'] ??
+            shortId('${finalDoc['id'] ?? estId}'),
         'customerName': customer!.name,
-        'metalSubtotal': metalSubtotal.toStringAsFixed(2),
-        'makingSubtotal': makingSubtotal.toStringAsFixed(2),
-        'gstAmount': receipt['taxAmount'] ?? receipt['gstAmount'] ?? gstSubtotal.toStringAsFixed(2),
+        'metalSubtotal': estRaw['metalValue'] ?? metalSubtotal.toStringAsFixed(2),
+        'makingSubtotal': estRaw['makingAmount'] ?? makingSubtotal.toStringAsFixed(2),
+        'gstAmount': finalDoc['taxAmount'] ?? estRaw['taxAmount'] ?? gstSubtotal.toStringAsFixed(2),
         'oldGoldCredit': oldGold?.credit,
-        'totalAmount': receipt['totalAmount'] ?? grossInvoiceTotal.toStringAsFixed(2),
+        'totalAmount': finalDoc['totalAmount'] ?? estRaw['totalAmount'] ?? grossInvoiceTotal.toStringAsFixed(2),
         'paidAmount': paidTotal,
-        ...receipt,
+        ...finalDoc,
       };
       customer = null;
       lines.clear();

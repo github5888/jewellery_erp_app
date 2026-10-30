@@ -440,35 +440,45 @@ class WeightBreakdownBar extends StatelessWidget {
 class PillTabs<TValue> extends StatelessWidget {
   const PillTabs({
     super.key,
-    required this.items,
-    required this.selected,
+    this.items,
+    this.tabs,
+    this.selected,
+    this.value,
     required this.onChanged,
   });
-  final List<(TValue, String, IconData?)> items;
-  final TValue selected;
+  final List<(TValue, String, IconData?)>? items;
+  final List<(TValue, String)>? tabs;
+  final TValue? selected;
+  final TValue? value;
   final ValueChanged<TValue> onChanged;
 
   @override
   Widget build(BuildContext context) {
+    final resolved = <(TValue, String, IconData?)>[
+      if (items != null) ...items!,
+      if (items == null && tabs != null)
+        for (final t in tabs!) (t.$1, t.$2, null),
+    ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(children: [
-        for (var i = 0; i < items.length; i++) ...[
+        for (var i = 0; i < resolved.length; i++) ...[
           if (i > 0) const SizedBox(width: 8),
-          _tab(items[i].$1, items[i].$2, items[i].$3),
+          _tab(resolved[i].$1, resolved[i].$2, resolved[i].$3),
         ],
       ]),
     );
   }
 
-  Widget _tab(TValue value, String label, IconData? icon) {
-    final active = value == selected;
+  Widget _tab(TValue itemVal, String label, IconData? icon) {
+    final activeVal = selected ?? value;
+    final active = itemVal == activeVal;
     return Material(
       color: active ? Pal.ink : Colors.white,
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
-        onTap: () => onChanged(value),
+        onTap: () => onChanged(itemVal),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
@@ -941,4 +951,180 @@ class FieldLabel extends StatelessWidget {
           ],
         ]),
       );
+}
+
+class KVRow extends StatelessWidget {
+  const KVRow(
+    this.k,
+    this.v, {
+    super.key,
+    this.strong = false,
+    this.bold = false,
+    this.mono = false,
+    this.valueColor,
+  });
+  final String k;
+  final String v;
+  final bool strong;
+  final bool bold;
+  final bool mono;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) => KeyValue(
+        k,
+        v,
+        strong: strong || bold,
+        mono: mono,
+        valueColor: valueColor,
+      );
+}
+
+class StatusChip extends StatelessWidget {
+  const StatusChip(this.text, {super.key, this.tone});
+  final String text;
+  final Tone? tone;
+
+  @override
+  Widget build(BuildContext context) => StatusPill(text, tone: tone);
+}
+
+class ErrorBanner extends StatelessWidget {
+  const ErrorBanner(this.message, {super.key, this.onRetry});
+  final String message;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Pal.dangerWash,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Pal.danger.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, size: 18, color: Pal.danger),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: T.body(12.8, color: Pal.danger, w: FontWeight.w600),
+            ),
+          ),
+          if (onRetry != null) ...[
+            const SizedBox(width: 8),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class GoldButton extends StatelessWidget {
+  const GoldButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.icon,
+    this.busy = false,
+    this.compact = false,
+  });
+  final String label;
+  final VoidCallback? onPressed;
+  final IconData? icon;
+  final bool busy;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    if (compact) {
+      return ElevatedButton(
+        onPressed: busy ? null : onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Pal.gold,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(0, 38),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        ),
+        child: busy
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 16),
+                    const SizedBox(width: 6),
+                  ],
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+      );
+    }
+    return RoyalGoldButton(
+      label: label,
+      onPressed: onPressed,
+      icon: icon,
+      busy: busy,
+    );
+  }
+}
+
+class SectionCard extends StatelessWidget {
+  const SectionCard({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    required this.child,
+  });
+  final String title;
+  final String? subtitle;
+  final Widget? trailing;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: T.display(17, w: FontWeight.w700)),
+                    if (subtitle != null && subtitle!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(subtitle!, style: T.body(12, color: Pal.muted)),
+                    ],
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                trailing!,
+              ],
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
 }

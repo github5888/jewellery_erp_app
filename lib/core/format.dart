@@ -196,3 +196,19 @@ String monthStartIso() {
   final now = DateTime.now();
   return '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-01';
 }
+
+Decimal dParse(Object? v) => decOrZero(v);
+
+String dStr2(Decimal d) => d.round(scale: 2).toStringAsFixed(2);
+
+String dStr6(Decimal d) => d.round(scale: 6).toStringAsFixed(6);
+
+String fmtDate(Object? v) => formatDate(v);
+
+String fmtDateTime(Object? v) => formatDateTime(v);
+
+String shortId(Object? v) {
+  final s = '${v ?? ''}'.trim();
+  if (s.isEmpty) return '-';
+  return s.length > 8 ? s.substring(0, 8) : s;
+}

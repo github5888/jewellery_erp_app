@@ -20,11 +20,12 @@ class LookupOption {
 }
 
 /// Fetches live master-data options from `pos.hrpocket.in` so mobile forms
-/// present clean dropdowns instead of forcing users to copy-paste raw UUIDs.
+/// present clean dropdowns AND allow optional exact UUID entry.
 class WorkspaceLookup {
   List<LookupOption> parties = const [];
   List<LookupOption> locations = const [];
   List<LookupOption> articles = const [];
+  List<LookupOption> materialLots = const [];
   List<LookupOption> lotBalances = const [];
   List<LookupOption> financialYears = const [];
   List<LookupOption> periods = const [];
@@ -36,6 +37,8 @@ class WorkspaceLookup {
   List<LookupOption> legalEntities = const [];
   List<LookupOption> branches = const [];
   List<LookupOption> invoices = const [];
+  List<LookupOption> estimates = const [];
+  List<LookupOption> taxProfiles = const [];
   List<LookupOption> connections = const [];
 
   static Future<WorkspaceLookup> load(
@@ -63,7 +66,7 @@ class WorkspaceLookup {
                 final name = '${p['displayName'] ?? p['legalName'] ?? p['name'] ?? 'Party'}'.trim();
                 return LookupOption(
                   id: id,
-                  label: code.isNotEmpty ? '$name ($code)' : name,
+                  label: code.isNotEmpty ? '$code · $name' : name,
                   raw: p,
                 );
               })
@@ -83,13 +86,13 @@ class WorkspaceLookup {
                 final id = '${l['id'] ?? ''}';
                 final code = '${l['code'] ?? ''}'.trim();
                 final name = '${l['name'] ?? 'Custody Location'}'.trim();
-                final kind = '${l['kind'] ?? l['type'] ?? ''}'.trim();
+                final kind = '${l['type'] ?? l['kind'] ?? ''}'.trim();
                 return LookupOption(
                   id: id,
                   label: [
                     if (code.isNotEmpty) code,
-                    name,
-                    if (kind.isNotEmpty) '· $kind',
+                    '· $name',
+                    if (kind.isNotEmpty) '($kind)',
                   ].join(' '),
                   raw: l,
                 );
@@ -101,15 +104,17 @@ class WorkspaceLookup {
           w.articles = arts
               .map((a) {
                 final id = '${a['id'] ?? a['articleId'] ?? ''}';
-                final tag = '${a['tagNumber'] ?? a['tag'] ?? a['barcode'] ?? ''}'.trim();
+                final tag = '${a['tag'] ?? a['tagNumber'] ?? a['barcode'] ?? ''}'.trim();
                 final desc = '${a['description'] ?? a['name'] ?? 'Tagged Article'}'.trim();
                 final wt = '${a['grossWeightGrams'] ?? ''}'.trim();
+                final avail = '${asMap(a['balance'])['availability'] ?? ''}'.trim();
                 return LookupOption(
                   id: id,
                   label: [
                     if (tag.isNotEmpty) tag,
                     desc,
-                    if (wt.isNotEmpty) '(${grams(wt)})',
+                    if (wt.isNotEmpty) grams(wt),
+                    if (avail.isNotEmpty) '[$avail]',
                   ].join(' · '),
                   raw: a,
                 );
@@ -118,37 +123,64 @@ class WorkspaceLookup {
               .toList();
 
           final lots = asList(
-            d['materialLotBalances'] ?? d['lotBalances'] ?? d['materialLots'] ?? d,
-            keys: const ['materialLotBalances', 'lotBalances', 'materialLots'],
+            d['materialLots'] ?? d['materialLotBalances'] ?? d['lotBalances'] ?? d,
+            keys: const ['materialLots', 'materialLotBalances', 'lotBalances'],
           );
+          final parsedLots = <LookupOption>[];
           final parsedBalances = <LookupOption>[];
           for (final l in lots) {
+            final lid = '${l['id'] ?? ''}';
+            final lCode = '${l['lotCode'] ?? l['code'] ?? 'Lot'}';
+            final lDesc = '${l['description'] ?? ''}'.trim();
+            final mCode = '${asMap(l['metal'])['code'] ?? ''}'.trim();
+            final pCode = '${asMap(l['purityGrade'])['code'] ?? ''}'.trim();
+            if (lid.isNotEmpty) {
+              parsedLots.add(LookupOption(
+                id: lid,
+                label: [lCode, if (mCode.isNotEmpty) '$mCode $pCode', if (lDesc.isNotEmpty) lDesc].join(' · '),
+                raw: l,
+              ));
+            }
             final nested = l['balances'];
             if (nested is List && nested.isNotEmpty) {
               for (final b in nested.whereType<Map>()) {
                 final bm = Map<String, dynamic>.from(b);
                 final bid = '${bm['id'] ?? ''}';
                 if (bid.isEmpty) continue;
-                final code = '${l['lotCode'] ?? l['code'] ?? 'Lot'}';
-                final qty = '${bm['quantityGrams'] ?? l['quantityGrams'] ?? '0'}';
+                final qty = '${bm['quantityGrams'] ?? l['acquiredWeightGrams'] ?? '0'}';
+                final fine = '${bm['fineWeightGrams'] ?? l['acquiredFineWeightGrams'] ?? '0'}';
+                final locCode = '${asMap(bm['location'])['code'] ?? ''}'.trim();
                 parsedBalances.add(LookupOption(
                   id: bid,
-                  label: '$code · ${grams(qty)}',
-                  raw: {...l, ...bm},
+                  label: [
+                    lCode,
+                    if (mCode.isNotEmpty) '$mCode $pCode',
+                    '${grams(qty)}',
+                    if (locCode.isNotEmpty) locCode,
+                  ].join(' · '),
+                  raw: {
+                    ...l,
+                    ...bm,
+                    'lotId': lid,
+                    'lotCode': lCode,
+                    'quantityGrams': qty,
+                    'fineWeightGrams': fine,
+                    'balanceVersion': bm['version'] ?? 1,
+                  },
                 ));
               }
             } else {
               final id = '${l['balanceId'] ?? l['id'] ?? ''}';
               if (id.isEmpty) continue;
-              final code = '${l['lotCode'] ?? l['code'] ?? 'Bullion Lot'}';
               final qty = '${l['quantityGrams'] ?? l['availableGrams'] ?? '0'}';
               parsedBalances.add(LookupOption(
                 id: id,
-                label: '$code · ${grams(qty)}',
+                label: '$lCode · ${grams(qty)}',
                 raw: l,
               ));
             }
           }
+          w.materialLots = parsedLots;
           w.lotBalances = parsedBalances;
         } catch (_) {}
       }());
@@ -161,7 +193,7 @@ class WorkspaceLookup {
           final fys = asList(d['financialYears'] ?? d, keys: const ['financialYears']);
           final fyOut = <LookupOption>[];
           final periodOut = <LookupOption>[];
-          final seriesOut = <LookupOption>[];
+          final seriesMap = <String, LookupOption>{};
           for (final fy in fys) {
             final fyId = '${fy['id'] ?? ''}';
             final fyLabel = '${fy['label'] ?? fy['code'] ?? 'FY'}';
@@ -173,31 +205,41 @@ class WorkspaceLookup {
               if (pid.isEmpty) continue;
               periodOut.add(LookupOption(
                 id: pid,
-                label: '${p['name'] ?? p['code'] ?? 'Period'} · ${p['state'] ?? ''}',
+                label: '${p['code'] ?? ''} · ${p['name'] ?? 'Period'} (${p['state'] ?? ''})',
                 raw: p,
               ));
             }
             for (final s in asList(fy['series'])) {
               final sid = '${s['id'] ?? ''}';
               if (sid.isEmpty) continue;
-              seriesOut.add(LookupOption(
+              seriesMap[sid] = LookupOption(
                 id: sid,
                 label: '${s['prefix'] ?? s['seriesKey'] ?? 'SER'} · ${s['documentType'] ?? ''}',
                 raw: s,
-              ));
+              );
             }
+          }
+          for (final s in asList(d['series'])) {
+            final sid = '${s['id'] ?? ''}';
+            if (sid.isEmpty) continue;
+            seriesMap[sid] = LookupOption(
+              id: sid,
+              label: '${s['prefix'] ?? s['seriesKey'] ?? 'SER'} · ${s['documentType'] ?? ''}',
+              raw: s,
+            );
           }
           w.financialYears = fyOut;
           w.periods = periodOut;
-          w.series = seriesOut;
+          w.series = seriesMap.values.toList();
 
           final accts = asList(d['accounts'] ?? d, keys: const ['accounts']);
           w.accounts = accts
               .map((a) {
                 final id = '${a['id'] ?? ''}';
+                final ctrl = '${a['controlType'] ?? 'NONE'}';
                 return LookupOption(
                   id: id,
-                  label: '${a['code'] ?? ''} · ${a['name'] ?? 'Account'} (${a['group'] ?? ''})',
+                  label: '${a['code'] ?? ''} · ${a['name'] ?? 'Account'} (${ctrl != 'NONE' ? ctrl : a['group'] ?? ''})',
                   raw: a,
                 );
               })
@@ -228,7 +270,7 @@ class WorkspaceLookup {
               final fine = '${pg['finenessPerThousand'] ?? ''}';
               purityOut.add(LookupOption(
                 id: pid,
-                label: '$mCode $karat (${fine}‰)',
+                label: '$mCode · $karat · $fine‰',
                 raw: {...pg, 'metalId': mid, 'metalCode': mCode},
               ));
             }
@@ -240,7 +282,7 @@ class WorkspaceLookup {
           w.units = us
               .map((u) => LookupOption(
                     id: '${u['id'] ?? ''}',
-                    label: '${u['name'] ?? u['code'] ?? 'Unit'} (${u['symbol'] ?? u['code'] ?? ''})',
+                    label: '${u['code'] ?? u['name'] ?? 'Unit'} (${u['symbol'] ?? u['code'] ?? ''})',
                     raw: u,
                   ))
               .where((o) => o.id.isNotEmpty)
@@ -281,17 +323,41 @@ class WorkspaceLookup {
     if (includeSales) {
       tasks.add(() async {
         try {
-          final d = await api.get('/sales');
-          final invs = asList(d, keys: const ['invoices', 'salesInvoices']);
+          final d = asMap(await api.get('/sales'));
+          final invs = asList(d['invoices'] ?? d, keys: const ['invoices', 'salesInvoices']);
           w.invoices = invs
               .map((inv) {
                 final id = '${inv['id'] ?? ''}';
-                final num = '${inv['documentNumber'] ?? inv['invoiceNumber'] ?? id}';
+                final num = '${inv['documentNumber'] ?? inv['invoiceNumber'] ?? shortId(id)}';
                 final amt = '${inv['totalAmount'] ?? '0.00'}';
                 return LookupOption(
                   id: id,
                   label: '$num · ${inr(amt)} (${inv['state'] ?? 'DRAFT'})',
                   raw: inv,
+                );
+              })
+              .where((o) => o.id.isNotEmpty)
+              .toList();
+          final ests = asList(d['estimates']);
+          w.estimates = ests
+              .map((est) {
+                final id = '${est['id'] ?? ''}';
+                return LookupOption(
+                  id: id,
+                  label: '${est['quoteNumber'] ?? shortId(id)} · ${inr(est['totalAmount'])} (${est['state'] ?? ''})',
+                  raw: est,
+                );
+              })
+              .where((o) => o.id.isNotEmpty)
+              .toList();
+          final tps = asList(d['taxProfiles']);
+          w.taxProfiles = tps
+              .map((tp) {
+                final id = '${tp['id'] ?? ''}';
+                return LookupOption(
+                  id: id,
+                  label: '${tp['code'] ?? ''} · ${tp['name'] ?? ''} (${tp['ratePercent'] ?? '0'}%)',
+                  raw: tp,
                 );
               })
               .where((o) => o.id.isNotEmpty)
@@ -310,9 +376,10 @@ class WorkspaceLookup {
                 final id = '${c['id'] ?? ''}';
                 final name = '${c['displayName'] ?? c['providerKey'] ?? 'Provider'}';
                 final cap = '${c['capability'] ?? ''}';
+                final st = '${c['state'] ?? c['status'] ?? ''}';
                 return LookupOption(
                   id: id,
-                  label: cap.isNotEmpty ? '$name ($cap)' : name,
+                  label: [name, if (cap.isNotEmpty) cap, if (st.isNotEmpty) st].join(' · '),
                   raw: c,
                 );
               })
@@ -338,6 +405,15 @@ class WorkspaceLookup {
     return matches.isNotEmpty ? matches : parties;
   }
 
+  List<LookupOption> locationsByType(List<String> types) {
+    if (types.isEmpty) return locations;
+    final matches = locations.where((l) {
+      final t = '${l.raw['type'] ?? l.raw['kind'] ?? ''}'.toUpperCase();
+      return types.any((want) => t == want.toUpperCase());
+    }).toList();
+    return matches.isNotEmpty ? matches : locations;
+  }
+
   List<LookupOption> openPeriods() {
     final open = periods
         .where((p) => '${p.raw['state'] ?? ''}'.toUpperCase() == 'OPEN')
@@ -348,15 +424,30 @@ class WorkspaceLookup {
   List<LookupOption> seriesFor(List<String> keywords) {
     if (keywords.isEmpty) return series;
     final filtered = series.where((s) {
-      final docType = '${s.raw['documentType'] ?? s.label}'.toUpperCase();
+      final docType = '${s.raw['documentType'] ?? ''} ${s.raw['seriesKey'] ?? ''} ${s.label}'.toUpperCase();
       return keywords.any((k) => docType.contains(k.toUpperCase()));
     }).toList();
     return filtered.isNotEmpty ? filtered : series;
   }
+
+  List<LookupOption> accountsByControl(List<String> controls) {
+    if (controls.isEmpty) return accounts;
+    final matches = accounts.where((a) {
+      final c = '${a.raw['controlType'] ?? ''}'.toUpperCase();
+      final g = '${a.raw['group'] ?? ''}'.toUpperCase();
+      return controls.any((k) => c == k.toUpperCase() || g == k.toUpperCase());
+    }).toList();
+    return matches.isNotEmpty ? matches : accounts;
+  }
+
+  List<LookupOption> puritiesForMetal(String? metalId) {
+    if (metalId == null || metalId.isEmpty) return purityGrades;
+    final matches = purityGrades.where((p) => '${p.raw['metalId'] ?? ''}' == metalId).toList();
+    return matches.isNotEmpty ? matches : purityGrades;
+  }
 }
 
 /// SDK-agnostic, overflow-proof luxury dropdown using `InputDecorator` + `DropdownButton`.
-/// Works identically across all Flutter 3.x releases with zero deprecation lints.
 class GoldDropdown<T> extends StatelessWidget {
   const GoldDropdown({
     super.key,
@@ -364,36 +455,42 @@ class GoldDropdown<T> extends StatelessWidget {
     required this.items,
     required this.onChanged,
     this.hint,
+    this.hintText,
     this.labelText,
+    this.isDense = false,
   });
 
   final T? value;
   final List<DropdownMenuItem<T>> items;
   final ValueChanged<T?> onChanged;
   final String? hint;
+  final String? hintText;
   final String? labelText;
+  final bool isDense;
 
   @override
   Widget build(BuildContext context) {
     final validValue = items.any((it) => it.value == value) ? value : null;
+    final effectiveHint = hint ?? hintText;
     return InputDecorator(
       decoration: InputDecoration(
         labelText: labelText,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 3),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<T>(
           value: validValue,
           isExpanded: true,
+          isDense: isDense,
           dropdownColor: Pal.card,
-          borderRadius: BorderRadius.circular(13),
+          borderRadius: BorderRadius.circular(12),
           icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Pal.goldDeep),
-          hint: hint != null
+          hint: effectiveHint != null
               ? Text(
-                  hint!,
+                  effectiveHint,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: T.body(13.5, color: Pal.muted.withValues(alpha: 0.78)),
+                  style: T.body(13.2, color: Pal.muted.withValues(alpha: 0.78)),
                 )
               : null,
           items: items,
@@ -404,15 +501,15 @@ class GoldDropdown<T> extends StatelessWidget {
   }
 }
 
-/// Mobile-first selector that shows a live dropdown when workspace options exist,
-/// with a 1-tap toggle to enter or edit an exact UUID when needed.
+/// Mobile-first selector showing live workspace options (`Select...`) with a
+/// 1-tap toggle to paste or edit a raw UUID directly (matching `pos.hrpocket.in`).
 class LookupField extends StatefulWidget {
   const LookupField({
     super.key,
     required this.label,
     required this.controller,
     required this.options,
-    this.hint = 'Select or enter ID',
+    this.hint = 'Select...',
     this.optional = false,
     this.onSelected,
   });
@@ -442,13 +539,15 @@ class _LookupFieldState extends State<LookupField> {
       mainAxisSize: MainAxisSize.min,
       children: [
         FieldLabel(
-          widget.optional ? '${widget.label} (optional)' : widget.label,
+          widget.optional && !widget.label.contains('(optional)')
+              ? '${widget.label} (optional)'
+              : widget.label,
           trailing: hasOptions
               ? GestureDetector(
                   onTap: () => setState(() => _manualMode = !_manualMode),
                   child: Text(
-                    _manualMode ? 'Use list' : 'Enter ID',
-                    style: T.body(11.5, color: Pal.goldDeep, w: FontWeight.w700),
+                    _manualMode ? 'Select from list' : 'UUID',
+                    style: T.body(11, color: Pal.goldDeep, w: FontWeight.w700),
                   ),
                 )
               : null,
@@ -461,7 +560,7 @@ class _LookupFieldState extends State<LookupField> {
               if (widget.optional)
                 DropdownMenuItem<String>(
                   value: '',
-                  child: Text('None', style: T.body(13.5, color: Pal.muted)),
+                  child: Text('None', style: T.body(13.2, color: Pal.muted)),
                 ),
               for (final opt in widget.options)
                 DropdownMenuItem<String>(
@@ -470,7 +569,7 @@ class _LookupFieldState extends State<LookupField> {
                     opt.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: T.body(13.5, w: FontWeight.w600),
+                    style: T.body(13.2, w: FontWeight.w600),
                   ),
                 ),
             ],
@@ -485,7 +584,7 @@ class _LookupFieldState extends State<LookupField> {
         else
           TextField(
             controller: widget.controller,
-            style: T.mono(13),
+            style: T.mono(12.8),
             decoration: InputDecoration(hintText: widget.hint),
           ),
       ],
@@ -493,8 +592,92 @@ class _LookupFieldState extends State<LookupField> {
   }
 }
 
+/// Clean labeled text input matching `pos.hrpocket.in` form fields.
+class SaasField extends StatelessWidget {
+  const SaasField({
+    super.key,
+    required this.label,
+    required this.controller,
+    this.hint,
+    this.keyboardType,
+    this.mono = false,
+    this.maxLines = 1,
+    this.trailing,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String? hint;
+  final TextInputType? keyboardType;
+  final bool mono;
+  final int maxLines;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FieldLabel(label, trailing: trailing),
+        TextField(
+          controller: controller,
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+          style: mono ? T.mono(13) : T.body(13.5, w: FontWeight.w500),
+          decoration: InputDecoration(hintText: hint),
+        ),
+      ],
+    );
+  }
+}
+
+/// Clean labeled dropdown matching `pos.hrpocket.in` select inputs.
+class SaasDropdown extends StatelessWidget {
+  const SaasDropdown({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String value;
+  final Map<String, String> options;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FieldLabel(label),
+        GoldDropdown<String>(
+          value: options.containsKey(value) ? value : options.keys.first,
+          items: options.entries
+              .map((e) => DropdownMenuItem<String>(
+                    value: e.key,
+                    child: Text(
+                      e.value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: T.body(13.2, w: FontWeight.w600),
+                    ),
+                  ))
+              .toList(),
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+        ),
+      ],
+    );
+  }
+}
+
 /// Clean mobile calendar date field (`YYYY-MM-DD`) that never overflows.
-class DatePickField extends StatelessWidget {
+class DatePickField extends StatefulWidget {
   const DatePickField({
     super.key,
     required this.label,
@@ -508,9 +691,14 @@ class DatePickField extends StatelessWidget {
   final bool optional;
   final ValueChanged<String>? onChanged;
 
+  @override
+  State<DatePickField> createState() => _DatePickFieldState();
+}
+
+class _DatePickFieldState extends State<DatePickField> {
   Future<void> _pick(BuildContext context) async {
     final now = DateTime.now();
-    final initial = DateTime.tryParse(controller.text.trim()) ?? now;
+    final initial = DateTime.tryParse(widget.controller.text.trim()) ?? now;
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
@@ -520,8 +708,9 @@ class DatePickField extends StatelessWidget {
     if (picked != null) {
       final iso =
           '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-      controller.text = iso;
-      onChanged?.call(iso);
+      widget.controller.text = iso;
+      widget.onChanged?.call(iso);
+      if (mounted) setState(() {});
     }
   }
 
@@ -531,29 +720,34 @@ class DatePickField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        FieldLabel(optional ? '$label (optional)' : label),
+        FieldLabel(
+          widget.optional && !widget.label.contains('(optional)')
+              ? '${widget.label} (optional)'
+              : widget.label,
+        ),
         TextField(
-          controller: controller,
+          controller: widget.controller,
           readOnly: true,
           onTap: () => _pick(context),
-          style: T.mono(13.2),
+          style: T.mono(13),
           decoration: InputDecoration(
-            hintText: optional ? 'YYYY-MM-DD' : todayIso(),
+            hintText: widget.optional ? 'dd-mm-yyyy' : todayIso(),
             suffixIcon: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (optional && controller.text.isNotEmpty)
+                if (widget.optional && widget.controller.text.isNotEmpty)
                   IconButton(
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.clear_rounded, size: 16),
                     onPressed: () {
-                      controller.clear();
-                      onChanged?.call('');
+                      widget.controller.clear();
+                      widget.onChanged?.call('');
+                      setState(() {});
                     },
                   ),
                 IconButton(
                   visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.calendar_today_outlined, size: 17, color: Pal.goldDeep),
+                  icon: const Icon(Icons.calendar_today_outlined, size: 16, color: Pal.goldDeep),
                   onPressed: () => _pick(context),
                 ),
               ],
@@ -593,7 +787,7 @@ class BullionHeaderBadge extends StatelessWidget {
               'Bullion 24K: Fine 999 Board Active',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: T.body(11.5, color: fg, w: FontWeight.w700),
+              style: T.body(11.2, color: fg, w: FontWeight.w700),
             ),
           ),
         ],
@@ -602,7 +796,8 @@ class BullionHeaderBadge extends StatelessWidget {
   }
 }
 
-/// Clean SaaS module header card matching `pos.hrpocket.in` page headers on mobile.
+/// Clean SaaS page heading matching `pos.hrpocket.in` screenshots (`677`–`696`):
+/// Gold module icon + crisp dark heading + muted 1-line subtitle + Bullion 24K badge.
 class SaasModuleHeader extends StatelessWidget {
   const SaasModuleHeader({
     super.key,
@@ -621,17 +816,97 @@ class SaasModuleHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LuxuryHeroCard(
-      padding: const EdgeInsets.all(18),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            const BullionHeaderBadge(),
+            if (trailing != null) trailing!,
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(icon, size: 21, color: Pal.goldDeep),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: T.body(18.5, w: FontWeight.w800, color: Pal.ink)),
+                  const SizedBox(height: 3),
+                  Text(subtitle, style: T.body(12.5, color: Pal.muted)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Crisp white bordered form card matching `pos.hrpocket.in` forms (`New work order`,
+/// `New melt batch`, `New transfer request`, `New approval memo`, etc.).
+class SaasFormCard extends StatelessWidget {
+  const SaasFormCard({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.icon,
+    this.trailing,
+    required this.child,
+  });
+
+  final String title;
+  final String? subtitle;
+  final IconData? icon;
+  final Widget? trailing;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Pal.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Pal.border),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0A1A140B), blurRadius: 10, offset: Offset(0, 3)),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (icon != null) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 1),
+                  child: Icon(icon, size: 17, color: Pal.goldDeep),
+                ),
+                const SizedBox(width: 8),
+              ],
               Expanded(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: EnterpriseBadge(badge, icon: icon),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: T.body(14.8, w: FontWeight.w800, color: Pal.ink)),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 3),
+                      Text(subtitle!, style: T.body(11.8, color: Pal.muted)),
+                    ],
+                  ],
                 ),
               ),
               if (trailing != null) ...[
@@ -640,11 +915,147 @@ class SaasModuleHeader extends StatelessWidget {
               ],
             ],
           ),
-          const SizedBox(height: 10),
-          Text(title, style: T.display(21, color: Colors.white)),
-          const SizedBox(height: 4),
-          Text(subtitle, style: T.body(12.5, color: Colors.white70)),
+          const SizedBox(height: 14),
+          child,
         ],
+      ),
+    );
+  }
+}
+
+/// Tinted nested sub-box inside a form card (`pos.hrpocket.in` multi-line builder box).
+class SaasSubBox extends StatelessWidget {
+  const SaasSubBox({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Pal.surfaceTint,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Pal.border),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// Dashed/soft empty-state container matching `No work orders yet.`, `No refining batches yet.`, etc.
+class SaasEmptyBox extends StatelessWidget {
+  const SaasEmptyBox(this.message, {super.key});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+      decoration: BoxDecoration(
+        color: Pal.card.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Pal.borderStrong),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: T.body(13, color: Pal.muted, w: FontWeight.w500),
+      ),
+    );
+  }
+}
+
+/// Responsive 2-column KPI grid matching `pos.hrpocket.in` summary metric cards.
+class SaasKpiGrid extends StatelessWidget {
+  const SaasKpiGrid({super.key, required this.items});
+  final List<({String label, String value})> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cols = constraints.maxWidth >= 560 ? items.length.clamp(2, 4) : 2;
+        final w = (constraints.maxWidth - (cols - 1) * 10) / cols;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final it in items)
+              SizedBox(
+                width: w,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Pal.card,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Pal.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        it.label.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: T.body(10, w: FontWeight.w700, color: Pal.muted, letterSpacing: 0.5),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        it.value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: T.mono(16.5, w: FontWeight.w800, color: Pal.ink),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Clean checkbox row matching `pos.hrpocket.in` (`Enable e-invoice registration`, etc.).
+class SaasCheckRow extends StatelessWidget {
+  const SaasCheckRow({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 22,
+              height: 22,
+              child: Checkbox(
+                value: value,
+                activeColor: Pal.goldDeep,
+                onChanged: (v) => onChanged(v ?? false),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(label, style: T.body(13.2, color: Pal.ink, w: FontWeight.w500)),
+            ),
+          ],
+        ),
       ),
     );
   }

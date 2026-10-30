@@ -1,31 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/api.dart';
-import '../../core/app_state.dart';
 import '../../core/format.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/workspace_lookup.dart';
 
-String _pickStr(Map<String, dynamic> m, List<String> keys, [String fallback = '']) {
-  for (final k in keys) {
-    final v = m[k];
-    if (v is Map) {
-      final inner = v['displayName'] ?? v['legalName'] ?? v['name'] ?? v['code'] ?? v['tagNumber'] ?? v['tag'];
-      if (inner != null && '$inner'.isNotEmpty) return '$inner';
-    } else if (v != null && '$v'.isNotEmpty && v is! List) {
-      return '$v';
-    }
-  }
-  return fallback;
-}
-
-// ============================================================================
-// 1. CUSTOM ORDERS — GET /custom-orders, POST /custom-orders
-// ============================================================================
+// ---------------------------------------------------------------------------
+// 1. CUSTOM ORDERS (`/custom-orders`)
+// ---------------------------------------------------------------------------
 
 class CustomOrdersScreen extends StatefulWidget {
   const CustomOrdersScreen({super.key});
@@ -34,22 +19,22 @@ class CustomOrdersScreen extends StatefulWidget {
 }
 
 class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
-  WorkspaceLookup _lookup = WorkspaceLookup();
   List<Map<String, dynamic>> _orders = [];
+  WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
-  bool _showForm = false;
   bool _busy = false;
   String? _error;
 
-  final _partyCtrl = TextEditingController();
-  final _seriesCtrl = TextEditingController();
-  final _metalCtrl = TextEditingController();
-  final _purityCtrl = TextEditingController();
-  final _orderDateCtrl = TextEditingController(text: todayIso());
-  final _dueDateCtrl = TextEditingController(text: todayIso());
-  final _targetWtCtrl = TextEditingController();
-  final _estAmountCtrl = TextEditingController();
-  final _specCtrl = TextEditingController();
+  final _partyId = TextEditingController();
+  final _seriesId = TextEditingController();
+  final _orderDate = TextEditingController(text: todayIso());
+  final _promisedDate = TextEditingController(text: todayIso());
+  final _metalId = TextEditingController();
+  final _purityId = TextEditingController();
+  final _estGrams = TextEditingController();
+  final _quotedMaking = TextEditingController(text: '0.00');
+  final _advanceAmt = TextEditingController(text: '0.00');
+  final _spec = TextEditingController();
 
   @override
   void initState() {
@@ -59,15 +44,12 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
 
   @override
   void dispose() {
-    _partyCtrl.dispose();
-    _seriesCtrl.dispose();
-    _metalCtrl.dispose();
-    _purityCtrl.dispose();
-    _orderDateCtrl.dispose();
-    _dueDateCtrl.dispose();
-    _targetWtCtrl.dispose();
-    _estAmountCtrl.dispose();
-    _specCtrl.dispose();
+    for (final c in [
+      _partyId, _seriesId, _orderDate, _promisedDate,
+      _metalId, _purityId, _estGrams, _quotedMaking, _advanceAmt, _spec,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -78,7 +60,7 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
     });
     final api = context.read<ApiClient>();
     try {
-      final results = await Future.wait<dynamic>([
+      final res = await Future.wait([
         api.get('/custom-orders'),
         WorkspaceLookup.load(
           api,
@@ -89,60 +71,59 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
       ]);
       if (!mounted) return;
       setState(() {
-        _orders = asList(results[0], keys: const ['orders', 'customOrders', 'items', 'rows']);
-        _lookup = results[1] as WorkspaceLookup;
+        _orders = asList(res[0], keys: const ['orders', 'customOrders', 'items']);
+        _lk = res[1] as WorkspaceLookup;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _createOrder() async {
-    if (_partyCtrl.text.trim().isEmpty) {
-      toast(context, 'Select the customer placing the custom order.', error: true);
+    if (_partyId.text.trim().isEmpty ||
+        _metalId.text.trim().isEmpty ||
+        _purityId.text.trim().isEmpty ||
+        _estGrams.text.trim().isEmpty ||
+        _spec.text.trim().length < 3) {
+      setState(() => _error = 'Select customer, metal, purity, estimated weight, and design specification.');
       return;
     }
-    if (_specCtrl.text.trim().isEmpty) {
-      toast(context, 'Enter design specification or ornament details.', error: true);
-      return;
-    }
-    if (_targetWtCtrl.text.trim().isNotEmpty && !isValidWeight(_targetWtCtrl.text)) {
-      toast(context, 'Enter a valid target weight in grams.', error: true);
-      return;
-    }
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await context.read<ApiClient>().post(
         '/custom-orders',
-        idempotencyKey: const Uuid().v4(),
+        idempotent: true,
         body: {
-          'partyId': _partyCtrl.text.trim(),
-          'customerId': _partyCtrl.text.trim(),
-          if (_seriesCtrl.text.trim().isNotEmpty) 'seriesId': _seriesCtrl.text.trim(),
-          if (_metalCtrl.text.trim().isNotEmpty) 'metalId': _metalCtrl.text.trim(),
-          if (_purityCtrl.text.trim().isNotEmpty) 'purityGradeId': _purityCtrl.text.trim(),
-          'orderDate': _orderDateCtrl.text.trim(),
-          'promisedDate': _dueDateCtrl.text.trim(),
-          if (_targetWtCtrl.text.trim().isNotEmpty)
-            'targetWeightGrams': normWeight6(_targetWtCtrl.text),
-          if (_estAmountCtrl.text.trim().isNotEmpty && isValidAmount(_estAmountCtrl.text))
-            'estimatedAmount': normAmount(_estAmountCtrl.text),
-          'currency': context.read<AppState>().currency,
-          'description': _specCtrl.text.trim(),
-          'specification': _specCtrl.text.trim(),
+          'customerPartyId': _partyId.text.trim(),
+          if (_seriesId.text.trim().isNotEmpty) 'documentSeriesId': _seriesId.text.trim(),
+          'orderDate': _orderDate.text.trim(),
+          'promisedDate': _promisedDate.text.trim(),
+          'metalId': _metalId.text.trim(),
+          'purityGradeId': _purityId.text.trim(),
+          'estimatedWeightGrams': _estGrams.text.trim(),
+          'quotedMakingAmount': _quotedMaking.text.trim().isEmpty ? '0.00' : _quotedMaking.text.trim(),
+          'advanceAmount': _advanceAmt.text.trim().isEmpty ? '0.00' : _advanceAmt.text.trim(),
+          'currency': 'INR',
+          'description': _spec.text.trim(),
         },
       );
-      _specCtrl.clear();
-      _targetWtCtrl.clear();
-      _estAmountCtrl.clear();
-      setState(() => _showForm = false);
-      await _load();
-      if (mounted) toast(context, 'Custom order created.');
+      if (!mounted) return;
+      _estGrams.clear();
+      _spec.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Custom order created.')),
+      );
+      _load();
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    if (mounted) setState(() => _busy = false);
   }
 
   @override
@@ -156,148 +137,138 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            SaasModuleHeader(
+            const SaasModuleHeader(
               icon: Icons.auto_awesome_outlined,
-              badge: 'Bespoke Patron Orders',
-              title: 'Custom Jewellery Orders',
+              title: 'Custom Orders & Made-to-Order',
               subtitle:
-                  'Capture bespoke patron specifications, target metal weights, promised dates, and artisan allocations.',
-              trailing: FilledButton.tonalIcon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Pal.goldBright,
-                  foregroundColor: Pal.ink,
-                  minimumSize: const Size(110, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
-                onPressed: () => setState(() => _showForm = !_showForm),
-                icon: Icon(_showForm ? Icons.close_rounded : Icons.add_rounded, size: 17),
-                label: Text(_showForm ? 'Close' : 'New Order', style: T.body(12.5, color: Pal.ink, w: FontWeight.w800)),
+                  'Bespoke customer design specifications, metal/purity targets, advance booking, and Karigar linkage.',
+            ),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+            const SizedBox(height: 14),
+            SaasFormCard(
+              title: 'New custom order',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  LookupField(
+                    label: 'Customer',
+                    controller: _partyId,
+                    options: _lk.partiesByRole('CUSTOMER'),
+                    hint: 'Select',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Order series',
+                    controller: _seriesId,
+                    options: _lk.seriesFor(const ['CUSTOM', 'ORDER']),
+                    optional: true,
+                    hint: 'Select',
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: DatePickField(label: 'Order date', controller: _orderDate)),
+                      const SizedBox(width: 10),
+                      Expanded(child: DatePickField(label: 'Promised delivery', controller: _promisedDate)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Metal',
+                    controller: _metalId,
+                    options: _lk.metals,
+                    hint: 'Select',
+                    onSelected: (_) => setState(() => _purityId.clear()),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Purity grade',
+                    controller: _purityId,
+                    options: _lk.puritiesForMetal(_metalId.text.trim()),
+                    hint: 'Select',
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Estimated weight g',
+                          controller: _estGrams,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Quoted making (INR)',
+                          controller: _quotedMaking,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Advance receipt (INR)',
+                    controller: _advanceAmt,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Design & size specification',
+                    controller: _spec,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _createOrder,
+                      child: Text(_busy ? 'Saving…' : 'Create custom order'),
+                    ),
+                  ),
+                ],
               ),
             ),
-            if (_showForm) ...[
-              const SizedBox(height: 14),
-              Panel(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('New Custom Order', style: T.display(18)),
-                  const SizedBox(height: 14),
-                  LookupField(
-                    label: 'Customer / Patron',
-                    controller: _partyCtrl,
-                    options: _lookup.partiesByRole('CUSTOMER'),
-                    hint: 'Select customer',
-                  ),
-                  const SizedBox(height: 12),
-                  LookupField(
-                    label: 'Order Series',
-                    controller: _seriesCtrl,
-                    options: _lookup.seriesFor(const ['ORDER', 'CUSTOM', 'SALES']),
-                    optional: true,
-                    hint: 'Select document series',
-                  ),
-                  const SizedBox(height: 12),
-                  ResponsiveGrid2(children: [
-                    LookupField(
-                      label: 'Metal',
-                      controller: _metalCtrl,
-                      options: _lookup.metals,
-                      optional: true,
-                      hint: 'Metal',
-                    ),
-                    LookupField(
-                      label: 'Purity Grade',
-                      controller: _purityCtrl,
-                      options: _lookup.purityGrades,
-                      optional: true,
-                      hint: 'Purity',
-                    ),
-                  ]),
-                  const SizedBox(height: 12),
-                  ResponsiveGrid2(children: [
-                    DatePickField(label: 'Order date', controller: _orderDateCtrl),
-                    DatePickField(label: 'Promised date', controller: _dueDateCtrl),
-                  ]),
-                  const SizedBox(height: 12),
-                  ResponsiveGrid2(children: [
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const FieldLabel('Target weight (g)'),
-                      TextField(
-                        controller: _targetWtCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: T.mono(13.5),
-                        decoration: const InputDecoration(hintText: '0.000000'),
-                      ),
-                    ]),
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const FieldLabel('Estimated value (INR)'),
-                      TextField(
-                        controller: _estAmountCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: T.mono(13.5),
-                        decoration: const InputDecoration(hintText: '0.00'),
-                      ),
-                    ]),
-                  ]),
-                  const SizedBox(height: 12),
-                  const FieldLabel('Design specification / instructions'),
-                  TextField(
-                    controller: _specCtrl,
-                    maxLines: 2,
-                    decoration: const InputDecoration(hintText: 'Ornament style, size, hallmark & stone notes'),
-                  ),
-                  const SizedBox(height: 16),
-                  RoyalGoldButton(
-                    label: 'Create Custom Order',
-                    icon: Icons.check_circle_outline_rounded,
-                    busy: _busy,
-                    onPressed: _createOrder,
-                  ),
-                ]),
-              ),
-            ],
-            const SectionLabel('Order Register'),
+            const SizedBox(height: 14),
             if (_loading)
-              for (var i = 0; i < 3; i++)
-                const Padding(padding: EdgeInsets.only(bottom: 10), child: Panel(child: Skeleton(height: 76)))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
-            else if (_orders.isEmpty)
-              Panel(
-                child: EmptyBlock(
-                  icon: Icons.auto_awesome_outlined,
-                  title: 'No custom orders recorded yet',
-                  body: 'Create a bespoke patron order to track design specifications, promised dates, and artisan progress.',
-                  actionLabel: 'New Custom Order',
-                  onAction: () => setState(() => _showForm = true),
-                ),
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
               )
+            else if (_orders.isEmpty)
+              const SaasEmptyBox('No custom orders yet.')
             else
               for (final o in _orders)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Panel(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Expanded(
-                          child: Text(
-                            _pickStr(o, ['documentNumber', 'orderNumber', 'code'], 'Custom Order'),
-                            style: T.display(17),
-                          ),
+                  child: SectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${o['documentNumber'] ?? o['orderNumber'] ?? shortId('${o['id']}')} · ${asMap(o['customer'])['displayName'] ?? 'Customer'}',
+                                style: T.body(14, w: FontWeight.w700),
+                              ),
+                            ),
+                            StatusChip('${o['state'] ?? o['status'] ?? 'OPEN'}'),
+                          ],
                         ),
-                        StatusPill(_pickStr(o, ['state', 'status'], 'OPEN')),
-                      ]),
-                      const SizedBox(height: 8),
-                      KeyValue('Patron', _pickStr(o, ['customer', 'party', 'customerName'], '-'), strong: true),
-                      if (_pickStr(o, ['targetWeightGrams', 'estimatedWeightGrams']).isNotEmpty)
-                        KeyValue('Target Weight', grams(_pickStr(o, ['targetWeightGrams', 'estimatedWeightGrams'])), mono: true),
-                      if (_pickStr(o, ['estimatedAmount', 'totalAmount']).isNotEmpty)
-                        KeyValue('Estimated Value', inr(_pickStr(o, ['estimatedAmount', 'totalAmount'])), mono: true),
-                      if (_pickStr(o, ['promisedDate', 'dueDate']).isNotEmpty)
-                        KeyValue('Promised Delivery', formatDate(_pickStr(o, ['promisedDate', 'dueDate']))),
-                      if (_pickStr(o, ['description', 'specification']).isNotEmpty)
-                        KeyValue('Specification', _pickStr(o, ['description', 'specification'])),
-                    ]),
+                        const SizedBox(height: 6),
+                        KVRow('Promised Delivery', fmtDate('${o['promisedDate'] ?? ''}')),
+                        KVRow('Est. Weight / Advance', '${grams(o['estimatedWeightGrams'])} · ${inr(o['advanceAmount'])}', bold: true),
+                        if ('${o['description'] ?? ''}'.isNotEmpty)
+                          KVRow('Design', '${o['description']}'),
+                      ],
+                    ),
                   ),
                 ),
           ],
@@ -307,9 +278,9 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
   }
 }
 
-// ============================================================================
-// 2. REPAIRS & CUSTODY — GET /repairs, POST /repairs
-// ============================================================================
+// ---------------------------------------------------------------------------
+// 2. REPAIRS & CUSTOMER CUSTODY (`/repairs`)
+// ---------------------------------------------------------------------------
 
 class RepairsCustodyScreen extends StatefulWidget {
   const RepairsCustodyScreen({super.key});
@@ -318,21 +289,21 @@ class RepairsCustodyScreen extends StatefulWidget {
 }
 
 class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
-  WorkspaceLookup _lookup = WorkspaceLookup();
   List<Map<String, dynamic>> _repairs = [];
+  WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
-  bool _showForm = false;
   bool _busy = false;
   String? _error;
 
-  final _partyCtrl = TextEditingController();
-  final _locationCtrl = TextEditingController();
-  final _seriesCtrl = TextEditingController();
-  final _intakeDateCtrl = TextEditingController(text: todayIso());
-  final _promisedDateCtrl = TextEditingController(text: todayIso());
-  final _wtCtrl = TextEditingController();
-  final _chargeCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
+  final _partyId = TextEditingController();
+  final _custodyLocId = TextEditingController();
+  final _seriesId = TextEditingController();
+  final _intakeDate = TextEditingController(text: todayIso());
+  final _promisedDate = TextEditingController(text: todayIso());
+  final _articleDesc = TextEditingController();
+  final _grossGrams = TextEditingController();
+  final _estCharge = TextEditingController(text: '0.00');
+  final _conditionNotes = TextEditingController();
 
   @override
   void initState() {
@@ -342,14 +313,12 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
 
   @override
   void dispose() {
-    _partyCtrl.dispose();
-    _locationCtrl.dispose();
-    _seriesCtrl.dispose();
-    _intakeDateCtrl.dispose();
-    _promisedDateCtrl.dispose();
-    _wtCtrl.dispose();
-    _chargeCtrl.dispose();
-    _descCtrl.dispose();
+    for (final c in [
+      _partyId, _custodyLocId, _seriesId, _intakeDate, _promisedDate,
+      _articleDesc, _grossGrams, _estCharge, _conditionNotes,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -360,7 +329,7 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
     });
     final api = context.read<ApiClient>();
     try {
-      final results = await Future.wait<dynamic>([
+      final res = await Future.wait([
         api.get('/repairs'),
         WorkspaceLookup.load(
           api,
@@ -371,57 +340,58 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
       ]);
       if (!mounted) return;
       setState(() {
-        _repairs = asList(results[0], keys: const ['repairs', 'repairOrders', 'items', 'rows']);
-        _lookup = results[1] as WorkspaceLookup;
+        _repairs = asList(res[0], keys: const ['repairs', 'jobs', 'items']);
+        _lk = res[1] as WorkspaceLookup;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _createRepair() async {
-    if (_partyCtrl.text.trim().isEmpty) {
-      toast(context, 'Select the customer handing over the ornament.', error: true);
+    if (_partyId.text.trim().isEmpty ||
+        _custodyLocId.text.trim().isEmpty ||
+        _articleDesc.text.trim().length < 3 ||
+        _grossGrams.text.trim().isEmpty) {
+      setState(() => _error = 'Select customer, custody location, article description, and gross weight.');
       return;
     }
-    if (_wtCtrl.text.trim().isEmpty || !isValidWeight(_wtCtrl.text)) {
-      toast(context, 'Enter valid received gross weight in grams.', error: true);
-      return;
-    }
-    if (_descCtrl.text.trim().isEmpty) {
-      toast(context, 'Describe the ornament and repair work required.', error: true);
-      return;
-    }
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await context.read<ApiClient>().post(
         '/repairs',
-        idempotencyKey: const Uuid().v4(),
+        idempotent: true,
         body: {
-          'partyId': _partyCtrl.text.trim(),
-          'customerId': _partyCtrl.text.trim(),
-          if (_locationCtrl.text.trim().isNotEmpty) 'custodyLocationId': _locationCtrl.text.trim(),
-          if (_seriesCtrl.text.trim().isNotEmpty) 'seriesId': _seriesCtrl.text.trim(),
-          'businessDate': _intakeDateCtrl.text.trim(),
-          'promisedDate': _promisedDateCtrl.text.trim(),
-          'receivedWeightGrams': normWeight6(_wtCtrl.text),
-          'grossWeightGrams': normWeight6(_wtCtrl.text),
-          if (_chargeCtrl.text.trim().isNotEmpty && isValidAmount(_chargeCtrl.text))
-            'estimatedCharge': normAmount(_chargeCtrl.text),
-          'description': _descCtrl.text.trim(),
+          'customerPartyId': _partyId.text.trim(),
+          'custodyLocationId': _custodyLocId.text.trim(),
+          if (_seriesId.text.trim().isNotEmpty) 'documentSeriesId': _seriesId.text.trim(),
+          'intakeDate': _intakeDate.text.trim(),
+          'promisedDate': _promisedDate.text.trim(),
+          'articleDescription': _articleDesc.text.trim(),
+          'receivedGrossWeightGrams': _grossGrams.text.trim(),
+          'estimatedChargeAmount': _estCharge.text.trim().isEmpty ? '0.00' : _estCharge.text.trim(),
+          'currency': 'INR',
+          if (_conditionNotes.text.trim().isNotEmpty) 'conditionNotes': _conditionNotes.text.trim(),
         },
       );
-      _wtCtrl.clear();
-      _chargeCtrl.clear();
-      _descCtrl.clear();
-      setState(() => _showForm = false);
-      await _load();
-      if (mounted) toast(context, 'Repair custody ticket created.');
+      if (!mounted) return;
+      _articleDesc.clear();
+      _grossGrams.clear();
+      _conditionNotes.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Repair custody receipt recorded.')),
+      );
+      _load();
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    if (mounted) setState(() => _busy = false);
   }
 
   @override
@@ -435,138 +405,123 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            SaasModuleHeader(
+            const SaasModuleHeader(
               icon: Icons.build_outlined,
-              badge: 'Customer Custody',
-              title: 'Repairs & Ornament Custody',
+              title: 'Repairs & Customer Custody',
               subtitle:
-                  'Issue customer ornament custody receipts with exact intake weight, vault location, and repair tracking.',
-              trailing: FilledButton.tonalIcon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Pal.goldBright,
-                  foregroundColor: Pal.ink,
-                  minimumSize: const Size(110, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
-                onPressed: () => setState(() => _showForm = !_showForm),
-                icon: Icon(_showForm ? Icons.close_rounded : Icons.add_rounded, size: 17),
-                label: Text(_showForm ? 'Close' : 'Intake', style: T.body(12.5, color: Pal.ink, w: FontWeight.w800)),
-              ),
+                  'Segregated customer-owned jewellery intake, stone/condition notes, workshop custody, and delivery sign-off.',
             ),
-            if (_showForm) ...[
-              const SizedBox(height: 14),
-              Panel(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('New Repair Custody Intake', style: T.display(18)),
-                  const SizedBox(height: 14),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+            const SizedBox(height: 14),
+            SaasFormCard(
+              title: 'New customer repair intake',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   LookupField(
                     label: 'Customer',
-                    controller: _partyCtrl,
-                    options: _lookup.partiesByRole('CUSTOMER'),
-                    hint: 'Select customer',
+                    controller: _partyId,
+                    options: _lk.partiesByRole('CUSTOMER'),
+                    hint: 'Select',
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   LookupField(
-                    label: 'Custody location',
-                    controller: _locationCtrl,
-                    options: _lookup.locations,
-                    optional: true,
-                    hint: 'Select showroom custody location',
+                    label: 'Customer custody location',
+                    controller: _custodyLocId,
+                    options: _lk.locationsByType(const ['CUSTOMER_CUSTODY', 'QUARANTINE', 'VAULT']),
+                    hint: 'Select',
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   LookupField(
                     label: 'Repair series',
-                    controller: _seriesCtrl,
-                    options: _lookup.seriesFor(const ['REPAIR', 'CUSTODY']),
+                    controller: _seriesId,
+                    options: _lk.seriesFor(const ['REPAIR', 'CUSTODY']),
                     optional: true,
+                    hint: 'Select',
                   ),
-                  const SizedBox(height: 12),
-                  ResponsiveGrid2(children: [
-                    DatePickField(label: 'Intake date', controller: _intakeDateCtrl),
-                    DatePickField(label: 'Promised date', controller: _promisedDateCtrl),
-                  ]),
-                  const SizedBox(height: 12),
-                  ResponsiveGrid2(children: [
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const FieldLabel('Received gross weight (g)'),
-                      TextField(
-                        controller: _wtCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: T.mono(13.5),
-                        decoration: const InputDecoration(hintText: '0.000000'),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: DatePickField(label: 'Intake date', controller: _intakeDate)),
+                      const SizedBox(width: 10),
+                      Expanded(child: DatePickField(label: 'Promised date', controller: _promisedDate)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(label: 'Article description', controller: _articleDesc),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Received gross weight g',
+                          controller: _grossGrams,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
                       ),
-                    ]),
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const FieldLabel('Estimated charge (INR)'),
-                      TextField(
-                        controller: _chargeCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: T.mono(13.5),
-                        decoration: const InputDecoration(hintText: '0.00'),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Estimated charge (INR)',
+                          controller: _estCharge,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
                       ),
-                    ]),
-                  ]),
-                  const SizedBox(height: 12),
-                  const FieldLabel('Ornament condition & repair instructions'),
-                  TextField(
-                    controller: _descCtrl,
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Condition & stone remarks',
+                    controller: _conditionNotes,
                     maxLines: 2,
-                    decoration: const InputDecoration(hintText: 'Clasp soldering, ring resizing, stone tightening…'),
                   ),
-                  const SizedBox(height: 16),
-                  RoyalGoldButton(
-                    label: 'Record Custody Intake',
-                    icon: Icons.verified_user_outlined,
-                    busy: _busy,
-                    onPressed: _createRepair,
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _createRepair,
+                      child: Text(_busy ? 'Saving…' : 'Receive customer article'),
+                    ),
                   ),
-                ]),
+                ],
               ),
-            ],
-            const SectionLabel('Custody Register'),
+            ),
+            const SizedBox(height: 14),
             if (_loading)
-              for (var i = 0; i < 3; i++)
-                const Padding(padding: EdgeInsets.only(bottom: 10), child: Panel(child: Skeleton(height: 76)))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
-            else if (_repairs.isEmpty)
-              Panel(
-                child: EmptyBlock(
-                  icon: Icons.build_outlined,
-                  title: 'No repair custody items yet',
-                  body: 'Record customer ornaments accepted for polishing, soldering, resizing, or hallmark inspection.',
-                  actionLabel: 'New Custody Intake',
-                  onAction: () => setState(() => _showForm = true),
-                ),
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
               )
+            else if (_repairs.isEmpty)
+              const SaasEmptyBox('No repair or customer custody jobs yet.')
             else
               for (final r in _repairs)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Panel(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Expanded(
-                          child: Text(
-                            _pickStr(r, ['documentNumber', 'ticketNumber', 'code'], 'Repair Ticket'),
-                            style: T.display(17),
-                          ),
+                  child: SectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${r['documentNumber'] ?? r['jobNumber'] ?? shortId('${r['id']}')} · ${asMap(r['customer'])['displayName'] ?? r['articleDescription'] ?? ''}',
+                                style: T.body(14, w: FontWeight.w700),
+                              ),
+                            ),
+                            StatusChip('${r['state'] ?? r['status'] ?? 'RECEIVED'}'),
+                          ],
                         ),
-                        StatusPill(_pickStr(r, ['state', 'status'], 'IN_CUSTODY')),
-                      ]),
-                      const SizedBox(height: 8),
-                      KeyValue('Customer', _pickStr(r, ['customer', 'party', 'customerName'], '-'), strong: true),
-                      if (_pickStr(r, ['receivedWeightGrams', 'grossWeightGrams']).isNotEmpty)
-                        KeyValue('Intake Weight', grams(_pickStr(r, ['receivedWeightGrams', 'grossWeightGrams'])), mono: true),
-                      if (_pickStr(r, ['estimatedCharge', 'totalAmount']).isNotEmpty)
-                        KeyValue('Est. Charge', inr(_pickStr(r, ['estimatedCharge', 'totalAmount'])), mono: true),
-                      if (_pickStr(r, ['promisedDate', 'dueDate']).isNotEmpty)
-                        KeyValue('Promised Date', formatDate(_pickStr(r, ['promisedDate', 'dueDate']))),
-                      if (_pickStr(r, ['description']).isNotEmpty)
-                        KeyValue('Work Notes', _pickStr(r, ['description'])),
-                    ]),
+                        const SizedBox(height: 6),
+                        KVRow('Received Gross Wt', grams(r['receivedGrossWeightGrams']), bold: true),
+                        KVRow('Promised Date', fmtDate('${r['promisedDate'] ?? ''}')),
+                      ],
+                    ),
                   ),
                 ),
           ],
@@ -576,9 +531,9 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
   }
 }
 
-// ============================================================================
-// 3. MATERIALS & BULLION RATES — /materials, /rates, /rate-books, /rate-versions/:id/publish
-// ============================================================================
+// ---------------------------------------------------------------------------
+// 3. MATERIALS & BULLION RATES (`/materials` & `/rates`) — MaterialsRatesPanel.tsx
+// ---------------------------------------------------------------------------
 
 class MaterialsRatesScreen extends StatefulWidget {
   const MaterialsRatesScreen({super.key});
@@ -586,422 +541,51 @@ class MaterialsRatesScreen extends StatefulWidget {
   State<MaterialsRatesScreen> createState() => _MaterialsRatesScreenState();
 }
 
+class _RateLineDraft {
+  _RateLineDraft({
+    this.metalId = '',
+    this.side = 'SELL',
+    this.ratePerUnit = '',
+    this.referenceFineness = '999',
+    this.unitId = '',
+  });
+  String metalId;
+  String side;
+  String ratePerUnit;
+  String referenceFineness;
+  String unitId;
+}
+
 class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
-  String _tab = 'RATES';
   Map<String, dynamic> _materials = const {};
-  Map<String, dynamic> _ratesWs = const {};
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    final api = context.read<ApiClient>();
-    try {
-      final res = await Future.wait<dynamic>([
-        api.get('/materials'),
-        api.get('/rates'),
-      ]);
-      if (!mounted) return;
-      setState(() {
-        _materials = asMap(res[0]);
-        _ratesWs = asMap(res[1]);
-      });
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    }
-    if (mounted) setState(() => _loading = false);
-  }
-
-  Future<void> _addMetalDialog() async {
-    final codeCtrl = TextEditingController();
-    final nameCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Pal.card,
-        title: Text('Register Precious Metal', style: T.display(19)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(
-            controller: codeCtrl,
-            textCapitalization: TextCapitalization.characters,
-            style: T.mono(14),
-            labelText: 'Metal Code (e.g. GOLD, SILVER, PLATINUM)',
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: nameCtrl,
-            textCapitalization: TextCapitalization.words,
-            labelText: 'Display Name',
-          ),
-        ]),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(minimumSize: const Size(110, 42)),
-            onPressed: () async {
-              try {
-                await context.read<ApiClient>().post('/materials/metals', body: {
-                  'code': codeCtrl.text.trim().toUpperCase(),
-                  'name': nameCtrl.text.trim(),
-                });
-                if (ctx.mounted) Navigator.pop(ctx, true);
-              } on ApiException catch (e) {
-                if (ctx.mounted) toast(ctx, e.message, error: true);
-              }
-            },
-            child: const Text('Create'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) _load();
-  }
-
-  Future<void> _addPurityDialog(List<Map<String, dynamic>> metals) async {
-    if (metals.isEmpty) {
-      toast(context, 'Create a precious metal first before adding purity grades.', error: true);
-      return;
-    }
-    var metalId = '${metals.first['id'] ?? ''}';
-    final codeCtrl = TextEditingController();
-    final karatCtrl = TextEditingController();
-    final fineCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-          backgroundColor: Pal.card,
-          title: Text('Add Purity Grade', style: T.display(19)),
-          content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              GoldDropdown<String>(
-                value: metalId,
-                labelText: 'Precious Metal',
-                items: [
-                  for (final m in metals)
-                    DropdownMenuItem(
-                      value: '${m['id']}',
-                      child: Text('${m['name']} (${m['code']})'),
-                    ),
-                ],
-                onChanged: (v) => setLocal(() => metalId = v ?? metalId),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: codeCtrl,
-                textCapitalization: TextCapitalization.characters,
-                style: T.mono(14),
-                labelText: 'Purity Code (999, 916, 750)',
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: karatCtrl,
-                labelText: 'Display Karat (24K, 22K, 18K)',
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: fineCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                style: T.mono(14),
-                labelText: 'Fineness per 1000 (e.g. 916.000)',
-              ),
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(
-              style: FilledButton.styleFrom(minimumSize: const Size(110, 42)),
-              onPressed: () async {
-                try {
-                  await context.read<ApiClient>().post('/materials/purity-grades', body: {
-                    'metalId': metalId,
-                    'code': codeCtrl.text.trim().toUpperCase(),
-                    if (karatCtrl.text.trim().isNotEmpty) 'displayKarat': karatCtrl.text.trim(),
-                    'finenessPerThousand': fineCtrl.text.trim(),
-                  });
-                  if (ctx.mounted) Navigator.pop(ctx, true);
-                } on ApiException catch (e) {
-                  if (ctx.mounted) toast(ctx, e.message, error: true);
-                }
-              },
-              child: const Text('Save Grade'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (ok == true) _load();
-  }
-
-  Future<void> _createRateBookDialog() async {
-    final codeCtrl = TextEditingController();
-    final nameCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Pal.card,
-        title: Text('Create Bullion Rate Book', style: T.display(19)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(
-            controller: codeCtrl,
-            textCapitalization: TextCapitalization.characters,
-            style: T.mono(14),
-            labelText: 'Book Code (e.g. RETAIL-BOARD)',
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: nameCtrl,
-            labelText: 'Rate Book Name',
-          ),
-        ]),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(minimumSize: const Size(110, 42)),
-            onPressed: () async {
-              try {
-                await context.read<ApiClient>().post('/rate-books', body: {
-                  'code': codeCtrl.text.trim().toUpperCase(),
-                  'name': nameCtrl.text.trim(),
-                  'currency': context.read<AppState>().currency,
-                });
-                if (ctx.mounted) Navigator.pop(ctx, true);
-              } on ApiException catch (e) {
-                if (ctx.mounted) toast(ctx, e.message, error: true);
-              }
-            },
-            child: const Text('Create Book'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) _load();
-  }
-
-  Future<void> _publishVersion(String versionId) async {
-    try {
-      await context.read<ApiClient>().post(
-        '/rate-versions/$versionId/publish',
-        idempotencyKey: const Uuid().v4(),
-        body: {'reason': 'Published showroom bullion board rate version.'},
-      );
-      await context.read<RatesController>().refresh();
-      await _load();
-      if (mounted) toast(context, 'Bullion rate version published live.');
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final metals = asList(_materials['metals'] ?? _materials, keys: const ['metals']);
-    final units = asList(_materials['units'] ?? const [], keys: const ['units']);
-    final books = asList(_ratesWs['rateBooks'] ?? _ratesWs['books'] ?? _ratesWs, keys: const ['rateBooks', 'books']);
-    final ratesCtrl = context.watch<RatesController>();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Materials & Bullion Rates'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
-      body: RefreshIndicator(
-        color: Pal.gold,
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
-          children: [
-            const SaasModuleHeader(
-              icon: Icons.toll_rounded,
-              badge: 'Fine 999 Bullion Governance',
-              title: 'Materials & Bullion Board',
-              subtitle:
-                  'Configure precious metals, fineness-per-thousand grades, and versioned daily showroom rate books.',
-            ),
-            const SizedBox(height: 14),
-            PillTabs<String>(
-              selected: _tab,
-              onChanged: (v) => setState(() => _tab = v),
-              items: const [
-                ('RATES', 'Bullion Rate Books', Icons.trending_up_rounded),
-                ('METALS', 'Metals & Purity Grades', Icons.diamond_outlined),
-              ],
-            ),
-            const SizedBox(height: 14),
-            if (_loading)
-              const Panel(child: Skeleton(height: 110))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
-            else if (_tab == 'RATES') ...[
-              Row(children: [
-                const Expanded(child: BullionHeaderBadge()),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(minimumSize: const Size(116, 40)),
-                  onPressed: _createRateBookDialog,
-                  icon: const Icon(Icons.add_rounded, size: 17),
-                  label: const Text('Rate Book'),
-                ),
-              ]),
-              const SizedBox(height: 12),
-              if (ratesCtrl.rates.isNotEmpty) ...[
-                ResponsiveGrid2(children: [
-                  for (final r in ratesCtrl.rates)
-                    MetricTile(
-                      label: '${r.metal} · ${r.karatLabel}',
-                      value: '${rate(r.sell)}/g',
-                      subtitle: 'Buy ${rate(r.buy)}/g',
-                      icon: Icons.workspace_premium_outlined,
-                    ),
-                ]),
-                const SizedBox(height: 12),
-              ],
-              if (books.isEmpty)
-                Panel(
-                  child: EmptyBlock(
-                    icon: Icons.menu_book_outlined,
-                    title: 'No rate books configured',
-                    body: 'Create a showroom rate book to version and publish daily 24K/22K/18K & Silver spot rates.',
-                    actionLabel: 'Create Rate Book',
-                    onAction: _createRateBookDialog,
-                  ),
-                )
-              else
-                for (final b in books)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Panel(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [
-                          Expanded(child: Text('${b['name'] ?? b['code'] ?? 'Rate Book'}', style: T.display(17))),
-                          MonoTag('${b['code'] ?? 'BOOK'}'),
-                        ]),
-                        const SizedBox(height: 8),
-                        for (final v in asList(b['versions']))
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Row(children: [
-                              Expanded(
-                                child: Text(
-                                  'v${v['versionNumber'] ?? v['version'] ?? 1} · ${formatDateTime(v['effectiveFrom'] ?? v['createdAt'])}',
-                                  style: T.body(12.5, color: Pal.muted),
-                                ),
-                              ),
-                              StatusPill('${v['state'] ?? 'DRAFT'}'),
-                              if ('${v['state']}'.toUpperCase() == 'DRAFT') ...[
-                                const SizedBox(width: 8),
-                                TextButton(
-                                  onPressed: () => _publishVersion('${v['id']}'),
-                                  child: const Text('Publish'),
-                                ),
-                              ],
-                            ]),
-                          ),
-                      ]),
-                    ),
-                  ),
-            ] else ...[
-              Row(children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
-                    onPressed: _addMetalDialog,
-                    icon: const Icon(Icons.add_rounded, size: 17),
-                    label: const Text('+ Metal'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44)),
-                    onPressed: () => _addPurityDialog(metals),
-                    icon: const Icon(Icons.grade_outlined, size: 17),
-                    label: const Text('+ Purity Grade'),
-                  ),
-                ),
-              ]),
-              const SizedBox(height: 14),
-              if (metals.isEmpty)
-                const Panel(
-                  child: EmptyBlock(
-                    icon: Icons.diamond_outlined,
-                    title: 'No metals defined yet',
-                    body: 'Register GOLD, SILVER, or PLATINUM and their purity fineness grades.',
-                  ),
-                )
-              else
-                for (final m in metals)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Panel(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [
-                          Expanded(child: Text('${m['name'] ?? m['code']}', style: T.display(18))),
-                          MonoTag('${m['code'] ?? ''}'),
-                        ]),
-                        const SizedBox(height: 10),
-                        Wrap(spacing: 8, runSpacing: 8, children: [
-                          for (final pg in asList(m['purityGrades']))
-                            Chip2(
-                              '${pg['displayKarat'] ?? pg['code']} · ${pg['finenessPerThousand']}‰',
-                              mono: true,
-                            ),
-                        ]),
-                      ]),
-                    ),
-                  ),
-              if (units.isNotEmpty) ...[
-                const SectionLabel('Units of Measure'),
-                Panel(
-                  child: Wrap(spacing: 8, runSpacing: 8, children: [
-                    for (final u in units)
-                      Chip2('${u['name']} (${u['symbol'] ?? u['code']}) · ${u['dimension']}', gold: false),
-                  ]),
-                ),
-              ],
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// 4. REFINING & MELTING — Screenshot 680 (`GET /refining`, `POST /refining`)
-// ============================================================================
-
-class RefiningMeltingScreen extends StatefulWidget {
-  const RefiningMeltingScreen({super.key});
-  @override
-  State<RefiningMeltingScreen> createState() => _RefiningMeltingScreenState();
-}
-
-class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
-  WorkspaceLookup _lookup = WorkspaceLookup();
-  List<Map<String, dynamic>> _batches = [];
+  List<Map<String, dynamic>> _rateBooks = [];
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  String? _openPanel; // null | 'METAL' | 'PURITY' | 'BOOK'
 
-  final _refinerCtrl = TextEditingController();
-  final _seriesCtrl = TextEditingController();
-  final _businessDateCtrl = TextEditingController(text: todayIso());
-  final _descCtrl = TextEditingController();
-  final _lossCtrl = TextEditingController(text: '0.000000');
-  final _sourceBalanceCtrl = TextEditingController();
-  final _balanceVerCtrl = TextEditingController(text: '1');
-  final _inputQtyCtrl = TextEditingController();
-  final _inputFineCtrl = TextEditingController();
+  // Add metal / purity / rate book
+  final _metalCode = TextEditingController();
+  final _metalName = TextEditingController();
+  final _gradeMetalId = TextEditingController();
+  final _gradeCode = TextEditingController();
+  final _gradeKarat = TextEditingController();
+  final _gradeFineness = TextEditingController();
+  final _bookCode = TextEditingController();
+  final _bookName = TextEditingController();
+  final _bookCurrency = TextEditingController(text: 'INR');
+
+  // Create complete rate version (`POST /rate-books/:id/versions`)
+  Map<String, dynamic>? _versionTargetBook;
+  final List<_RateLineDraft> _versionLines = [_RateLineDraft()];
+
+  // Authoritative metal-price check (`POST /pricing/calculate-metal`)
+  final _calcRateVersionId = TextEditingController();
+  final _calcMetalId = TextEditingController();
+  final _calcPurityId = TextEditingController();
+  final _calcWeight = TextEditingController();
+  String _calcSide = 'SELL';
+  Map<String, dynamic>? _priceResult;
 
   @override
   void initState() {
@@ -1011,15 +595,13 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
 
   @override
   void dispose() {
-    _refinerCtrl.dispose();
-    _seriesCtrl.dispose();
-    _businessDateCtrl.dispose();
-    _descCtrl.dispose();
-    _lossCtrl.dispose();
-    _sourceBalanceCtrl.dispose();
-    _balanceVerCtrl.dispose();
-    _inputQtyCtrl.dispose();
-    _inputFineCtrl.dispose();
+    for (final c in [
+      _metalCode, _metalName, _gradeMetalId, _gradeCode, _gradeKarat,
+      _gradeFineness, _bookCode, _bookName, _bookCurrency,
+      _calcRateVersionId, _calcMetalId, _calcPurityId, _calcWeight,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -1030,7 +612,697 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
     });
     final api = context.read<ApiClient>();
     try {
-      final res = await Future.wait<dynamic>([
+      final res = await Future.wait([
+        api.get('/materials'),
+        api.get('/rates'),
+      ]);
+      if (!mounted) return;
+      context.read<RatesStore>().refresh(api);
+      setState(() {
+        _materials = asMap(res[0]);
+        _rateBooks = asList(res[1], keys: const ['rateBooks', 'books', 'items']);
+      });
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  List<LookupOption> get _metalOpts => asList(_materials['metals'])
+      .map((m) => LookupOption(id: '${m['id']}', label: '${m['name']} (${m['code']})', raw: m))
+      .where((o) => o.id.isNotEmpty)
+      .toList();
+
+  List<LookupOption> _purityOpts(String? metalId) {
+    final out = <LookupOption>[];
+    for (final m in asList(_materials['metals'])) {
+      if (metalId != null && metalId.isNotEmpty && '${m['id']}' != metalId) continue;
+      for (final pg in asList(m['purityGrades'])) {
+        out.add(LookupOption(
+          id: '${pg['id']}',
+          label: '${m['code']} · ${pg['code']}${pg['displayKarat'] != null ? ' (${pg['displayKarat']})' : ''} · ${pg['finenessPerThousand']}‰',
+          raw: pg,
+        ));
+      }
+    }
+    return out;
+  }
+
+  List<LookupOption> get _massUnitOpts => asList(_materials['units'])
+      .where((u) => '${u['dimension'] ?? 'MASS'}' == 'MASS')
+      .map((u) => LookupOption(id: '${u['id']}', label: '${u['code']} (${u['symbol'] ?? u['code']})', raw: u))
+      .where((o) => o.id.isNotEmpty)
+      .toList();
+
+  List<LookupOption> get _publishedVersionOpts {
+    final out = <LookupOption>[];
+    for (final b in _rateBooks) {
+      for (final v in asList(b['versions'])) {
+        if ('${v['state']}' == 'PUBLISHED') {
+          out.add(LookupOption(
+            id: '${v['id']}',
+            label: '${b['name']} · v${v['sequenceNumber']}',
+            raw: v,
+          ));
+        }
+      }
+    }
+    return out;
+  }
+
+  Future<void> _submitQuickMaster() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final api = context.read<ApiClient>();
+    try {
+      if (_openPanel == 'METAL') {
+        await api.post('/materials/metals', idempotent: true, body: {
+          'code': _metalCode.text.trim().toUpperCase(),
+          'name': _metalName.text.trim(),
+        });
+        _metalCode.clear();
+        _metalName.clear();
+      } else if (_openPanel == 'PURITY') {
+        await api.post('/materials/purity-grades', idempotent: true, body: {
+          'metalId': _gradeMetalId.text.trim(),
+          'code': _gradeCode.text.trim().toUpperCase(),
+          if (_gradeKarat.text.trim().isNotEmpty) 'displayKarat': _gradeKarat.text.trim(),
+          'finenessPerThousand': _gradeFineness.text.trim(),
+        });
+        _gradeCode.clear();
+        _gradeKarat.clear();
+        _gradeFineness.clear();
+      } else if (_openPanel == 'BOOK') {
+        await api.post('/rate-books', idempotent: true, body: {
+          'code': _bookCode.text.trim().toUpperCase(),
+          'name': _bookName.text.trim(),
+          'currency': _bookCurrency.text.trim().toUpperCase(),
+        });
+        _bookCode.clear();
+        _bookName.clear();
+      }
+      if (!mounted) return;
+      setState(() => _openPanel = null);
+      _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _createRateVersion() async {
+    final book = _versionTargetBook;
+    if (book == null) return;
+    final validLines = _versionLines
+        .where((l) => l.metalId.isNotEmpty && l.ratePerUnit.trim().isNotEmpty && l.unitId.isNotEmpty)
+        .toList();
+    if (validLines.isEmpty) {
+      setState(() => _error = 'Add at least one complete rate line (metal, rate, reference fineness, unit).');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final now = DateTime.now().toUtc();
+      await context.read<ApiClient>().post(
+        '/rate-books/${book['id']}/versions',
+        idempotent: true,
+        body: {
+          'expectedBookVersion': asInt(book['version'], fallback: 1),
+          'effectiveAt': now.toIso8601String(),
+          'lines': validLines
+              .map((l) => {
+                    'metalId': l.metalId,
+                    'side': l.side,
+                    'ratePerUnit': l.ratePerUnit.trim(),
+                    'referenceFineness': l.referenceFineness.trim(),
+                    'unitId': l.unitId,
+                  })
+              .toList(),
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _versionTargetBook = null;
+        _versionLines
+          ..clear()
+          ..add(_RateLineDraft());
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Immutable draft rate version created.')),
+      );
+      _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _publishVersion(Map<String, dynamic> v) async {
+    final reasonCtrl = TextEditingController(
+      text: 'Approved showroom bullion board rate after treasury verification.',
+    );
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Publish version ${v['sequenceNumber']}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Publishing locks this complete rate proposal for historical use.',
+              style: T.body(12.5, color: Pal.muted),
+            ),
+            const SizedBox(height: 12),
+            SaasField(
+              label: 'Approval reason (min 10 chars)',
+              controller: reasonCtrl,
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Publish rate version')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await context.read<ApiClient>().post(
+        '/rate-versions/${v['id']}/publish',
+        idempotent: true,
+        body: {
+          'expectedVersion': asInt(v['version'], fallback: 1),
+          'approvalReason': reasonCtrl.text.trim(),
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rate version published!')));
+      _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _checkPrice() async {
+    if (_calcRateVersionId.text.trim().isEmpty ||
+        _calcMetalId.text.trim().isEmpty ||
+        _calcPurityId.text.trim().isEmpty ||
+        _calcWeight.text.trim().isEmpty) {
+      setState(() => _error = 'Select published rate, metal, purity, and weight in grams.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final res = await context.read<ApiClient>().post(
+        '/pricing/calculate-metal',
+        body: {
+          'rateVersionId': _calcRateVersionId.text.trim(),
+          'components': [
+            {
+              'metalId': _calcMetalId.text.trim(),
+              'purityGradeId': _calcPurityId.text.trim(),
+              'weightGrams': _calcWeight.text.trim(),
+              'side': _calcSide,
+            },
+          ],
+        },
+      );
+      if (!mounted) return;
+      setState(() => _priceResult = asMap(res));
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final metals = asList(_materials['metals']);
+    final units = asList(_materials['units']);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Materials & Bullion Rates'),
+        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+      ),
+      body: RefreshIndicator(
+        color: Pal.gold,
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          children: [
+            const SaasModuleHeader(
+              icon: Icons.diamond_outlined,
+              title: 'Materials and rates',
+              subtitle: 'Exact purity masters and immutable, effective-dated metal rates.',
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: () => setState(() => _openPanel = _openPanel == 'METAL' ? null : 'METAL'),
+                  child: const Text('Add metal'),
+                ),
+                OutlinedButton(
+                  onPressed: () => setState(() => _openPanel = _openPanel == 'PURITY' ? null : 'PURITY'),
+                  child: const Text('Add purity'),
+                ),
+                ElevatedButton(
+                  onPressed: () => setState(() => _openPanel = _openPanel == 'BOOK' ? null : 'BOOK'),
+                  child: const Text('New rate book'),
+                ),
+              ],
+            ),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+
+            if (_openPanel != null) ...[
+              const SizedBox(height: 14),
+              SaasFormCard(
+                title: _openPanel == 'METAL'
+                    ? 'Add metal master'
+                    : _openPanel == 'PURITY'
+                        ? 'Add purity grade'
+                        : 'New rate book',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_openPanel == 'METAL') ...[
+                      SaasField(label: 'Metal code (e.g. GOLD)', controller: _metalCode, mono: true),
+                      const SizedBox(height: 10),
+                      SaasField(label: 'Metal name', controller: _metalName),
+                    ] else if (_openPanel == 'PURITY') ...[
+                      LookupField(label: 'Metal', controller: _gradeMetalId, options: _metalOpts),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(child: SaasField(label: 'Grade code (22K916)', controller: _gradeCode, mono: true)),
+                          const SizedBox(width: 10),
+                          Expanded(child: SaasField(label: 'Display karat (22K)', controller: _gradeKarat)),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      SaasField(
+                        label: 'Fineness per thousand (e.g. 916.000000)',
+                        controller: _gradeFineness,
+                        mono: true,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      ),
+                    ] else ...[
+                      SaasField(label: 'Rate book code', controller: _bookCode, mono: true),
+                      const SizedBox(height: 10),
+                      SaasField(label: 'Rate book name', controller: _bookName),
+                      const SizedBox(height: 10),
+                      SaasField(label: 'Currency', controller: _bookCurrency, mono: true),
+                    ],
+                    const SizedBox(height: 12),
+                    GoldButton(
+                      label: 'Save',
+                      busy: _busy,
+                      onPressed: _submitQuickMaster,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            if (_versionTargetBook != null) ...[
+              const SizedBox(height: 14),
+              SaasFormCard(
+                title: 'Create complete version · ${_versionTargetBook!['name']}',
+                trailing: IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  onPressed: () => setState(() => _versionTargetBook = null),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < _versionLines.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 10),
+                      SaasSubBox(
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: GoldDropdown<String>(
+                                    value: _versionLines[i].metalId.isEmpty ? null : _versionLines[i].metalId,
+                                    hint: 'Metal',
+                                    items: _metalOpts
+                                        .map((m) => DropdownMenuItem(value: m.id, child: Text(m.label)))
+                                        .toList(),
+                                    onChanged: (v) => setState(() => _versionLines[i].metalId = v ?? ''),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  width: 100,
+                                  child: GoldDropdown<String>(
+                                    value: _versionLines[i].side,
+                                    items: const [
+                                      DropdownMenuItem(value: 'SELL', child: Text('SELL')),
+                                      DropdownMenuItem(value: 'BUY', child: Text('BUY')),
+                                    ],
+                                    onChanged: (v) => setState(() => _versionLines[i].side = v ?? 'SELL'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    decoration: const InputDecoration(hintText: 'Rate'),
+                                    style: T.mono(13),
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    onChanged: (v) => _versionLines[i].ratePerUnit = v,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  width: 90,
+                                  child: TextFormField(
+                                    initialValue: _versionLines[i].referenceFineness,
+                                    decoration: const InputDecoration(hintText: '999'),
+                                    style: T.mono(13),
+                                    onChanged: (v) => _versionLines[i].referenceFineness = v,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: GoldDropdown<String>(
+                                    value: _versionLines[i].unitId.isEmpty ? null : _versionLines[i].unitId,
+                                    hint: 'Unit',
+                                    items: _massUnitOpts
+                                        .map((u) => DropdownMenuItem(value: u.id, child: Text(u.label)))
+                                        .toList(),
+                                    onChanged: (v) => setState(() => _versionLines[i].unitId = v ?? ''),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () => setState(() => _versionLines.add(_RateLineDraft())),
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        label: const Text('Add rate line'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    GoldButton(
+                      label: 'Create immutable draft',
+                      busy: _busy,
+                      onPressed: _createRateVersion,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 14),
+            SaasFormCard(
+              title: 'Material masters',
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : metals.isEmpty
+                      ? const SaasEmptyBox('No metals configured yet.')
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (final m in metals) ...[
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('${m['name']}', style: T.body(14, w: FontWeight.w700)),
+                                  Text('${m['code']}', style: T.mono(12, color: Pal.muted)),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final g in asList(m['purityGrades']))
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Pal.goldWash,
+                                        borderRadius: BorderRadius.circular(99),
+                                        border: Border.all(color: Pal.goldBorder),
+                                      ),
+                                      child: Text(
+                                        '${g['code']}${g['displayKarat'] != null ? ' · ${g['displayKarat']}' : ''} · ${g['finenessPerThousand']}',
+                                        style: T.body(11.5, color: Pal.goldDeep, w: FontWeight.w600),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const Divider(height: 20),
+                            ],
+                            if (units.isNotEmpty)
+                              Text(
+                                'Units: ${units.map((u) => '${u['code']} (${u['baseFactor']} base)').join(' · ')}',
+                                style: T.body(11.8, color: Pal.muted),
+                              ),
+                          ],
+                        ),
+            ),
+
+            const SizedBox(height: 14),
+            SaasFormCard(
+              title: 'Rate books',
+              icon: Icons.scale_outlined,
+              child: _rateBooks.isEmpty
+                  ? const SaasEmptyBox('No rate books created yet.')
+                  : Column(
+                      children: [
+                        for (final book in _rateBooks) ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: 10),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Pal.border),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text('${book['name']}', style: T.body(14, w: FontWeight.w700)),
+                                          Text(
+                                            '${book['code']} · ${book['currency']} · version ${book['version']}',
+                                            style: T.body(11.8, color: Pal.muted),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    TextButton.icon(
+                                      onPressed: () => setState(() => _versionTargetBook = book),
+                                      icon: const Icon(Icons.add_rounded, size: 15),
+                                      label: const Text('Create version'),
+                                    ),
+                                  ],
+                                ),
+                                for (final v in asList(book['versions'])) ...[
+                                  const Divider(height: 16),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Version ${v['sequenceNumber']} · ${v['state']}',
+                                              style: T.body(13, w: FontWeight.w600),
+                                            ),
+                                            Text(
+                                              'Effective ${fmtDateTime('${v['effectiveAt'] ?? ''}')} · ${asList(v['lines']).length} lines',
+                                              style: T.body(11.5, color: Pal.muted),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if ('${v['state']}' == 'DRAFT')
+                                        ElevatedButton.icon(
+                                          onPressed: _busy ? null : () => _publishVersion(v),
+                                          icon: const Icon(Icons.send_rounded, size: 13),
+                                          label: const Text('Publish'),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+            ),
+
+            const SizedBox(height: 14),
+            SaasFormCard(
+              title: 'Authoritative metal-price check',
+              icon: Icons.calculate_outlined,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  LookupField(
+                    label: 'Published rate',
+                    controller: _calcRateVersionId,
+                    options: _publishedVersionOpts,
+                    hint: 'Published rate',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Metal',
+                    controller: _calcMetalId,
+                    options: _metalOpts,
+                    hint: 'Metal',
+                    onSelected: (_) => setState(() => _calcPurityId.clear()),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Purity grade',
+                    controller: _calcPurityId,
+                    options: _purityOpts(_calcMetalId.text.trim()),
+                    hint: 'Purity',
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Weight grams',
+                          controller: _calcWeight,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasDropdown(
+                          label: 'Side',
+                          value: _calcSide,
+                          options: const {'SELL': 'SELL', 'BUY': 'BUY'},
+                          onChanged: (v) => setState(() => _calcSide = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _checkPrice,
+                      child: const Text('Calculate metal value'),
+                    ),
+                  ),
+                  if (_priceResult != null) ...[
+                    const SizedBox(height: 12),
+                    SaasSubBox(
+                      child: Column(
+                        children: [
+                          KVRow('Total Metal Value', inr(_priceResult!['totalMetalValue']), bold: true),
+                          for (final c in asList(_priceResult!['components']))
+                            KVRow(
+                              '${c['metalCode']} ${c['purityCode']} (${grams(c['fineWeightGrams'])} fine)',
+                              inr(c['metalValue']),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 4. REFINING & MELTING (`/refining`) — Screenshot (680)
+// ---------------------------------------------------------------------------
+
+class RefiningMeltingScreen extends StatefulWidget {
+  const RefiningMeltingScreen({super.key});
+  @override
+  State<RefiningMeltingScreen> createState() => _RefiningMeltingScreenState();
+}
+
+class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
+  List<Map<String, dynamic>> _batches = [];
+  WorkspaceLookup _lk = WorkspaceLookup();
+  bool _loading = true;
+  bool _busy = false;
+  String? _error;
+
+  final _refinerPartyId = TextEditingController();
+  final _meltSeriesId = TextEditingController();
+  final _businessDate = TextEditingController(text: todayIso());
+  final _batchDesc = TextEditingController();
+  final _allowedLoss = TextEditingController(text: '0.000000');
+  final _sourceBalanceId = TextEditingController();
+  final _balanceVersion = TextEditingController(text: '1');
+  final _inputQty = TextEditingController();
+  final _inputFine = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    for (final c in [
+      _refinerPartyId, _meltSeriesId, _businessDate, _batchDesc,
+      _allowedLoss, _sourceBalanceId, _balanceVersion, _inputQty, _inputFine,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final api = context.read<ApiClient>();
+    try {
+      final res = await Future.wait([
         api.get('/refining'),
         WorkspaceLookup.load(
           api,
@@ -1041,61 +1313,65 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
       ]);
       if (!mounted) return;
       setState(() {
-        _batches = asList(res[0], keys: const ['batches', 'refiningBatches', 'meltBatches', 'items', 'rows']);
-        _lookup = res[1] as WorkspaceLookup;
+        _batches = asList(res[0], keys: const ['batches', 'meltBatches', 'refiningBatches', 'items']);
+        _lk = res[1] as WorkspaceLookup;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _submit() async {
-    if (_seriesCtrl.text.trim().isEmpty) {
-      toast(context, 'Select or enter the Melt series ID.', error: true);
+  Future<void> _createBatch() async {
+    if (_meltSeriesId.text.trim().isEmpty ||
+        _batchDesc.text.trim().length < 3 ||
+        _sourceBalanceId.text.trim().isEmpty ||
+        _inputQty.text.trim().isEmpty ||
+        _inputFine.text.trim().isEmpty) {
+      setState(() => _error = 'Complete Melt series, Batch description, Source balance, Input quantity g, and Input fine g.');
       return;
     }
-    if (_sourceBalanceCtrl.text.trim().isEmpty) {
-      toast(context, 'Select or enter the Source balance ID.', error: true);
-      return;
-    }
-    if (!isValidWeight(_inputQtyCtrl.text) || !isValidWeight(_inputFineCtrl.text)) {
-      toast(context, 'Enter valid Input quantity (g) and Input fine (g).', error: true);
-      return;
-    }
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-      final ver = int.tryParse(_balanceVerCtrl.text.trim()) ?? 1;
       await context.read<ApiClient>().post(
-        '/refining',
-        idempotencyKey: const Uuid().v4(),
+        '/refining/batches',
+        idempotent: true,
         body: {
-          if (_refinerCtrl.text.trim().isNotEmpty) 'refinerPartyId': _refinerCtrl.text.trim(),
-          'documentSeriesId': _seriesCtrl.text.trim(),
-          'meltSeriesId': _seriesCtrl.text.trim(),
-          'businessDate': _businessDateCtrl.text.trim(),
-          'description': _descCtrl.text.trim(),
-          'allowedFineLossGrams': normWeight6(_lossCtrl.text),
+          if (_refinerPartyId.text.trim().isNotEmpty)
+            'refinerPartyId': _refinerPartyId.text.trim(),
+          'documentSeriesId': _meltSeriesId.text.trim(),
+          'businessDate': _businessDate.text.trim(),
+          'description': _batchDesc.text.trim(),
+          'allowedFineLossGrams': _allowedLoss.text.trim().isEmpty
+              ? '0.000000'
+              : _allowedLoss.text.trim(),
           'inputs': [
             {
-              'sourceBalanceId': _sourceBalanceCtrl.text.trim(),
-              'expectedBalanceVersion': ver,
-              'balanceVersion': ver,
-              'quantityGrams': normWeight6(_inputQtyCtrl.text),
-              'fineWeightGrams': normWeight6(_inputFineCtrl.text),
+              'balanceId': _sourceBalanceId.text.trim(),
+              'expectedBalanceVersion': int.tryParse(_balanceVersion.text.trim()) ?? 1,
+              'quantityGrams': _inputQty.text.trim(),
+              'fineWeightGrams': _inputFine.text.trim(),
             },
           ],
         },
       );
-      _descCtrl.clear();
-      _inputQtyCtrl.clear();
-      _inputFineCtrl.clear();
-      await _load();
-      if (mounted) toast(context, 'Controlled melt batch created.');
+      if (!mounted) return;
+      _batchDesc.clear();
+      _inputQty.clear();
+      _inputFine.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Controlled refining / melt batch created.')),
+      );
+      _load();
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    if (mounted) setState(() => _busy = false);
   }
 
   @override
@@ -1109,145 +1385,131 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
             const SaasModuleHeader(
-              icon: Icons.balance_rounded,
-              badge: 'Supply & Production',
+              icon: Icons.precision_manufacturing_outlined,
               title: 'Refining & Melting',
               subtitle:
                   'Controlled batch genealogy, versioned assay approval, recoveries, process loss and FIFO cost allocation.',
             ),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
             const SizedBox(height: 14),
-            Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('New melt batch', style: T.display(18)),
-                const SizedBox(height: 14),
-                LookupField(
-                  label: 'Refiner party',
-                  controller: _refinerCtrl,
-                  options: _lookup.partiesByRole('REFINER'),
-                  optional: true,
-                  hint: 'Select refiner or leave blank for internal melt',
-                ),
-                const SizedBox(height: 12),
-                LookupField(
-                  label: 'Melt series',
-                  controller: _seriesCtrl,
-                  options: _lookup.seriesFor(const ['MELT', 'REFIN']),
-                  hint: 'Select melt document series',
-                ),
-                const SizedBox(height: 12),
-                ResponsiveGrid2(children: [
-                  DatePickField(label: 'Business date', controller: _businessDateCtrl),
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const FieldLabel('Allowed fine loss g'),
-                    TextField(
-                      controller: _lossCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: T.mono(13.5),
+            SaasFormCard(
+              title: 'New melt batch',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  LookupField(
+                    label: 'Refiner party UUID (optional)',
+                    controller: _refinerPartyId,
+                    options: _lk.partiesByRole('REFINER'),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Melt series UUID',
+                    controller: _meltSeriesId,
+                    options: _lk.seriesFor(const ['MELT', 'REFINING', 'BATCH']),
+                  ),
+                  const SizedBox(height: 10),
+                  DatePickField(label: 'Business date', controller: _businessDate),
+                  const SizedBox(height: 10),
+                  SaasField(label: 'Batch description', controller: _batchDesc),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Allowed fine loss g',
+                    controller: _allowedLoss,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Source balance UUID',
+                    controller: _sourceBalanceId,
+                    options: _lk.lotBalances,
+                    onSelected: (opt) {
+                      if (opt != null) {
+                        setState(() {
+                          _balanceVersion.text = '${opt.raw['balanceVersion'] ?? opt.raw['version'] ?? 1}';
+                          _inputQty.text = '${opt.raw['quantityGrams'] ?? ''}';
+                          _inputFine.text = '${opt.raw['fineWeightGrams'] ?? ''}';
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Balance version',
+                          controller: _balanceVersion,
+                          mono: true,
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Input quantity g',
+                          controller: _inputQty,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Input fine g',
+                    controller: _inputFine,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _createBatch,
+                      child: Text(_busy ? 'Saving…' : 'Create controlled batch'),
                     ),
-                  ]),
-                ]),
-                const SizedBox(height: 12),
-                const FieldLabel('Batch description'),
-                TextField(
-                  controller: _descCtrl,
-                  decoration: const InputDecoration(hintText: 'Old gold scrap crucible melt / refinery dispatch'),
-                ),
-                const SizedBox(height: 12),
-                LookupField(
-                  label: 'Source balance',
-                  controller: _sourceBalanceCtrl,
-                  options: _lookup.lotBalances,
-                  hint: 'Select bullion lot balance or enter UUID',
-                  onSelected: (opt) {
-                    if (opt == null) return;
-                    final v = opt.raw['version'];
-                    if (v != null) _balanceVerCtrl.text = '$v';
-                    final q = '${opt.raw['quantityGrams'] ?? ''}';
-                    if (q.isNotEmpty) _inputQtyCtrl.text = q;
-                    final f = '${opt.raw['fineWeightGrams'] ?? ''}';
-                    if (f.isNotEmpty) _inputFineCtrl.text = f;
-                    setState(() {});
-                  },
-                ),
-                const SizedBox(height: 12),
-                ResponsiveGrid2(children: [
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const FieldLabel('Balance version'),
-                    TextField(
-                      controller: _balanceVerCtrl,
-                      keyboardType: TextInputType.number,
-                      style: T.mono(13.5),
-                    ),
-                  ]),
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const FieldLabel('Input quantity g'),
-                    TextField(
-                      controller: _inputQtyCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: T.mono(13.5),
-                      decoration: const InputDecoration(hintText: '0.000000'),
-                    ),
-                  ]),
-                ]),
-                const SizedBox(height: 12),
-                const FieldLabel('Input fine g'),
-                TextField(
-                  controller: _inputFineCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  style: T.mono(13.5),
-                  decoration: const InputDecoration(hintText: '0.000000'),
-                ),
-                const SizedBox(height: 16),
-                RoyalGoldButton(
-                  label: 'Create controlled batch',
-                  icon: Icons.local_fire_department_outlined,
-                  busy: _busy,
-                  onPressed: _submit,
-                ),
-              ]),
+                  ),
+                ],
+              ),
             ),
-            const SectionLabel('Refining Batches'),
+            const SizedBox(height: 14),
             if (_loading)
-              const Panel(child: Skeleton(height: 80))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
-            else if (_batches.isEmpty)
-              const Panel(
-                child: EmptyBlock(
-                  icon: Icons.balance_rounded,
-                  title: 'No refining batches yet',
-                  body: 'Create a controlled melt batch above to track assay recoveries and Fine 999 process loss.',
-                ),
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
               )
+            else if (_batches.isEmpty)
+              const SaasEmptyBox('No refining batches yet.')
             else
               for (final b in _batches)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Panel(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Expanded(
-                          child: Text(
-                            _pickStr(b, ['documentNumber', 'batchNumber', 'code'], 'Melt Batch'),
-                            style: T.display(17),
-                          ),
+                  child: SectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${b['documentNumber'] ?? b['batchNumber'] ?? shortId('${b['id']}')} · ${b['description'] ?? 'Melt batch'}',
+                                style: T.body(14, w: FontWeight.w700),
+                              ),
+                            ),
+                            StatusChip('${b['state'] ?? b['status'] ?? 'OPEN'}'),
+                          ],
                         ),
-                        StatusPill(_pickStr(b, ['state', 'status'], 'OPEN')),
-                      ]),
-                      const SizedBox(height: 8),
-                      if (_pickStr(b, ['refiner', 'refinerParty']).isNotEmpty)
-                        KeyValue('Refiner', _pickStr(b, ['refiner', 'refinerParty'])),
-                      KeyValue('Business Date', formatDate(_pickStr(b, ['businessDate', 'createdAt']))),
-                      if (_pickStr(b, ['inputFineGrams', 'totalInputFineGrams']).isNotEmpty)
-                        KeyValue('Input Fine 999', fineGrams(_pickStr(b, ['inputFineGrams', 'totalInputFineGrams'])), mono: true),
-                      if (_pickStr(b, ['allowedFineLossGrams']).isNotEmpty)
-                        KeyValue('Allowed Loss', fineGrams(_pickStr(b, ['allowedFineLossGrams'])), mono: true),
-                      if (_pickStr(b, ['description']).isNotEmpty)
-                        KeyValue('Description', _pickStr(b, ['description'])),
-                    ]),
+                        const SizedBox(height: 6),
+                        KVRow('Business Date', fmtDate('${b['businessDate'] ?? ''}')),
+                        KVRow('Input / Output Fine', '${grams(b['inputFineGrams'])} → ${grams(b['outputFineGrams'])}', bold: true),
+                      ],
+                    ),
                   ),
                 ),
           ],
@@ -1257,9 +1519,9 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
   }
 }
 
-// ============================================================================
-// 5. INTER-BRANCH TRANSFERS — Screenshot 681 (`GET /stock-transfers`, `POST /stock-transfers`)
-// ============================================================================
+// ---------------------------------------------------------------------------
+// 5. INTER-BRANCH TRANSFERS (`/stock-transfers`) — Screenshot (681)
+// ---------------------------------------------------------------------------
 
 class InterBranchTransfersScreen extends StatefulWidget {
   const InterBranchTransfersScreen({super.key});
@@ -1267,24 +1529,42 @@ class InterBranchTransfersScreen extends StatefulWidget {
   State<InterBranchTransfersScreen> createState() => _InterBranchTransfersScreenState();
 }
 
+class _TransferDraftLine {
+  const _TransferDraftLine({
+    required this.stockKind,
+    required this.stockId,
+    required this.stockLabel,
+    required this.destinationLocationId,
+    required this.destinationLabel,
+    this.quantityGrams = '',
+  });
+  final String stockKind; // TAGGED_ARTICLE | MATERIAL_LOT
+  final String stockId;
+  final String stockLabel;
+  final String destinationLocationId;
+  final String destinationLabel;
+  final String quantityGrams;
+}
+
 class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen> {
-  WorkspaceLookup _lookup = WorkspaceLookup();
   List<Map<String, dynamic>> _transfers = [];
+  WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
-  final _destBranchCtrl = TextEditingController();
-  final _transitLocCtrl = TextEditingController();
-  final _seriesCtrl = TextEditingController();
-  final _businessDateCtrl = TextEditingController(text: todayIso());
-  final _expectedDateCtrl = TextEditingController(text: todayIso());
-  final _descCtrl = TextEditingController();
+  final _destBranchId = TextEditingController();
+  final _sourceTransitId = TextEditingController();
+  final _seriesId = TextEditingController();
+  final _businessDate = TextEditingController(text: todayIso());
+  final _expectedReceipt = TextEditingController(text: todayIso());
+  final _description = TextEditingController();
 
   String _stockKind = 'TAGGED_ARTICLE';
-  final _stockItemCtrl = TextEditingController();
-  final _destCustodyCtrl = TextEditingController();
-  final List<Map<String, dynamic>> _lines = [];
+  final _stockId = TextEditingController();
+  final _destCustodyId = TextEditingController();
+  final _qtyGrams = TextEditingController();
+  final List<_TransferDraftLine> _lines = [];
 
   @override
   void initState() {
@@ -1294,14 +1574,12 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
 
   @override
   void dispose() {
-    _destBranchCtrl.dispose();
-    _transitLocCtrl.dispose();
-    _seriesCtrl.dispose();
-    _businessDateCtrl.dispose();
-    _expectedDateCtrl.dispose();
-    _descCtrl.dispose();
-    _stockItemCtrl.dispose();
-    _destCustodyCtrl.dispose();
+    for (final c in [
+      _destBranchId, _sourceTransitId, _seriesId, _businessDate,
+      _expectedReceipt, _description, _stockId, _destCustodyId, _qtyGrams,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -1312,87 +1590,110 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
     });
     final api = context.read<ApiClient>();
     try {
-      final res = await Future.wait<dynamic>([
+      final res = await Future.wait([
         api.get('/stock-transfers'),
         WorkspaceLookup.load(
           api,
           includeParties: false,
-          includeOrganization: true,
           includeInventory: true,
           includeAccounting: true,
+          includeOrganization: true,
         ),
       ]);
       if (!mounted) return;
       setState(() {
-        _transfers = asList(res[0], keys: const ['transfers', 'stockTransfers', 'items', 'rows']);
-        _lookup = res[1] as WorkspaceLookup;
+        _transfers = asList(res[0], keys: const ['transfers', 'stockTransfers', 'items']);
+        _lk = res[1] as WorkspaceLookup;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   void _addLine() {
-    final stockId = _stockItemCtrl.text.trim();
-    if (stockId.isEmpty) {
-      toast(context, 'Select an available tagged article or bullion lot.', error: true);
+    if (_stockId.text.trim().isEmpty || _destCustodyId.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select available stock and destination custody.')),
+      );
       return;
     }
-    final opts = _stockKind == 'TAGGED_ARTICLE' ? _lookup.articles : _lookup.lotBalances;
-    final label = opts.where((o) => o.id == stockId).firstOrNull?.label ?? stockId;
+    final pool = _stockKind == 'TAGGED_ARTICLE' ? _lk.articles : _lk.lotBalances;
+    final sLabel = pool.where((o) => o.id == _stockId.text.trim()).firstOrNull?.label ?? _stockId.text.trim();
+    final dLabel = _lk.locations.where((o) => o.id == _destCustodyId.text.trim()).firstOrNull?.label ?? _destCustodyId.text.trim();
     setState(() {
-      _lines.add({
-        'stockKind': _stockKind,
-        if (_stockKind == 'TAGGED_ARTICLE') 'articleId': stockId else 'sourceBalanceId': stockId,
-        if (_destCustodyCtrl.text.trim().isNotEmpty) 'destinationLocationId': _destCustodyCtrl.text.trim(),
-        '_label': label,
-      });
-      _stockItemCtrl.clear();
+      _lines.add(_TransferDraftLine(
+        stockKind: _stockKind,
+        stockId: _stockId.text.trim(),
+        stockLabel: sLabel,
+        destinationLocationId: _destCustodyId.text.trim(),
+        destinationLabel: dLabel,
+        quantityGrams: _qtyGrams.text.trim(),
+      ));
+      _stockId.clear();
+      _qtyGrams.clear();
     });
   }
 
   Future<void> _createTransfer() async {
-    if (_destBranchCtrl.text.trim().isEmpty || _transitLocCtrl.text.trim().isEmpty) {
-      toast(context, 'Select Destination branch and Source transit custody.', error: true);
+    if (_destBranchId.text.trim().isEmpty ||
+        _sourceTransitId.text.trim().isEmpty ||
+        _seriesId.text.trim().isEmpty) {
+      setState(() => _error = 'Select Destination branch, Source transit custody, and Transfer series.');
       return;
     }
     if (_lines.isEmpty) {
-      toast(context, 'Add at least one transfer line before submitting.', error: true);
-      return;
+      _addLine();
+      if (_lines.isEmpty) return;
     }
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await context.read<ApiClient>().post(
         '/stock-transfers',
-        idempotencyKey: const Uuid().v4(),
+        idempotent: true,
         body: {
-          'destinationBranchId': _destBranchCtrl.text.trim(),
-          'sourceTransitLocationId': _transitLocCtrl.text.trim(),
-          if (_seriesCtrl.text.trim().isNotEmpty) 'documentSeriesId': _seriesCtrl.text.trim(),
-          'businessDate': _businessDateCtrl.text.trim(),
-          if (_expectedDateCtrl.text.trim().isNotEmpty) 'expectedReceiptDate': _expectedDateCtrl.text.trim(),
-          'description': _descCtrl.text.trim(),
+          'destinationBranchId': _destBranchId.text.trim(),
+          'sourceTransitLocationId': _sourceTransitId.text.trim(),
+          'documentSeriesId': _seriesId.text.trim(),
+          'businessDate': _businessDate.text.trim(),
+          'expectedReceiptDate': _expectedReceipt.text.trim(),
+          if (_description.text.trim().isNotEmpty) 'description': _description.text.trim(),
           'lines': _lines
-              .map((l) => Map<String, dynamic>.from(l)..remove('_label'))
+              .map((l) => l.stockKind == 'TAGGED_ARTICLE'
+                  ? {
+                      'stockKind': 'TAGGED_ARTICLE',
+                      'articleId': l.stockId,
+                      'destinationLocationId': l.destinationLocationId,
+                    }
+                  : {
+                      'stockKind': 'MATERIAL_LOT',
+                      'balanceId': l.stockId,
+                      'destinationLocationId': l.destinationLocationId,
+                      if (l.quantityGrams.isNotEmpty) 'quantityGrams': l.quantityGrams,
+                    })
               .toList(),
         },
       );
-      setState(() {
-        _lines.clear();
-        _descCtrl.clear();
-      });
-      await _load();
-      if (mounted) toast(context, 'Inter-branch transfer created.');
+      if (!mounted) return;
+      setState(() => _lines.clear());
+      _description.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Inter-branch transfer created.')),
+      );
+      _load();
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    if (mounted) setState(() => _busy = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final stockOptions = _stockKind == 'TAGGED_ARTICLE' ? _lookup.articles : _lookup.lotBalances;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Inter-Branch Transfers'),
@@ -1402,165 +1703,164 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
             const SaasModuleHeader(
               icon: Icons.swap_horiz_rounded,
-              badge: 'Custody Transit',
               title: 'Inter-Branch Stock Transfers',
               subtitle:
-                  'Same-entity branch movements with explicit transit custody, discrepancy quarantine, and zero revenue recognition.',
+                  'Dispatch through transit custody, receive without partial silent drops, and record discrepancy claims explicitly.',
             ),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
             const SizedBox(height: 14),
-            Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('New transfer request', style: T.display(18)),
-                const SizedBox(height: 14),
-                LookupField(
-                  label: 'Destination branch',
-                  controller: _destBranchCtrl,
-                  options: _lookup.branches,
-                  hint: 'Select destination showroom',
-                ),
-                const SizedBox(height: 12),
-                LookupField(
-                  label: 'Source transit custody',
-                  controller: _transitLocCtrl,
-                  options: _lookup.locations,
-                  hint: 'Select transit vault custody',
-                ),
-                const SizedBox(height: 12),
-                LookupField(
-                  label: 'Transfer series',
-                  controller: _seriesCtrl,
-                  options: _lookup.seriesFor(const ['TRANSFER', 'STOCK']),
-                  hint: 'Select transfer series',
-                ),
-                const SizedBox(height: 12),
-                ResponsiveGrid2(children: [
-                  DatePickField(label: 'Business date', controller: _businessDateCtrl),
-                  DatePickField(label: 'Expected receipt', controller: _expectedDateCtrl, optional: true),
-                ]),
-                const SizedBox(height: 12),
-                const FieldLabel('Description'),
-                TextField(
-                  controller: _descCtrl,
-                  decoration: const InputDecoration(hintText: 'Exhibition replenishment / vault rebalance'),
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Pal.surfaceAlt,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Pal.line),
+            SaasFormCard(
+              title: 'New transfer request',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  LookupField(
+                    label: 'Destination branch',
+                    controller: _destBranchId,
+                    options: _lk.branches,
+                    hint: 'Select',
                   ),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('TRANSFER LINE BUILDER', style: T.caps(10, color: Pal.goldDeep)),
-                    const SizedBox(height: 10),
-                    const FieldLabel('Stock kind'),
-                    GoldDropdown<String>(
-                      value: _stockKind,
-                      items: const [
-                        DropdownMenuItem(value: 'TAGGED_ARTICLE', child: Text('Tagged article')),
-                        DropdownMenuItem(value: 'MATERIAL_LOT', child: Text('Bullion material lot')),
-                      ],
-                      onChanged: (v) => setState(() {
-                        _stockKind = v ?? 'TAGGED_ARTICLE';
-                        _stockItemCtrl.clear();
-                      }),
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Available stock',
-                      controller: _stockItemCtrl,
-                      options: stockOptions,
-                      hint: 'Select available stock item',
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Destination custody',
-                      controller: _destCustodyCtrl,
-                      options: _lookup.locations,
-                      optional: true,
-                      hint: 'Destination location UUID',
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: _addLine,
-                      icon: const Icon(Icons.add_rounded, size: 17),
-                      label: const Text('Add transfer line'),
-                    ),
-                    if (_lines.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      for (var i = 0; i < _lines.length; i++)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Panel(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            child: Row(children: [
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Source transit custody',
+                    controller: _sourceTransitId,
+                    options: _lk.locationsByType(const ['TRANSIT', 'VAULT']),
+                    hint: 'Select',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Transfer series',
+                    controller: _seriesId,
+                    options: _lk.seriesFor(const ['TRANSFER', 'STOCK_TRANSFER']),
+                    hint: 'Select',
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: DatePickField(label: 'Business date', controller: _businessDate)),
+                      const SizedBox(width: 10),
+                      Expanded(child: DatePickField(label: 'Expected receipt', controller: _expectedReceipt)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(label: 'Description', controller: _description),
+                  const SizedBox(height: 12),
+                  SaasSubBox(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SaasDropdown(
+                          label: 'Stock kind',
+                          value: _stockKind,
+                          options: const {
+                            'TAGGED_ARTICLE': 'Tagged article',
+                            'MATERIAL_LOT': 'Material lot',
+                          },
+                          onChanged: (v) => setState(() {
+                            _stockKind = v;
+                            _stockId.clear();
+                          }),
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Available stock',
+                          controller: _stockId,
+                          options: _stockKind == 'TAGGED_ARTICLE' ? _lk.articles : _lk.lotBalances,
+                          hint: 'Select',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Destination custody',
+                          controller: _destCustodyId,
+                          options: _lk.locations,
+                          hint: 'Select',
+                        ),
+                        if (_stockKind == 'MATERIAL_LOT') ...[
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'Quantity grams',
+                            controller: _qtyGrams,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton(
+                            onPressed: _addLine,
+                            child: const Text('Add transfer line'),
+                          ),
+                        ),
+                        for (var i = 0; i < _lines.length; i++) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
                               Expanded(
                                 child: Text(
-                                  '${i + 1}. ${_lines[i]['_label']}',
-                                  style: T.body(12.5, w: FontWeight.w700),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                  '${_lines[i].stockLabel} → ${_lines[i].destinationLabel}',
+                                  style: T.body(12.2, w: FontWeight.w600),
                                 ),
                               ),
                               IconButton(
                                 visualDensity: VisualDensity.compact,
-                                icon: const Icon(Icons.close_rounded, size: 16, color: Pal.danger),
+                                icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
                                 onPressed: () => setState(() => _lines.removeAt(i)),
                               ),
-                            ]),
+                            ],
                           ),
-                        ),
-                    ],
-                  ]),
-                ),
-                const SizedBox(height: 16),
-                RoyalGoldButton(
-                  label: 'Create transfer (${_lines.length} line${_lines.length == 1 ? '' : 's'})',
-                  icon: Icons.local_shipping_outlined,
-                  busy: _busy,
-                  onPressed: _createTransfer,
-                ),
-              ]),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _createTransfer,
+                      child: Text(_busy ? 'Saving…' : 'Create transfer'),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SectionLabel('Stock Transfers'),
+            const SizedBox(height: 14),
             if (_loading)
-              const Panel(child: Skeleton(height: 80))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
-            else if (_transfers.isEmpty)
-              const Panel(
-                child: EmptyBlock(
-                  icon: Icons.swap_horiz_rounded,
-                  title: 'No stock transfers yet',
-                  body: 'Create a transfer request above to move tagged ornaments or bullion lots across branches.',
-                ),
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
               )
+            else if (_transfers.isEmpty)
+              const SaasEmptyBox('No inter-branch transfers yet.')
             else
               for (final t in _transfers)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Panel(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Expanded(
-                          child: Text(
-                            _pickStr(t, ['documentNumber', 'transferNumber', 'code'], 'Stock Transfer'),
-                            style: T.display(17),
-                          ),
+                  child: SectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${t['documentNumber'] ?? t['transferNumber'] ?? shortId('${t['id']}')} · ${asMap(t['destinationBranch'])['name'] ?? 'Branch Transfer'}',
+                                style: T.body(14, w: FontWeight.w700),
+                              ),
+                            ),
+                            StatusChip('${t['state'] ?? t['status'] ?? 'DRAFT'}'),
+                          ],
                         ),
-                        StatusPill(_pickStr(t, ['state', 'status'], 'DRAFT')),
-                      ]),
-                      const SizedBox(height: 8),
-                      KeyValue('Destination Branch', _pickStr(t, ['destinationBranch', 'toBranch'], '-'), strong: true),
-                      KeyValue('Business Date', formatDate(_pickStr(t, ['businessDate', 'createdAt']))),
-                      if (_pickStr(t, ['description']).isNotEmpty)
-                        KeyValue('Notes', _pickStr(t, ['description'])),
-                    ]),
+                        const SizedBox(height: 6),
+                        KVRow('Business / Expected', '${fmtDate('${t['businessDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}'),
+                        if ('${t['description'] ?? ''}'.isNotEmpty)
+                          KVRow('Description', '${t['description']}'),
+                      ],
+                    ),
                   ),
                 ),
           ],
@@ -1570,9 +1870,9 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
   }
 }
 
-// ============================================================================
-// 6. INTER-ENTITY TRADING — Screenshot 683 (`GET /inter-entity-trades`, `POST /inter-entity-trades`)
-// ============================================================================
+// ---------------------------------------------------------------------------
+// 6. INTER-ENTITY TRADING (`/inter-entity-trades`) — Screenshot (684)
+// ---------------------------------------------------------------------------
 
 class InterEntityTradingScreen extends StatefulWidget {
   const InterEntityTradingScreen({super.key});
@@ -1580,29 +1880,46 @@ class InterEntityTradingScreen extends StatefulWidget {
   State<InterEntityTradingScreen> createState() => _InterEntityTradingScreenState();
 }
 
+class _TradeDraftLine {
+  const _TradeDraftLine({
+    required this.sourceArticleId,
+    required this.articleLabel,
+    required this.destinationLocationId,
+    required this.newDestinationTag,
+    required this.taxableValue,
+    required this.igstAmount,
+  });
+  final String sourceArticleId;
+  final String articleLabel;
+  final String destinationLocationId;
+  final String newDestinationTag;
+  final String taxableValue;
+  final String igstAmount;
+}
+
 class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
-  WorkspaceLookup _lookup = WorkspaceLookup();
   List<Map<String, dynamic>> _trades = [];
+  WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
-  final _destEntityCtrl = TextEditingController();
-  final _destBranchCtrl = TextEditingController();
-  final _transitCtrl = TextEditingController();
-  final _seriesCtrl = TextEditingController();
+  final _destEntityId = TextEditingController();
+  final _destBranchId = TextEditingController();
+  final _sourceTransitId = TextEditingController();
+  final _seriesId = TextEditingController();
   String _taxTreatment = 'INTER_STATE_IGST';
-  final _currencyCtrl = TextEditingController(text: 'INR');
-  final _reqDateCtrl = TextEditingController(text: todayIso());
-  final _expDateCtrl = TextEditingController();
-  final _termsCtrl = TextEditingController();
+  final _currency = TextEditingController(text: 'INR');
+  final _requestDate = TextEditingController(text: todayIso());
+  final _expectedReceipt = TextEditingController(text: todayIso());
+  final _terms = TextEditingController();
 
-  final _sourceArticleCtrl = TextEditingController();
-  final _destLocCtrl = TextEditingController();
-  final _newTagCtrl = TextEditingController();
-  final _taxableCtrl = TextEditingController();
-  final _igstCtrl = TextEditingController(text: '0.00');
-  final List<Map<String, dynamic>> _lines = [];
+  final _sourceArticleId = TextEditingController();
+  final _destLocationId = TextEditingController();
+  final _newDestTag = TextEditingController();
+  final _taxableVal = TextEditingController();
+  final _igstAmt = TextEditingController(text: '0.00');
+  final List<_TradeDraftLine> _lines = [];
 
   @override
   void initState() {
@@ -1612,19 +1929,13 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
 
   @override
   void dispose() {
-    _destEntityCtrl.dispose();
-    _destBranchCtrl.dispose();
-    _transitCtrl.dispose();
-    _seriesCtrl.dispose();
-    _currencyCtrl.dispose();
-    _reqDateCtrl.dispose();
-    _expDateCtrl.dispose();
-    _termsCtrl.dispose();
-    _sourceArticleCtrl.dispose();
-    _destLocCtrl.dispose();
-    _newTagCtrl.dispose();
-    _taxableCtrl.dispose();
-    _igstCtrl.dispose();
+    for (final c in [
+      _destEntityId, _destBranchId, _sourceTransitId, _seriesId,
+      _currency, _requestDate, _expectedReceipt, _terms,
+      _sourceArticleId, _destLocationId, _newDestTag, _taxableVal, _igstAmt,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -1635,103 +1946,119 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
     });
     final api = context.read<ApiClient>();
     try {
-      final res = await Future.wait<dynamic>([
+      final res = await Future.wait([
         api.get('/inter-entity-trades'),
         WorkspaceLookup.load(
           api,
           includeParties: false,
-          includeOrganization: true,
           includeInventory: true,
           includeAccounting: true,
+          includeOrganization: true,
         ),
       ]);
       if (!mounted) return;
       setState(() {
-        _trades = asList(res[0], keys: const ['trades', 'interEntityTrades', 'items', 'rows']);
-        _lookup = res[1] as WorkspaceLookup;
+        _trades = asList(res[0], keys: const ['trades', 'interEntityTrades', 'items']);
+        _lk = res[1] as WorkspaceLookup;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   void _addLine() {
-    if (_sourceArticleCtrl.text.trim().isEmpty) {
-      toast(context, 'Select a source tagged article.', error: true);
+    if (_sourceArticleId.text.trim().isEmpty ||
+        _destLocationId.text.trim().isEmpty ||
+        _newDestTag.text.trim().isEmpty ||
+        _taxableVal.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Complete source article, destination location, new tag, and taxable value.')),
+      );
       return;
     }
-    if (!isValidAmount(_taxableCtrl.text)) {
-      toast(context, 'Enter a valid taxable value in INR.', error: true);
-      return;
-    }
-    final label = _lookup.articles
-            .where((a) => a.id == _sourceArticleCtrl.text.trim())
+    final label = _lk.articles
+            .where((a) => a.id == _sourceArticleId.text.trim())
             .firstOrNull
             ?.label ??
-        _sourceArticleCtrl.text.trim();
+        _sourceArticleId.text.trim();
     setState(() {
-      _lines.add({
-        'sourceArticleId': _sourceArticleCtrl.text.trim(),
-        if (_destLocCtrl.text.trim().isNotEmpty) 'destinationLocationId': _destLocCtrl.text.trim(),
-        if (_newTagCtrl.text.trim().isNotEmpty) 'destinationTagNumber': _newTagCtrl.text.trim(),
-        'taxableAmount': normAmount(_taxableCtrl.text),
-        'taxAmount': isValidAmount(_igstCtrl.text) ? normAmount(_igstCtrl.text) : '0.00',
-        '_label': label,
-      });
-      _sourceArticleCtrl.clear();
-      _newTagCtrl.clear();
-      _taxableCtrl.clear();
+      _lines.add(_TradeDraftLine(
+        sourceArticleId: _sourceArticleId.text.trim(),
+        articleLabel: label,
+        destinationLocationId: _destLocationId.text.trim(),
+        newDestinationTag: _newDestTag.text.trim().toUpperCase(),
+        taxableValue: _taxableVal.text.trim(),
+        igstAmount: _igstAmt.text.trim().isEmpty ? '0.00' : _igstAmt.text.trim(),
+      ));
+      _sourceArticleId.clear();
+      _newDestTag.clear();
+      _taxableVal.clear();
+      _igstAmt.text = '0.00';
     });
   }
 
   Future<void> _createTrade() async {
-    if (_destEntityCtrl.text.trim().isEmpty || _destBranchCtrl.text.trim().isEmpty) {
-      toast(context, 'Select Destination entity and Destination branch.', error: true);
+    if (_destEntityId.text.trim().isEmpty ||
+        _destBranchId.text.trim().isEmpty ||
+        _sourceTransitId.text.trim().isEmpty ||
+        _seriesId.text.trim().isEmpty) {
+      setState(() => _error = 'Select Destination entity, Destination branch, Source transit, and Trade series.');
       return;
     }
     if (_lines.isEmpty) {
-      toast(context, 'Add at least one trade line before creating the trade.', error: true);
-      return;
+      _addLine();
+      if (_lines.isEmpty) return;
     }
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await context.read<ApiClient>().post(
         '/inter-entity-trades',
-        idempotencyKey: const Uuid().v4(),
+        idempotent: true,
         body: {
-          'destinationLegalEntityId': _destEntityCtrl.text.trim(),
-          'destinationBranchId': _destBranchCtrl.text.trim(),
-          if (_transitCtrl.text.trim().isNotEmpty) 'sourceTransitLocationId': _transitCtrl.text.trim(),
-          if (_seriesCtrl.text.trim().isNotEmpty) 'documentSeriesId': _seriesCtrl.text.trim(),
+          'destinationLegalEntityId': _destEntityId.text.trim(),
+          'destinationBranchId': _destBranchId.text.trim(),
+          'sourceTransitLocationId': _sourceTransitId.text.trim(),
+          'documentSeriesId': _seriesId.text.trim(),
           'taxTreatment': _taxTreatment,
-          'currency': _currencyCtrl.text.trim().toUpperCase(),
-          'requestDate': _reqDateCtrl.text.trim(),
-          if (_expDateCtrl.text.trim().isNotEmpty) 'expectedReceiptDate': _expDateCtrl.text.trim(),
-          'terms': _termsCtrl.text.trim(),
+          'currency': _currency.text.trim().toUpperCase(),
+          'requestDate': _requestDate.text.trim(),
+          'expectedReceiptDate': _expectedReceipt.text.trim(),
+          if (_terms.text.trim().isNotEmpty) 'terms': _terms.text.trim(),
           'lines': _lines
-              .map((l) => Map<String, dynamic>.from(l)..remove('_label'))
+              .map((l) => {
+                    'sourceArticleId': l.sourceArticleId,
+                    'destinationLocationId': l.destinationLocationId,
+                    'newDestinationTag': l.newDestinationTag,
+                    'taxableAmount': l.taxableValue,
+                    'igstAmount': l.igstAmount,
+                  })
               .toList(),
         },
       );
-      setState(() {
-        _lines.clear();
-        _termsCtrl.clear();
-      });
-      await _load();
-      if (mounted) toast(context, 'Related-entity trade created.');
+      if (!mounted) return;
+      setState(() => _lines.clear());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Related-entity jewellery trade created.')),
+      );
+      _load();
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    if (mounted) setState(() => _busy = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final destBranches = _destEntityCtrl.text.trim().isEmpty
-        ? _lookup.branches
-        : _lookup.branches
-            .where((b) => '${b.raw['legalEntityId']}' == _destEntityCtrl.text.trim())
+    final destBranches = _destEntityId.text.trim().isEmpty
+        ? _lk.branches
+        : _lk.branches
+            .where((b) => '${b.raw['legalEntityId'] ?? ''}' == _destEntityId.text.trim())
             .toList();
 
     return Scaffold(
@@ -1743,200 +2070,198 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
             const SaasModuleHeader(
-              icon: Icons.domain_rounded,
-              badge: 'Multi-Entity Commerce',
-              title: 'Inter-Company Related-Entity Trading',
+              icon: Icons.domain_add_rounded,
+              title: 'Related-Entity Jewellery Trading',
               subtitle:
-                  'Arm\'s-length trades between separate legal entities in the same tenant, with dual journals, GST, AP/AR open items, and consolidation elimination schedules.',
+                  'Symmetric sale and purchase arms, GST-ready line economics, transit custody, and elimination-ready references.',
             ),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
             const SizedBox(height: 14),
-            Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('New related-entity trade', style: T.display(18)),
-                const SizedBox(height: 14),
-                LookupField(
-                  label: 'Destination entity',
-                  controller: _destEntityCtrl,
-                  options: _lookup.legalEntities,
-                  onSelected: (_) => setState(() => _destBranchCtrl.clear()),
-                ),
-                const SizedBox(height: 12),
-                LookupField(
-                  label: 'Destination branch',
-                  controller: _destBranchCtrl,
-                  options: destBranches,
-                ),
-                const SizedBox(height: 12),
-                LookupField(
-                  label: 'Source transit',
-                  controller: _transitCtrl,
-                  options: _lookup.locations,
-                  hint: 'Select source transit custody',
-                ),
-                const SizedBox(height: 12),
-                LookupField(
-                  label: 'Trade series',
-                  controller: _seriesCtrl,
-                  options: _lookup.seriesFor(const ['TRADE', 'INTER', 'SALES']),
-                ),
-                const SizedBox(height: 12),
-                ResponsiveGrid2(children: [
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const FieldLabel('Tax treatment'),
-                    GoldDropdown<String>(
-                      value: _taxTreatment,
-                      items: const [
-                        DropdownMenuItem(value: 'INTER_STATE_IGST', child: Text('Inter-state IGST')),
-                        DropdownMenuItem(value: 'INTRA_STATE_CGST_SGST', child: Text('Intra-state CGST+SGST')),
-                      ],
-                      onChanged: (v) => setState(() => _taxTreatment = v ?? 'INTER_STATE_IGST'),
-                    ),
-                  ]),
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const FieldLabel('Currency'),
-                    TextField(controller: _currencyCtrl, style: T.mono(13.5)),
-                  ]),
-                ]),
-                const SizedBox(height: 12),
-                ResponsiveGrid2(children: [
-                  DatePickField(label: 'Request date', controller: _reqDateCtrl),
-                  DatePickField(label: 'Expected receipt', controller: _expDateCtrl, optional: true),
-                ]),
-                const SizedBox(height: 12),
-                const FieldLabel('Terms'),
-                TextField(
-                  controller: _termsCtrl,
-                  decoration: const InputDecoration(hintText: 'Arm\'s-length settlement & dispatch terms'),
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Pal.surfaceAlt,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Pal.line),
+            SaasFormCard(
+              title: 'New related-entity trade',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  LookupField(
+                    label: 'Destination entity',
+                    controller: _destEntityId,
+                    options: _lk.legalEntities,
+                    hint: 'Select',
+                    onSelected: (_) => setState(() => _destBranchId.clear()),
                   ),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('TRADE LINE BUILDER', style: T.caps(10, color: Pal.goldDeep)),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Source article',
-                      controller: _sourceArticleCtrl,
-                      options: _lookup.articles,
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Destination location',
-                      controller: _destLocCtrl,
-                      options: _lookup.locations,
-                      optional: true,
-                    ),
-                    const SizedBox(height: 10),
-                    const FieldLabel('New destination tag'),
-                    TextField(
-                      controller: _newTagCtrl,
-                      style: T.mono(13),
-                      decoration: const InputDecoration(hintText: 'Destination barcode / tag number'),
-                    ),
-                    const SizedBox(height: 10),
-                    ResponsiveGrid2(children: [
-                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const FieldLabel('Taxable value'),
-                        TextField(
-                          controller: _taxableCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          style: T.mono(13.5),
-                          decoration: const InputDecoration(hintText: '0.00'),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Destination branch',
+                    controller: _destBranchId,
+                    options: destBranches.isNotEmpty ? destBranches : _lk.branches,
+                    hint: 'Select',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Source transit',
+                    controller: _sourceTransitId,
+                    options: _lk.locationsByType(const ['TRANSIT', 'VAULT']),
+                    hint: 'Select',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Trade series',
+                    controller: _seriesId,
+                    options: _lk.seriesFor(const ['TRADE', 'INTER_ENTITY']),
+                    hint: 'Select',
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: SaasDropdown(
+                          label: 'Tax treatment',
+                          value: _taxTreatment,
+                          options: const {
+                            'INTER_STATE_IGST': 'Inter-state IGST',
+                            'INTRA_STATE_CGST_SGST': 'Intra-state CGST+SGST',
+                          },
+                          onChanged: (v) => setState(() => _taxTreatment = v),
                         ),
-                      ]),
-                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const FieldLabel('IGST / Tax'),
-                        TextField(
-                          controller: _igstCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          style: T.mono(13.5),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(label: 'Currency', controller: _currency, mono: true),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: DatePickField(label: 'Request date', controller: _requestDate)),
+                      const SizedBox(width: 10),
+                      Expanded(child: DatePickField(label: 'Expected receipt', controller: _expectedReceipt)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(label: 'Terms', controller: _terms),
+                  const SizedBox(height: 12),
+                  SaasSubBox(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LookupField(
+                          label: 'Source article',
+                          controller: _sourceArticleId,
+                          options: _lk.articles,
+                          hint: 'Select',
                         ),
-                      ]),
-                    ]),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: _addLine,
-                      icon: const Icon(Icons.add_rounded, size: 17),
-                      label: const Text('Add line'),
-                    ),
-                    if (_lines.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      for (var i = 0; i < _lines.length; i++)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Panel(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            child: Row(children: [
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Destination location',
+                          controller: _destLocationId,
+                          options: _lk.locations,
+                          hint: 'Select',
+                        ),
+                        const SizedBox(height: 10),
+                        SaasField(
+                          label: 'New destination tag',
+                          controller: _newDestTag,
+                          mono: true,
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SaasField(
+                                label: 'Taxable value',
+                                controller: _taxableVal,
+                                mono: true,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: SaasField(
+                                label: 'IGST',
+                                controller: _igstAmt,
+                                mono: true,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton(
+                            onPressed: _addLine,
+                            child: const Text('Add line'),
+                          ),
+                        ),
+                        for (var i = 0; i < _lines.length; i++) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
                               Expanded(
                                 child: Text(
-                                  '${_lines[i]['_label']} · ${inr(_lines[i]['taxableAmount'])}',
-                                  style: T.body(12.5, w: FontWeight.w700),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                  '${_lines[i].articleLabel} → ${_lines[i].newDestinationTag} · ₹${_lines[i].taxableValue}',
+                                  style: T.body(12.2, w: FontWeight.w600),
                                 ),
                               ),
                               IconButton(
                                 visualDensity: VisualDensity.compact,
-                                icon: const Icon(Icons.close_rounded, size: 16, color: Pal.danger),
+                                icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
                                 onPressed: () => setState(() => _lines.removeAt(i)),
                               ),
-                            ]),
+                            ],
                           ),
-                        ),
-                    ],
-                  ]),
-                ),
-                const SizedBox(height: 16),
-                RoyalGoldButton(
-                  label: 'Create trade',
-                  icon: Icons.swap_calls_rounded,
-                  busy: _busy,
-                  onPressed: _createTrade,
-                ),
-              ]),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _createTrade,
+                      child: Text(_busy ? 'Saving…' : 'Create trade'),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SectionLabel('Related-Entity Trades'),
+            const SizedBox(height: 14),
             if (_loading)
-              const Panel(child: Skeleton(height: 80))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
-            else if (_trades.isEmpty)
-              const Panel(
-                child: EmptyBlock(
-                  icon: Icons.domain_rounded,
-                  title: 'No related-entity trades yet',
-                  body: 'Create an arm\'s-length trade between authorized legal entities above.',
-                ),
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
               )
+            else if (_trades.isEmpty)
+              const SaasEmptyBox('No related-entity jewellery trades yet.')
             else
               for (final t in _trades)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Panel(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Expanded(
-                          child: Text(
-                            _pickStr(t, ['documentNumber', 'tradeNumber', 'code'], 'Inter-Entity Trade'),
-                            style: T.display(17),
-                          ),
+                  child: SectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${t['documentNumber'] ?? t['tradeNumber'] ?? shortId('${t['id']}')} · ${asMap(t['destinationLegalEntity'])['legalName'] ?? 'Inter-Entity Trade'}',
+                                style: T.body(14, w: FontWeight.w700),
+                              ),
+                            ),
+                            StatusChip('${t['state'] ?? t['status'] ?? 'DRAFT'}'),
+                          ],
                         ),
-                        StatusPill(_pickStr(t, ['state', 'status'], 'DRAFT')),
-                      ]),
-                      const SizedBox(height: 8),
-                      KeyValue('Destination Entity', _pickStr(t, ['destinationEntity', 'destinationLegalEntity'], '-'), strong: true),
-                      if (_pickStr(t, ['totalAmount', 'taxableAmount']).isNotEmpty)
-                        KeyValue('Total Value', inr(_pickStr(t, ['totalAmount', 'taxableAmount'])), mono: true),
-                      KeyValue('Request Date', formatDate(_pickStr(t, ['requestDate', 'createdAt']))),
-                    ]),
+                        const SizedBox(height: 6),
+                        KVRow('Request / Expected', '${fmtDate('${t['requestDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}'),
+                        KVRow('Total Amount', inr(t['totalAmount'] ?? t['taxableAmount']), bold: true),
+                      ],
+                    ),
                   ),
                 ),
           ],

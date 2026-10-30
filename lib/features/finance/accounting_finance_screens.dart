@@ -11,41 +11,11 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/workspace_lookup.dart';
 
-String _fStr(Map<String, dynamic> m, List<String> keys, [String fallback = '']) {
-  for (final k in keys) {
-    final v = m[k];
-    if (v is Map) {
-      final inner = v['displayName'] ?? v['legalName'] ?? v['name'] ?? v['code'];
-      if (inner != null && '$inner'.isNotEmpty) return '$inner';
-    } else if (v != null && '$v'.isNotEmpty && v is! List) {
-      return '$v';
-    }
-  }
-  return fallback;
-}
+const _uuid = Uuid();
 
-// ============================================================================
-// 1. DOUBLE-ENTRY ACCOUNTING — Screenshots 685–688 (`/accounting/workspace`)
-// ============================================================================
-
-class _JournalDraftLine {
-  _JournalDraftLine()
-      : accountCtrl = TextEditingController(),
-        descCtrl = TextEditingController(),
-        debitCtrl = TextEditingController(text: '0.00'),
-        creditCtrl = TextEditingController(text: '0.00');
-  final TextEditingController accountCtrl;
-  final TextEditingController descCtrl;
-  final TextEditingController debitCtrl;
-  final TextEditingController creditCtrl;
-
-  void dispose() {
-    accountCtrl.dispose();
-    descCtrl.dispose();
-    debitCtrl.dispose();
-    creditCtrl.dispose();
-  }
-}
+// ---------------------------------------------------------------------------
+// 1. DOUBLE-ENTRY ACCOUNTING (`/accounting/workspace`) — Screenshots 683,686-688
+// ---------------------------------------------------------------------------
 
 class DoubleEntryAccountingScreen extends StatefulWidget {
   const DoubleEntryAccountingScreen({super.key});
@@ -53,44 +23,82 @@ class DoubleEntryAccountingScreen extends StatefulWidget {
   State<DoubleEntryAccountingScreen> createState() => _DoubleEntryAccountingScreenState();
 }
 
+class _JournalDraftLine {
+  _JournalDraftLine()
+      : desc = TextEditingController(),
+        debit = TextEditingController(text: '0'),
+        credit = TextEditingController(text: '0');
+  String accountId = '';
+  final TextEditingController desc;
+  final TextEditingController debit;
+  final TextEditingController credit;
+
+  void dispose() {
+    desc.dispose();
+    debit.dispose();
+    credit.dispose();
+  }
+}
+
 class _DoubleEntryAccountingScreenState extends State<DoubleEntryAccountingScreen> {
-  String _tab = 'JOURNAL';
+  Map<String, dynamic> _ws = const {};
+  WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  bool _showSetup = false;
+  bool _showMappingRefs = false;
 
-  WorkspaceLookup _lookup = WorkspaceLookup();
-  List<Map<String, dynamic>> _fys = [];
-  List<Map<String, dynamic>> _accounts = [];
-  List<Map<String, dynamic>> _journals = [];
-  List<Map<String, dynamic>> _workflows = [];
+  // Setup forms (`AccountingPanel.tsx`)
+  final _fyLabel = TextEditingController();
+  final _fyStart = TextEditingController(text: '${DateTime.now().year}-04-01');
+  final _fyEnd = TextEditingController(text: '${DateTime.now().year + 1}-03-31');
 
-  // Manual Adjustment Draft (Screenshot 685)
-  final _periodCtrl = TextEditingController();
-  final _seriesCtrl = TextEditingController();
-  final _dateCtrl = TextEditingController(text: todayIso());
-  final _adjDescCtrl = TextEditingController();
-  final _reasonCtrl = TextEditingController();
-  late final List<_JournalDraftLine> _lines = [_JournalDraftLine(), _JournalDraftLine()];
+  final _perFyId = TextEditingController();
+  final _perCode = TextEditingController();
+  final _perName = TextEditingController();
+  final _perStart = TextEditingController(text: monthStartIso());
+  final _perEnd = TextEditingController(text: todayIso());
 
-  // Period Control Note (Screenshot 685)
-  final _periodNoteCtrl = TextEditingController();
+  final _serFyId = TextEditingController();
+  final _serDocType = TextEditingController(text: 'JOURNAL');
+  final _serKey = TextEditingController(text: 'MANUAL');
+  final _serPrefix = TextEditingController(text: 'JV/');
+
+  final _acctCode = TextEditingController();
+  final _acctName = TextEditingController();
+  String _acctGroup = 'ASSET';
+  String _acctControl = 'NONE';
+
+  // Manual adjustment draft (Screenshot 683/685)
+  final _jPeriodId = TextEditingController();
+  final _jSeriesId = TextEditingController();
+  final _jDate = TextEditingController(text: todayIso());
+  final _jDesc = TextEditingController();
+  final _jReason = TextEditingController();
+  final List<_JournalDraftLine> _jLines = [_JournalDraftLine(), _JournalDraftLine()];
+
+  // Period control reason (Screenshot 685)
+  final _periodActionReason = TextEditingController(
+    text: 'Approved after reviewing the accounting source and supporting evidence.',
+  );
 
   // Profit & Loss / Balance Sheet (Screenshot 686)
-  String _statementKind = 'PROFIT_AND_LOSS';
-  final _stmtStartCtrl = TextEditingController(text: monthStartIso());
-  final _stmtEndCtrl = TextEditingController(text: todayIso());
-  final _stmtCurrencyCtrl = TextEditingController(text: 'INR');
-  Map<String, dynamic>? _statementResult;
+  String _stmtKind = 'PROFIT_AND_LOSS';
+  final _stmtStart = TextEditingController(text: monthStartIso());
+  final _stmtEnd = TextEditingController(text: todayIso());
+  final _stmtCurrency = TextEditingController(text: 'INR');
+  Map<String, dynamic>? _stmtData;
 
-  // Stage Opening Data & Annual Close (Screenshots 687–688)
-  final _closeReasonCtrl = TextEditingController();
-  final _evidenceCtrl = TextEditingController();
-  final _openingJsonCtrl = TextEditingController();
-  final _completedFyCtrl = TextEditingController();
-  final _nextFyCtrl = TextEditingController();
-  final _closingSeriesCtrl = TextEditingController();
-  final _retainedAcctCtrl = TextEditingController();
+  // Opening data and annual close (Screenshots 687 & 688)
+  final _closeReason = TextEditingController();
+  final _closeEvidence = TextEditingController();
+  final _openingJson = TextEditingController();
+  final _completedFyId = TextEditingController();
+  final _nextFyId = TextEditingController();
+  final _closingSeriesId = TextEditingController();
+  final _retainedEquityAcctId = TextEditingController();
+  String _workflowRecordId = '';
 
   @override
   void initState() {
@@ -100,24 +108,17 @@ class _DoubleEntryAccountingScreenState extends State<DoubleEntryAccountingScree
 
   @override
   void dispose() {
-    _periodCtrl.dispose();
-    _seriesCtrl.dispose();
-    _dateCtrl.dispose();
-    _adjDescCtrl.dispose();
-    _reasonCtrl.dispose();
-    _periodNoteCtrl.dispose();
-    _stmtStartCtrl.dispose();
-    _stmtEndCtrl.dispose();
-    _stmtCurrencyCtrl.dispose();
-    _closeReasonCtrl.dispose();
-    _evidenceCtrl.dispose();
-    _openingJsonCtrl.dispose();
-    _completedFyCtrl.dispose();
-    _nextFyCtrl.dispose();
-    _closingSeriesCtrl.dispose();
-    _retainedAcctCtrl.dispose();
-    for (final l in _lines) {
+    for (final l in _jLines) {
       l.dispose();
+    }
+    for (final c in [
+      _fyLabel, _fyStart, _fyEnd, _perFyId, _perCode, _perName, _perStart, _perEnd,
+      _serFyId, _serDocType, _serKey, _serPrefix, _acctCode, _acctName,
+      _jPeriodId, _jSeriesId, _jDate, _jDesc, _jReason, _periodActionReason,
+      _stmtStart, _stmtEnd, _stmtCurrency, _closeReason, _closeEvidence, _openingJson,
+      _completedFyId, _nextFyId, _closingSeriesId, _retainedEquityAcctId,
+    ]) {
+      c.dispose();
     }
     super.dispose();
   }
@@ -129,364 +130,200 @@ class _DoubleEntryAccountingScreenState extends State<DoubleEntryAccountingScree
     });
     final api = context.read<ApiClient>();
     try {
-      final res = await Future.wait<dynamic>([
+      final res = await Future.wait([
         api.get('/accounting/workspace'),
         WorkspaceLookup.load(api, includeParties: false, includeAccounting: true),
       ]);
       if (!mounted) return;
-      final ws = asMap(res[0]);
       final lk = res[1] as WorkspaceLookup;
+      if (_jPeriodId.text.isEmpty && lk.openPeriods().isNotEmpty) {
+        _jPeriodId.text = lk.openPeriods().first.id;
+      }
+      if (_jSeriesId.text.isEmpty) {
+        final js = lk.seriesFor(const ['JOURNAL']);
+        if (js.isNotEmpty) _jSeriesId.text = js.first.id;
+      }
       setState(() {
-        _fys = asList(ws['financialYears'] ?? const []);
-        _accounts = asList(ws['accounts'] ?? const []);
-        _journals = asList(ws['journals'] ?? const []);
-        _workflows = asList(ws['workflows'] ?? ws['openingCloseWorkflows'] ?? const []);
-        _lookup = lk;
-        if (_periodCtrl.text.isEmpty && lk.openPeriods().isNotEmpty) {
-          _periodCtrl.text = lk.openPeriods().first.id;
-        }
-        final jSeries = lk.seriesFor(const ['JOURNAL']);
-        if (_seriesCtrl.text.isEmpty && jSeries.isNotEmpty) {
-          _seriesCtrl.text = jSeries.first.id;
-        }
+        _ws = asMap(res[0]);
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
-  Decimal get _totalDebit =>
-      _lines.fold<Decimal>(Decimal.zero, (s, l) => s + decOrZero(l.debitCtrl.text));
-
-  Decimal get _totalCredit =>
-      _lines.fold<Decimal>(Decimal.zero, (s, l) => s + decOrZero(l.creditCtrl.text));
-
-  bool get _isBalanced => _totalDebit > Decimal.zero && _totalDebit == _totalCredit;
+  Future<void> _runMutation(Future<void> Function(ApiClient api) fn, String okMsg) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await fn(context.read<ApiClient>());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(okMsg)));
+      _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _saveBalancedDraft() async {
-    if (_periodCtrl.text.trim().isEmpty || _seriesCtrl.text.trim().isEmpty) {
-      toast(context, 'Select an Open period and Journal series.', error: true);
+    if (_jPeriodId.text.trim().isEmpty ||
+        _jSeriesId.text.trim().isEmpty ||
+        _jDesc.text.trim().length < 5 ||
+        _jReason.text.trim().length < 10) {
+      setState(() => _error = 'Select Open period, Journal series, Adjustment description (5+ chars), and Business reason (10+ chars).');
       return;
     }
-    if (_reasonCtrl.text.trim().length < 10) {
-      toast(context, 'Business reason must be at least 10 characters.', error: true);
+    final valid = _jLines.where((l) => l.accountId.isNotEmpty && l.desc.text.trim().isNotEmpty).toList();
+    if (valid.length < 2) {
+      setState(() => _error = 'Provide at least 2 balanced journal lines with account and line description.');
       return;
     }
-    if (!_isBalanced) {
-      toast(context, 'Journal lines must be positive and strictly balanced (Debit = Credit).', error: true);
+    var dr = Decimal.zero;
+    var cr = Decimal.zero;
+    for (final l in valid) {
+      dr += dParse(l.debit.text.trim());
+      cr += dParse(l.credit.text.trim());
+    }
+    if (dr <= Decimal.zero || dr != cr) {
+      setState(() => _error = 'Debits (${dStr2(dr)}) must equal Credits (${dStr2(cr)}) and be > 0.');
       return;
     }
-    for (final l in _lines) {
-      if (l.accountCtrl.text.trim().isEmpty) {
-        toast(context, 'Select an Account on every journal line.', error: true);
-        return;
-      }
-    }
-    setState(() => _busy = true);
-    try {
-      await context.read<ApiClient>().post(
-        '/accounting/journals',
-        idempotencyKey: const Uuid().v4(),
-        body: {
-          'postingPeriodId': _periodCtrl.text.trim(),
-          'documentSeriesId': _seriesCtrl.text.trim(),
-          'businessDate': _dateCtrl.text.trim(),
+    await _runMutation(
+      (api) async {
+        await api.post('/accounting/journals', idempotent: true, body: {
+          'postingPeriodId': _jPeriodId.text.trim(),
+          'documentSeriesId': _jSeriesId.text.trim(),
+          'businessDate': _jDate.text.trim(),
           'sourceType': 'MANUAL_ADJUSTMENT',
-          'sourceId': const Uuid().v4(),
-          'sourceAction': 'ADJUSTMENT',
-          'description': _adjDescCtrl.text.trim().isEmpty ? 'Manual Ledger Adjustment' : _adjDescCtrl.text.trim(),
-          'reason': _reasonCtrl.text.trim(),
+          'sourceId': _uuid.v4(),
+          'sourceAction': 'CREATE',
+          'description': _jDesc.text.trim(),
+          'reason': _jReason.text.trim(),
           'currency': 'INR',
-          'lines': [
-            for (final l in _lines)
-              {
-                'accountId': l.accountCtrl.text.trim(),
-                'description': l.descCtrl.text.trim().isEmpty ? 'Adjustment line' : l.descCtrl.text.trim(),
-                'debit': normAmount(l.debitCtrl.text),
-                'credit': normAmount(l.creditCtrl.text),
-              },
-          ],
-        },
-      );
-      _adjDescCtrl.clear();
-      _reasonCtrl.clear();
-      await _load();
-      if (mounted) toast(context, 'Balanced manual journal draft saved.');
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    }
-    if (mounted) setState(() => _busy = false);
-  }
-
-  Future<void> _postJournal(Map<String, dynamic> j) async {
-    final id = _fStr(j, ['id']);
-    if (id.isEmpty) return;
-    try {
-      await context.read<ApiClient>().post(
-        '/accounting/journals/$id/post',
-        idempotencyKey: const Uuid().v4(),
-        body: {
-          'expectedVersion': (j['version'] as num?)?.toInt() ?? 1,
-          'reason': 'Posted balanced journal to immutable ledger.',
-        },
-      );
-      await _load();
-      if (mounted) toast(context, 'Journal posted to general ledger.');
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    }
-  }
-
-  Future<void> _togglePeriod(Map<String, dynamic> p, bool close) async {
-    final id = _fStr(p, ['id']);
-    final note = _periodNoteCtrl.text.trim();
-    if (note.length < 10) {
-      toast(context, 'Enter a Period control note (min 10 chars) before changing period state.', error: true);
-      return;
-    }
-    try {
-      await context.read<ApiClient>().post(
-        '/accounting/posting-periods/$id/${close ? 'close' : 'reopen'}',
-        idempotencyKey: const Uuid().v4(),
-        body: {
-          'expectedVersion': (p['version'] as num?)?.toInt() ?? 1,
-          'reason': note,
-        },
-      );
-      await _load();
-      if (mounted) toast(context, close ? 'Posting period closed.' : 'Posting period reopened.');
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    }
+          'lines': valid
+              .map((l) => {
+                    'accountId': l.accountId,
+                    'description': l.desc.text.trim(),
+                    'debit': dStr2(dParse(l.debit.text.trim())),
+                    'credit': dStr2(dParse(l.credit.text.trim())),
+                  })
+              .toList(),
+        });
+        _jDesc.clear();
+        _jReason.clear();
+      },
+      'Balanced manual adjustment draft saved.',
+    );
   }
 
   Future<void> _generateStatement() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     final api = context.read<ApiClient>();
     try {
-      Map<String, dynamic> data;
+      dynamic res;
       try {
-        data = asMap(await api.get('/accounting/statements', query: {
-          'kind': _statementKind,
-          'startDate': _stmtStartCtrl.text.trim(),
-          'endDate': _stmtEndCtrl.text.trim(),
-          'currency': _stmtCurrencyCtrl.text.trim(),
-        }));
+        res = await api.get('/accounting/statements', query: {
+          'statement': _stmtKind,
+          'startDate': _stmtStart.text.trim(),
+          'endDate': _stmtEnd.text.trim(),
+          'currency': _stmtCurrency.text.trim().toUpperCase(),
+        });
       } on ApiException {
-        data = asMap(await api.get('/reports/trial-balance', query: {
-          'asOfDate': _stmtEndCtrl.text.trim(),
-        }));
+        res = await api.get('/reports/trial-balance', query: {
+          'asOfDate': _stmtEnd.text.trim(),
+        });
       }
-      if (mounted) setState(() => _statementResult = data);
+      if (!mounted) return;
+      setState(() => _stmtData = asMap(res));
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    if (mounted) setState(() => _busy = false);
   }
 
   void _populateOpeningTemplate() {
-    final template = {
+    final sample = {
+      'cutoverDate': todayIso(),
       'currency': 'INR',
-      'asOfDate': todayIso(),
       'balances': [
-        for (final a in _accounts.take(4))
+        for (final a in _lk.accounts.take(2))
           {
-            'accountId': a['id'],
-            'accountCode': a['code'],
+            'accountId': a.id,
             'debit': '0.00',
             'credit': '0.00',
           },
       ],
     };
     setState(() {
-      _openingJsonCtrl.text = const JsonEncoder.withIndent('  ').convert(template);
+      _openingJson.text = const JsonEncoder.withIndent('  ').convert(sample);
     });
   }
 
-  Future<void> _stageOpeningData() async {
-    if (_closeReasonCtrl.text.trim().length < 10) {
-      toast(context, 'Enter Business reason (min 10 chars).', error: true);
+  Future<void> _stageOpeningSnapshot() async {
+    if (_closeReason.text.trim().length < 10 || _openingJson.text.trim().isEmpty) {
+      setState(() => _error = 'Enter Business reason (10+ chars) and Opening JSON payload.');
       return;
     }
-    if (_openingJsonCtrl.text.trim().isEmpty) {
-      toast(context, 'Generate or paste Opening JSON payload first.', error: true);
-      return;
-    }
-    setState(() => _busy = true);
+    dynamic parsed;
     try {
-      final parsed = jsonDecode(_openingJsonCtrl.text.trim());
-      await context.read<ApiClient>().post(
-        '/accounting/opening-balances',
-        idempotencyKey: const Uuid().v4(),
-        body: {
-          'reason': _closeReasonCtrl.text.trim(),
-          'evidence': _evidenceCtrl.text.trim(),
-          'payload': parsed,
-        },
-      );
-      await _load();
-      if (mounted) toast(context, 'Opening data staged for review.');
-    } on FormatException {
-      if (mounted) toast(context, 'Invalid JSON syntax in opening payload.', error: true);
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      parsed = jsonDecode(_openingJson.text.trim());
+    } catch (_) {
+      setState(() => _error = 'Opening data must be valid JSON.');
+      return;
     }
-    if (mounted) setState(() => _busy = false);
+    await _runMutation(
+      (api) async {
+        await api.post('/accounting/opening-snapshots', idempotent: true, body: {
+          'reason': _closeReason.text.trim(),
+          if (_closeEvidence.text.trim().isNotEmpty) 'evidence': _closeEvidence.text.trim(),
+          'payload': parsed,
+        });
+      },
+      'Opening snapshot validated & staged.',
+    );
   }
 
   Future<void> _prepareAnnualClose() async {
-    if (_completedFyCtrl.text.trim().isEmpty || _nextFyCtrl.text.trim().isEmpty) {
-      toast(context, 'Select Completed financial year and Contiguous next financial year.', error: true);
+    if (_completedFyId.text.trim().isEmpty ||
+        _nextFyId.text.trim().isEmpty ||
+        _closingSeriesId.text.trim().isEmpty ||
+        _retainedEquityAcctId.text.trim().isEmpty ||
+        _closeReason.text.trim().length < 10) {
+      setState(() => _error = 'Select Completed FY, Next FY, Closing JOURNAL series, Retained earnings equity account, and Business reason.');
       return;
     }
-    setState(() => _busy = true);
-    try {
-      await context.read<ApiClient>().post(
-        '/accounting/annual-close',
-        idempotencyKey: const Uuid().v4(),
-        body: {
-          'completedFinancialYearId': _completedFyCtrl.text.trim(),
-          'nextFinancialYearId': _nextFyCtrl.text.trim(),
-          if (_closingSeriesCtrl.text.trim().isNotEmpty) 'closingSeriesId': _closingSeriesCtrl.text.trim(),
-          if (_retainedAcctCtrl.text.trim().isNotEmpty) 'retainedEarningsAccountId': _retainedAcctCtrl.text.trim(),
-          'reason': _closeReasonCtrl.text.trim(),
-          'evidence': _evidenceCtrl.text.trim(),
-        },
-      );
-      await _load();
-      if (mounted) toast(context, 'Annual close workflow prepared.');
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    }
-    if (mounted) setState(() => _busy = false);
-  }
-
-  Future<void> _quickSetupDialog(String kind) async {
-    final c1 = TextEditingController();
-    final c2 = TextEditingController();
-    final c3 = TextEditingController();
-    String group = 'ASSET';
-    String docType = 'JOURNAL';
-    String fyId = _fys.isNotEmpty ? '${_fys.first['id']}' : '';
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-          backgroundColor: Pal.card,
-          title: Text(
-            kind == 'FY'
-                ? 'New Financial Year'
-                : kind == 'SERIES'
-                    ? 'New Document Series'
-                    : 'New Ledger Account',
-            style: T.display(19),
-          ),
-          content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              if (kind == 'FY') ...[
-                TextField(controller: c1, decoration: const InputDecoration(labelText: 'Label (e.g. FY 2026-27)')),
-                const SizedBox(height: 10),
-                TextField(controller: c2, style: T.mono(13.5), decoration: const InputDecoration(labelText: 'Start Date (YYYY-MM-DD)', hintText: '2026-04-01')),
-                const SizedBox(height: 10),
-                TextField(controller: c3, style: T.mono(13.5), decoration: const InputDecoration(labelText: 'End Date (YYYY-MM-DD)', hintText: '2027-03-31')),
-              ] else if (kind == 'SERIES') ...[
-                if (_fys.isNotEmpty)
-                  GoldDropdown<String>(
-                    value: fyId,
-                    labelText: 'Financial Year',
-                    items: [
-                      for (final fy in _fys)
-                        DropdownMenuItem(value: '${fy['id']}', child: Text('${fy['label']}')),
-                    ],
-                    onChanged: (v) => setLocal(() => fyId = v ?? fyId),
-                  ),
-                const SizedBox(height: 10),
-                GoldDropdown<String>(
-                  value: docType,
-                  labelText: 'Document Type',
-                  items: const [
-                    DropdownMenuItem(value: 'JOURNAL', child: Text('JOURNAL')),
-                    DropdownMenuItem(value: 'SALES_INVOICE', child: Text('SALES_INVOICE')),
-                    DropdownMenuItem(value: 'PURCHASE_ORDER', child: Text('PURCHASE_ORDER')),
-                    DropdownMenuItem(value: 'GOODS_RECEIPT', child: Text('GOODS_RECEIPT')),
-                    DropdownMenuItem(value: 'SUPPLIER_BILL', child: Text('SUPPLIER_BILL')),
-                    DropdownMenuItem(value: 'JOB_WORK', child: Text('JOB_WORK')),
-                    DropdownMenuItem(value: 'APPROVAL_MEMO', child: Text('APPROVAL_MEMO')),
-                  ],
-                  onChanged: (v) => setLocal(() => docType = v ?? 'JOURNAL'),
-                ),
-                const SizedBox(height: 10),
-                TextField(controller: c1, style: T.mono(13.5), decoration: const InputDecoration(labelText: 'Series Key (e.g. JRN-HQ)')),
-                const SizedBox(height: 10),
-                TextField(controller: c2, style: T.mono(13.5), decoration: const InputDecoration(labelText: 'Prefix (e.g. JRN/26-27/)')),
-              ] else ...[
-                TextField(controller: c1, style: T.mono(13.5), decoration: const InputDecoration(labelText: 'Account Code (e.g. 1010)')),
-                const SizedBox(height: 10),
-                TextField(controller: c2, decoration: const InputDecoration(labelText: 'Account Name')),
-                const SizedBox(height: 10),
-                GoldDropdown<String>(
-                  value: group,
-                  labelText: 'Account Group',
-                  items: const [
-                    DropdownMenuItem(value: 'ASSET', child: Text('ASSET')),
-                    DropdownMenuItem(value: 'LIABILITY', child: Text('LIABILITY')),
-                    DropdownMenuItem(value: 'EQUITY', child: Text('EQUITY')),
-                    DropdownMenuItem(value: 'INCOME', child: Text('INCOME')),
-                    DropdownMenuItem(value: 'EXPENSE', child: Text('EXPENSE')),
-                  ],
-                  onChanged: (v) => setLocal(() => group = v ?? 'ASSET'),
-                ),
-              ],
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(
-              style: FilledButton.styleFrom(minimumSize: const Size(110, 42)),
-              onPressed: () async {
-                final api = context.read<ApiClient>();
-                try {
-                  if (kind == 'FY') {
-                    await api.post('/accounting/financial-years', body: {
-                      'label': c1.text.trim(),
-                      'startDate': c2.text.trim(),
-                      'endDate': c3.text.trim(),
-                    });
-                  } else if (kind == 'SERIES') {
-                    await api.post('/accounting/document-series', body: {
-                      'financialYearId': fyId,
-                      'documentType': docType,
-                      'seriesKey': c1.text.trim().toUpperCase(),
-                      'prefix': c2.text.trim().toUpperCase(),
-                      'padding': 5,
-                    });
-                  } else {
-                    await api.post('/accounting/accounts', body: {
-                      'code': c1.text.trim(),
-                      'name': c2.text.trim(),
-                      'group': group,
-                      'controlType': 'NONE',
-                      'currency': 'INR',
-                    });
-                  }
-                  if (ctx.mounted) Navigator.pop(ctx, true);
-                } on ApiException catch (e) {
-                  if (ctx.mounted) toast(ctx, e.message, error: true);
-                }
-              },
-              child: const Text('Create'),
-            ),
-          ],
-        ),
-      ),
+    await _runMutation(
+      (api) async {
+        await api.post('/accounting/annual-close', idempotent: true, body: {
+          'completedFinancialYearId': _completedFyId.text.trim(),
+          'nextFinancialYearId': _nextFyId.text.trim(),
+          'closingDocumentSeriesId': _closingSeriesId.text.trim(),
+          'retainedEarningsAccountId': _retainedEquityAcctId.text.trim(),
+          'reason': _closeReason.text.trim(),
+          if (_closeEvidence.text.trim().isNotEmpty) 'evidence': _closeEvidence.text.trim(),
+        });
+      },
+      'Annual close & control snapshot prepared.',
     );
-    if (ok == true) _load();
   }
 
   @override
   Widget build(BuildContext context) {
+    final journals = asList(_ws['journals']);
+    final allPeriods = asList(_ws['financialYears'])
+        .expand((fy) => asList(fy['periods']))
+        .toList();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Double-Entry Accounting'),
@@ -496,466 +333,654 @@ class _DoubleEntryAccountingScreenState extends State<DoubleEntryAccountingScree
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.account_balance_outlined,
-              badge: 'Financials & GST',
-              title: 'Accounting & Ledger Control',
+            SaasModuleHeader(
+              icon: Icons.menu_book_rounded,
+              title: 'Accounting ledger',
               subtitle:
-                  'Balanced double-entry adjustments, period controls, P&L / Balance Sheet statements, opening balances, and annual close.',
+                  'Entity-scoped periods, controlled document numbers, balanced journals and linked reversals.',
+              trailing: OutlinedButton.icon(
+                onPressed: () => setState(() => _showSetup = !_showSetup),
+                icon: const Icon(Icons.add_rounded, size: 15),
+                label: Text(_showSetup ? 'Hide setup' : 'Accounting setup'),
+              ),
             ),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+
+            // Expandable Accounting Setup (`AccountingPanel.tsx`)
+            if (_showSetup) ...[
+              const SizedBox(height: 14),
+              SaasFormCard(
+                title: 'Accounting setup',
+                subtitle: 'Financial years, posting periods, document series, and GL chart of accounts.',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('1. Financial year', style: T.body(13, w: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    SaasField(label: 'Label (e.g. FY 2026-27)', controller: _fyLabel),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(child: DatePickField(label: 'Start date', controller: _fyStart)),
+                        const SizedBox(width: 10),
+                        Expanded(child: DatePickField(label: 'End date', controller: _fyEnd)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: ElevatedButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _runMutation(
+                                  (api) => api.post('/accounting/financial-years', body: {
+                                    'label': _fyLabel.text.trim(),
+                                    'startDate': _fyStart.text.trim(),
+                                    'endDate': _fyEnd.text.trim(),
+                                  }),
+                                  'Financial year created.',
+                                ),
+                        child: const Text('Create year'),
+                      ),
+                    ),
+                    const Divider(height: 24),
+                    Text('2. Posting period', style: T.body(13, w: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    LookupField(label: 'Financial year', controller: _perFyId, options: _lk.financialYears),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(child: SaasField(label: 'Code (2026-10)', controller: _perCode, mono: true)),
+                        const SizedBox(width: 10),
+                        Expanded(child: SaasField(label: 'Name (October 2026)', controller: _perName)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(child: DatePickField(label: 'Start date', controller: _perStart)),
+                        const SizedBox(width: 10),
+                        Expanded(child: DatePickField(label: 'End date', controller: _perEnd)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: ElevatedButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _runMutation(
+                                  (api) => api.post('/accounting/posting-periods', body: {
+                                    'financialYearId': _perFyId.text.trim(),
+                                    'code': _perCode.text.trim().toUpperCase(),
+                                    'name': _perName.text.trim(),
+                                    'startDate': _perStart.text.trim(),
+                                    'endDate': _perEnd.text.trim(),
+                                  }),
+                                  'Posting period created.',
+                                ),
+                        child: const Text('Create period'),
+                      ),
+                    ),
+                    const Divider(height: 24),
+                    Text('3. Document series', style: T.body(13, w: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    LookupField(label: 'Financial year', controller: _serFyId, options: _lk.financialYears),
+                    const SizedBox(height: 8),
+                    SaasField(
+                      label: 'Document type (JOURNAL, SALES_INVOICE, PURCHASE_ORDER, JOB, MELT, TRANSFER, MEMO, TRADE, RATE_FIXING)',
+                      controller: _serDocType,
+                      mono: true,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(child: SaasField(label: 'Series key', controller: _serKey, mono: true)),
+                        const SizedBox(width: 10),
+                        Expanded(child: SaasField(label: 'Prefix', controller: _serPrefix, mono: true)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: ElevatedButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _runMutation(
+                                  (api) => api.post('/accounting/document-series', body: {
+                                    'financialYearId': _serFyId.text.trim(),
+                                    'documentType': _serDocType.text.trim().toUpperCase(),
+                                    'seriesKey': _serKey.text.trim().toUpperCase(),
+                                    'prefix': _serPrefix.text.trim(),
+                                    'padding': 6,
+                                  }),
+                                  'Document series created.',
+                                ),
+                        child: const Text('Create series'),
+                      ),
+                    ),
+                    const Divider(height: 24),
+                    Text('4. Ledger account', style: T.body(13, w: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(child: SaasField(label: 'Code (1000)', controller: _acctCode, mono: true)),
+                        const SizedBox(width: 10),
+                        Expanded(child: SaasField(label: 'Account name', controller: _acctName)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasDropdown(
+                            label: 'Group',
+                            value: _acctGroup,
+                            options: const {
+                              'ASSET': 'ASSET',
+                              'LIABILITY': 'LIABILITY',
+                              'EQUITY': 'EQUITY',
+                              'INCOME': 'INCOME',
+                              'EXPENSE': 'EXPENSE',
+                            },
+                            onChanged: (v) => setState(() => _acctGroup = v),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasDropdown(
+                            label: 'Control type',
+                            value: _acctControl,
+                            options: const {
+                              'NONE': 'NONE',
+                              'CUSTOMER_RECEIVABLE': 'CUSTOMER_RECEIVABLE',
+                              'SUPPLIER_PAYABLE': 'SUPPLIER_PAYABLE',
+                              'INVENTORY': 'INVENTORY',
+                              'CASH': 'CASH',
+                              'BANK': 'BANK',
+                              'PAYMENT_CLEARING': 'PAYMENT_CLEARING',
+                              'TAX_INPUT': 'TAX_INPUT',
+                              'TAX_OUTPUT': 'TAX_OUTPUT',
+                            },
+                            onChanged: (v) => setState(() => _acctControl = v),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: ElevatedButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _runMutation(
+                                  (api) => api.post('/accounting/accounts', body: {
+                                    'code': _acctCode.text.trim().toUpperCase(),
+                                    'name': _acctName.text.trim(),
+                                    'group': _acctGroup,
+                                    'controlType': _acctControl,
+                                    'currency': 'INR',
+                                  }),
+                                  'Ledger account created.',
+                                ),
+                        child: const Text('Create account'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Manual adjustment draft (Screenshot 683/685)
             const SizedBox(height: 14),
-            PillTabs<String>(
-              selected: _tab,
-              onChanged: (v) => setState(() => _tab = v),
-              items: const [
-                ('JOURNAL', 'Manual Journal', Icons.edit_note_rounded),
-                ('STMTS', 'P&L / Balance Sheet', Icons.analytics_outlined),
-                ('PERIODS', 'Periods & COA', Icons.calendar_month_outlined),
-                ('CLOSE', 'Opening & Annual Close', Icons.lock_outline_rounded),
-              ],
+            SaasFormCard(
+              title: 'Manual adjustment draft',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  LookupField(
+                    label: 'Open period',
+                    controller: _jPeriodId,
+                    options: _lk.openPeriods(),
+                    hint: 'Open period',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Journal series',
+                    controller: _jSeriesId,
+                    options: _lk.seriesFor(const ['JOURNAL']),
+                    hint: 'Journal series',
+                  ),
+                  const SizedBox(height: 10),
+                  DatePickField(label: 'Business date', controller: _jDate),
+                  const SizedBox(height: 10),
+                  SaasField(label: 'Adjustment description', controller: _jDesc),
+                  const SizedBox(height: 12),
+                  for (var i = 0; i < _jLines.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 10),
+                    SaasSubBox(
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: GoldDropdown<String>(
+                                  value: _jLines[i].accountId.isEmpty ? null : _jLines[i].accountId,
+                                  hint: 'Account',
+                                  items: _lk.accounts
+                                      .map((a) => DropdownMenuItem(
+                                            value: a.id,
+                                            child: Text(a.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                          ))
+                                      .toList(),
+                                  onChanged: (v) => setState(() => _jLines[i].accountId = v ?? ''),
+                                ),
+                              ),
+                              if (_jLines.length > 2)
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
+                                  onPressed: () => setState(() {
+                                    final rem = _jLines.removeAt(i);
+                                    rem.dispose();
+                                  }),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _jLines[i].desc,
+                            decoration: const InputDecoration(hintText: 'Line description'),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Debit',
+                                  controller: _jLines[i].debit,
+                                  mono: true,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Credit',
+                                  controller: _jLines[i].credit,
+                                  mono: true,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => setState(() => _jLines.add(_JournalDraftLine())),
+                      icon: const Icon(Icons.add_rounded, size: 16),
+                      label: const Text('Add line'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SaasField(
+                    label: 'Business reason (minimum 10 characters)',
+                    controller: _jReason,
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _saveBalancedDraft,
+                      child: Text(_busy ? 'Saving…' : 'Save balanced draft'),
+                    ),
+                  ),
+                ],
+              ),
             ),
+
+            // Period control (Screenshot 685)
             const SizedBox(height: 14),
-            if (_loading)
-              const Panel(child: Skeleton(height: 110))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
-            else if (_tab == 'JOURNAL')
-              _buildManualJournalTab()
-            else if (_tab == 'STMTS')
-              _buildStatementsTab()
-            else if (_tab == 'PERIODS')
-              _buildPeriodsCoaTab()
-            else
-              _buildOpeningCloseTab(),
+            SaasFormCard(
+              title: 'Period control',
+              icon: Icons.lock_outline_rounded,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SaasField(
+                    label: 'Period control & posting reason',
+                    controller: _periodActionReason,
+                    maxLines: 2,
+                  ),
+                  if (allPeriods.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    for (final p in allPeriods)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${p['code']} · ${p['name']} (${p['state']})',
+                                style: T.body(12.8, w: FontWeight.w600),
+                              ),
+                            ),
+                            OutlinedButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () {
+                                      final open = '${p['state']}' == 'OPEN';
+                                      _runMutation(
+                                        (api) => api.post(
+                                          '/accounting/posting-periods/${p['id']}/${open ? 'close' : 'reopen'}',
+                                          body: {
+                                            'expectedVersion': asInt(p['version'], fallback: 1),
+                                            'reason': _periodActionReason.text.trim(),
+                                          },
+                                        ),
+                                        open ? 'Period closed.' : 'Period reopened.',
+                                      );
+                                    },
+                              child: Text('${p['state']}' == 'OPEN' ? 'Close' : 'Reopen'),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+
+            // Journals list (Screenshot 685)
+            const SizedBox(height: 14),
+            SaasFormCard(
+              title: 'Journals',
+              subtitle: 'Date / document · Description · Status · Total · Action',
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : journals.isEmpty
+                      ? const SaasEmptyBox('No journals recorded yet.')
+                      : Column(
+                          children: [
+                            for (final j in journals)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: SaasSubBox(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              '${fmtDate('${j['businessDate'] ?? ''}')} · ${j['documentNumber'] ?? 'DRAFT'}',
+                                              style: T.mono(12.5, w: FontWeight.w700),
+                                            ),
+                                          ),
+                                          StatusChip('${j['state'] ?? 'DRAFT'}'),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text('${j['description'] ?? ''}', style: T.body(13, w: FontWeight.w600)),
+                                      const SizedBox(height: 4),
+                                      KVRow('Total', inr(j['debitTotal']), bold: true),
+                                      if ('${j['state']}' == 'DRAFT' || '${j['state']}' == 'POSTED') ...[
+                                        const SizedBox(height: 6),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: ElevatedButton(
+                                            onPressed: _busy
+                                                ? null
+                                                : () {
+                                                    if ('${j['state']}' == 'DRAFT') {
+                                                      _runMutation(
+                                                        (api) => api.post(
+                                                          '/accounting/journals/${j['id']}/post',
+                                                          idempotent: true,
+                                                          body: {
+                                                            'expectedVersion': asInt(j['version'], fallback: 1),
+                                                            'reason': _periodActionReason.text.trim(),
+                                                          },
+                                                        ),
+                                                        'Journal posted.',
+                                                      );
+                                                    } else {
+                                                      _runMutation(
+                                                        (api) => api.post(
+                                                          '/accounting/journals/${j['id']}/reverse',
+                                                          idempotent: true,
+                                                          body: {
+                                                            'expectedVersion': asInt(j['version'], fallback: 1),
+                                                            'postingPeriodId': _jPeriodId.text.trim(),
+                                                            'documentSeriesId': _jSeriesId.text.trim(),
+                                                            'businessDate': _jDate.text.trim(),
+                                                            'reason': _periodActionReason.text.trim(),
+                                                          },
+                                                        ),
+                                                        'Reversal journal posted.',
+                                                      );
+                                                    }
+                                                  },
+                                            child: Text('${j['state']}' == 'DRAFT' ? 'Post' : 'Reverse'),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+            ),
+
+            // Profit & Loss / Balance Sheet (Screenshot 686)
+            const SizedBox(height: 16),
+            SaasFormCard(
+              title: 'Profit & Loss / Balance Sheet',
+              subtitle:
+                  'Real-time financial statements derived directly from posted general ledger journal entries.',
+              icon: Icons.bar_chart_rounded,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SaasDropdown(
+                    label: 'Statement',
+                    value: _stmtKind,
+                    options: const {
+                      'PROFIT_AND_LOSS': 'Profit & Loss',
+                      'BALANCE_SHEET': 'Balance Sheet',
+                    },
+                    onChanged: (v) => setState(() => _stmtKind = v),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: DatePickField(label: 'Period start (P&L)', controller: _stmtStart)),
+                      const SizedBox(width: 10),
+                      Expanded(child: DatePickField(label: 'Period end / BS date', controller: _stmtEnd)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(label: 'Currency', controller: _stmtCurrency, mono: true),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _generateStatement,
+                      child: const Text('Generate statement'),
+                    ),
+                  ),
+                  if (_stmtData != null) ...[
+                    const SizedBox(height: 12),
+                    SaasSubBox(
+                      child: Column(
+                        children: [
+                          if (_stmtData!.containsKey('totalDebit'))
+                            KVRow('Total Debit / Credit', '${inr(_stmtData!['totalDebit'])} / ${inr(_stmtData!['totalCredit'])}', bold: true),
+                          for (final a in asList(_stmtData!['accounts'] ?? _stmtData!['lines']))
+                            KVRow(
+                              '${a['code'] ?? ''} ${a['name'] ?? ''}',
+                              inr(a['closingDebit'] ?? a['balance'] ?? a['amount'] ?? '0.00'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // Opening data and annual close (Screenshots 687 & 688)
+            const SizedBox(height: 16),
+            SaasFormCard(
+              title: 'Opening data and annual close',
+              subtitle:
+                  'Stage opening balances, dry-run posting validation, post cutover snapshots, and close completed financial years.',
+              icon: Icons.upload_file_outlined,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SaasField(label: 'Business reason', controller: _closeReason),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Accountant/source-control evidence',
+                    controller: _closeEvidence,
+                  ),
+                  const SizedBox(height: 14),
+                  SaasSubBox(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Stage opening data', style: T.body(14, w: FontWeight.w700)),
+                            OutlinedButton(
+                              onPressed: _populateOpeningTemplate,
+                              child: const Text('Create import template'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        SaasField(
+                          label: 'Opening cutover JSON',
+                          controller: _openingJson,
+                          mono: true,
+                          maxLines: 5,
+                        ),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: ElevatedButton(
+                            onPressed: _busy ? null : _stageOpeningSnapshot,
+                            child: const Text('Validate & stage opening snapshot'),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          onTap: () => setState(() => _showMappingRefs = !_showMappingRefs),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _showMappingRefs
+                                      ? Icons.expand_less_rounded
+                                      : Icons.chevron_right_rounded,
+                                  size: 18,
+                                  color: Pal.goldDeep,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Account and master mapping references',
+                                  style: T.body(12.2, color: Pal.ink, w: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (_showMappingRefs)
+                          for (final a in _lk.accounts)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text('${a.label} → ${a.id}', style: T.mono(11, color: Pal.muted)),
+                            ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SaasSubBox(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text('Prepare annual close', style: T.body(14, w: FontWeight.w700)),
+                        const SizedBox(height: 4),
+                        Text(
+                          'All periods in the completed year must be closed before preparing retained-earnings carry-forward.',
+                          style: T.body(11.8, color: Pal.muted),
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Completed financial year',
+                          controller: _completedFyId,
+                          options: _lk.financialYears,
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Contiguous next financial year',
+                          controller: _nextFyId,
+                          options: _lk.financialYears,
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Closing JOURNAL series',
+                          controller: _closingSeriesId,
+                          options: _lk.seriesFor(const ['JOURNAL']),
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Retained earnings equity account',
+                          controller: _retainedEquityAcctId,
+                          options: _lk.accountsByControl(const ['EQUITY']),
+                        ),
+                        const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: ElevatedButton(
+                            onPressed: _busy ? null : _prepareAnnualClose,
+                            child: const Text('Prepare close and control snapshot'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SaasDropdown(
+                    label: 'Workflow history · latest 200',
+                    value: _workflowRecordId,
+                    options: const {'': 'Select...'},
+                    onChanged: (v) => setState(() => _workflowRecordId = v),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
-
-  Widget _buildManualJournalTab() {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Panel(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(child: Text('Manual adjustment draft', style: T.display(18))),
-            StatusPill(_isBalanced ? 'BALANCED' : 'UNBALANCED'),
-          ]),
-          const SizedBox(height: 14),
-          LookupField(
-            label: 'Open period',
-            controller: _periodCtrl,
-            options: _lookup.openPeriods(),
-          ),
-          const SizedBox(height: 12),
-          LookupField(
-            label: 'Journal series',
-            controller: _seriesCtrl,
-            options: _lookup.seriesFor(const ['JOURNAL']),
-          ),
-          const SizedBox(height: 12),
-          DatePickField(label: 'Date', controller: _dateCtrl),
-          const SizedBox(height: 12),
-          const FieldLabel('Adjustment description'),
-          TextField(
-            controller: _adjDescCtrl,
-            decoration: const InputDecoration(hintText: 'Accrual, depreciation, or ledger reclassification'),
-          ),
-          const SizedBox(height: 14),
-          for (var i = 0; i < _lines.length; i++) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Pal.surfaceAlt,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Pal.line),
-              ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Text('LINE ${i + 1}', style: T.caps(10, color: Pal.goldDeep)),
-                  const Spacer(),
-                  if (_lines.length > 2)
-                    InkWell(
-                      onTap: () => setState(() {
-                        final removed = _lines.removeAt(i);
-                        removed.dispose();
-                      }),
-                      child: const Icon(Icons.close_rounded, size: 17, color: Pal.danger),
-                    ),
-                ]),
-                const SizedBox(height: 8),
-                LookupField(
-                  label: 'Account',
-                  controller: _lines[i].accountCtrl,
-                  options: _lookup.accounts,
-                ),
-                const SizedBox(height: 8),
-                const FieldLabel('Line description'),
-                TextField(controller: _lines[i].descCtrl),
-                const SizedBox(height: 8),
-                ResponsiveGrid2(children: [
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const FieldLabel('Debit'),
-                    TextField(
-                      controller: _lines[i].debitCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: T.mono(13.5),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ]),
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const FieldLabel('Credit'),
-                    TextField(
-                      controller: _lines[i].creditCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: T.mono(13.5),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ]),
-                ]),
-              ]),
-            ),
-          ],
-          Row(children: [
-            TextButton.icon(
-              onPressed: () => setState(() => _lines.add(_JournalDraftLine())),
-              icon: const Icon(Icons.add_rounded, size: 17),
-              label: const Text('+ Add line'),
-            ),
-            const Spacer(),
-            Text(
-              'Dr ${inr(_totalDebit.toStringAsFixed(2))} · Cr ${inr(_totalCredit.toStringAsFixed(2))}',
-              style: T.mono(11.5, color: _isBalanced ? Pal.ok : Pal.warn),
-            ),
-          ]),
-          const SizedBox(height: 8),
-          const FieldLabel('Business reason (min 10 chars)'),
-          TextField(
-            controller: _reasonCtrl,
-            decoration: const InputDecoration(hintText: 'Documented audit justification for manual entry'),
-          ),
-          const SizedBox(height: 16),
-          RoyalGoldButton(
-            label: 'Save balanced draft',
-            icon: Icons.check_circle_outline_rounded,
-            busy: _busy,
-            onPressed: _saveBalancedDraft,
-          ),
-        ]),
-      ),
-      const SectionLabel('Ledger Journals'),
-      if (_journals.isEmpty)
-        const Panel(
-          child: EmptyBlock(
-            icon: Icons.menu_book_outlined,
-            title: 'No journals recorded yet',
-            body: 'Draft or posted double-entry journals for this legal entity appear here.',
-          ),
-        )
-      else
-        for (final j in _journals)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(
-                      _fStr(j, ['documentNumber'], 'Draft Journal · ${formatDate(j['businessDate'])}'),
-                      style: T.display(17),
-                    ),
-                  ),
-                  StatusPill(_fStr(j, ['state'], 'DRAFT')),
-                ]),
-                const SizedBox(height: 8),
-                KeyValue('Description', _fStr(j, ['description'], '-'), strong: true),
-                KeyValue('Debit / Credit', '${inr(j['debitTotal'])} / ${inr(j['creditTotal'])}', mono: true),
-                if ('${j['state']}'.toUpperCase() == 'DRAFT') ...[
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(42)),
-                    onPressed: () => _postJournal(j),
-                    icon: const Icon(Icons.publish_rounded, size: 17),
-                    label: const Text('Post Journal to Ledger'),
-                  ),
-                ],
-              ]),
-            ),
-          ),
-    ]);
-  }
-
-  Widget _buildStatementsTab() {
-    final rows = _statementResult == null
-        ? const <Map<String, dynamic>>[]
-        : asList(_statementResult, keys: const ['lines', 'accounts', 'rows', 'sections']);
-
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Panel(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Profit & Loss / Balance Sheet', style: T.display(18)),
-          const SizedBox(height: 4),
-          Text(
-            'Generated directly from posted journals in the authorized legal entity.',
-            style: T.body(12.2, color: Pal.muted),
-          ),
-          const SizedBox(height: 14),
-          ResponsiveGrid2(children: [
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const FieldLabel('Statement'),
-              GoldDropdown<String>(
-                value: _statementKind,
-                items: const [
-                  DropdownMenuItem(value: 'PROFIT_AND_LOSS', child: Text('Profit & Loss')),
-                  DropdownMenuItem(value: 'BALANCE_SHEET', child: Text('Balance Sheet')),
-                ],
-                onChanged: (v) => setState(() => _statementKind = v ?? 'PROFIT_AND_LOSS'),
-              ),
-            ]),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const FieldLabel('Currency'),
-              TextField(controller: _stmtCurrencyCtrl, style: T.mono(13.5)),
-            ]),
-          ]),
-          const SizedBox(height: 12),
-          ResponsiveGrid2(children: [
-            DatePickField(label: 'Period start', controller: _stmtStartCtrl),
-            DatePickField(label: 'Period end / BS date', controller: _stmtEndCtrl),
-          ]),
-          const SizedBox(height: 16),
-          RoyalGoldButton(
-            label: 'Generate statement',
-            icon: Icons.analytics_outlined,
-            busy: _busy,
-            onPressed: _generateStatement,
-          ),
-        ]),
-      ),
-      if (_statementResult != null) ...[
-        const SectionLabel('Statement Output'),
-        if (rows.isEmpty)
-          const Panel(
-            child: EmptyBlock(
-              icon: Icons.balance_rounded,
-              title: 'Zero posted movement in selected period',
-              body: 'Post sales, procurement, or manual journals to populate financial statement lines.',
-            ),
-          )
-        else
-          for (final r in rows)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Panel(
-                child: Row(children: [
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(_fStr(r, ['accountName', 'name', 'label'], 'Account'), style: T.body(14, w: FontWeight.w700)),
-                      Text(_fStr(r, ['accountCode', 'code', 'group'], ''), style: T.mono(11.5, color: Pal.muted)),
-                    ]),
-                  ),
-                  Text(
-                    inr(r['balance'] ?? r['netAmount'] ?? r['debit'] ?? '0.00'),
-                    style: T.mono(13.5, w: FontWeight.w800),
-                  ),
-                ]),
-              ),
-            ),
-      ],
-    ]);
-  }
-
-  Widget _buildPeriodsCoaTab() {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        OutlinedButton.icon(
-          style: OutlinedButton.styleFrom(minimumSize: const Size(120, 42)),
-          onPressed: () => _quickSetupDialog('FY'),
-          icon: const Icon(Icons.add_rounded, size: 16),
-          label: const Text('+ Financial Year'),
-        ),
-        OutlinedButton.icon(
-          style: OutlinedButton.styleFrom(minimumSize: const Size(120, 42)),
-          onPressed: () => _quickSetupDialog('SERIES'),
-          icon: const Icon(Icons.add_rounded, size: 16),
-          label: const Text('+ Series'),
-        ),
-        FilledButton.icon(
-          style: FilledButton.styleFrom(minimumSize: const Size(120, 42)),
-          onPressed: () => _quickSetupDialog('ACCOUNT'),
-          icon: const Icon(Icons.add_rounded, size: 16),
-          label: const Text('+ Account'),
-        ),
-      ]),
-      const SizedBox(height: 14),
-      Panel(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const FieldLabel('Period control note (min 10 chars)'),
-          TextField(
-            controller: _periodNoteCtrl,
-            decoration: const InputDecoration(hintText: 'Month-end close / audit reopen reason'),
-          ),
-        ]),
-      ),
-      const SectionLabel('Financial Years & Posting Periods'),
-      if (_fys.isEmpty)
-        const Panel(
-          child: EmptyBlock(
-            icon: Icons.calendar_month_outlined,
-            title: 'No financial years configured',
-            body: 'Create an open financial year and document series to enable ledger posting.',
-          ),
-        )
-      else
-        for (final fy in _fys)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(child: Text('${fy['label'] ?? 'Financial Year'}', style: T.display(17.5))),
-                  StatusPill('${fy['state'] ?? 'OPEN'}'),
-                ]),
-                const SizedBox(height: 6),
-                Text('${formatDate(fy['startDate'])} – ${formatDate(fy['endDate'])}', style: T.body(12, color: Pal.muted)),
-                for (final p in asList(fy['periods']))
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Row(children: [
-                      Expanded(child: Text('${p['name'] ?? p['code']}', style: T.body(13, w: FontWeight.w700))),
-                      StatusPill('${p['state'] ?? 'OPEN'}'),
-                      const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: () => _togglePeriod(p, '${p['state']}'.toUpperCase() == 'OPEN'),
-                        child: Text('${p['state']}'.toUpperCase() == 'OPEN' ? 'Close' : 'Reopen'),
-                      ),
-                    ]),
-                  ),
-              ]),
-            ),
-          ),
-      SectionLabel('Chart of Accounts (${_accounts.length})'),
-      for (final a in _accounts)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Panel(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-            child: Row(children: [
-              MonoTag('${a['code'] ?? ''}'),
-              const SizedBox(width: 10),
-              Expanded(child: Text('${a['name'] ?? ''}', style: T.body(13.5, w: FontWeight.w700))),
-              Chip2('${a['group'] ?? ''}', gold: false),
-            ]),
-          ),
-        ),
-    ]);
-  }
-
-  Widget _buildOpeningCloseTab() {
-    final equityAccounts = _lookup.accounts
-        .where((a) => '${a.raw['group']}'.toUpperCase() == 'EQUITY')
-        .toList();
-
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Panel(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Opening Balances, Legacy Cutover & Annual Close', style: T.display(18)),
-          const SizedBox(height: 12),
-          const FieldLabel('Business reason (min 10 chars)'),
-          TextField(controller: _closeReasonCtrl),
-          const SizedBox(height: 10),
-          const FieldLabel('Accountant / source-control evidence'),
-          TextField(controller: _evidenceCtrl),
-          const SizedBox(height: 14),
-          const Divider(),
-          const SizedBox(height: 10),
-          Row(children: [
-            Expanded(child: Text('Stage opening data', style: T.display(16.5))),
-            TextButton(
-              onPressed: _populateOpeningTemplate,
-              child: const Text('Template from COA'),
-            ),
-          ]),
-          TextField(
-            controller: _openingJsonCtrl,
-            maxLines: 5,
-            style: T.mono(12),
-            decoration: const InputDecoration(hintText: 'Normalized opening data JSON'),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _busy ? null : _stageOpeningData,
-            icon: const Icon(Icons.upload_file_outlined, size: 17),
-            label: const Text('Stage opening data'),
-          ),
-        ]),
-      ),
-      const SizedBox(height: 14),
-      Panel(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Prepare annual close', style: T.display(18)),
-          const SizedBox(height: 12),
-          LookupField(
-            label: 'Completed financial year',
-            controller: _completedFyCtrl,
-            options: _lookup.financialYears,
-          ),
-          const SizedBox(height: 10),
-          LookupField(
-            label: 'Contiguous next financial year',
-            controller: _nextFyCtrl,
-            options: _lookup.financialYears,
-          ),
-          const SizedBox(height: 10),
-          LookupField(
-            label: 'Closing JOURNAL series',
-            controller: _closingSeriesCtrl,
-            options: _lookup.seriesFor(const ['JOURNAL']),
-          ),
-          const SizedBox(height: 10),
-          LookupField(
-            label: 'Retained earnings equity account',
-            controller: _retainedAcctCtrl,
-            options: equityAccounts.isNotEmpty ? equityAccounts : _lookup.accounts,
-          ),
-          const SizedBox(height: 14),
-          RoyalGoldButton(
-            label: 'Prepare annual close',
-            icon: Icons.verified_outlined,
-            busy: _busy,
-            onPressed: _prepareAnnualClose,
-          ),
-        ]),
-      ),
-      const SectionLabel('Workflow History'),
-      if (_workflows.isEmpty)
-        const Panel(
-          child: EmptyBlock(
-            icon: Icons.history_rounded,
-            title: 'No opening or annual-close workflows created',
-            body: 'Staged cutover snapshots and year-end close runs are logged here.',
-          ),
-        )
-      else
-        for (final w in _workflows)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Panel(
-              child: Row(children: [
-                Expanded(child: Text(_fStr(w, ['kind', 'type', 'id'], 'Workflow'), style: T.body(13.5, w: FontWeight.w700))),
-                StatusPill(_fStr(w, ['state', 'status'], 'STAGED')),
-              ]),
-            ),
-          ),
-    ]);
-  }
 }
 
-// ============================================================================
-// 2. SETTLEMENTS & CASHUP — Screenshot 689 (`/payments`)
-// ============================================================================
+// ---------------------------------------------------------------------------
+// 2. SETTLEMENTS & CASHUP (`/payments`) — Screenshot (689)
+// ---------------------------------------------------------------------------
 
 class SettlementsCashupScreen extends StatefulWidget {
   const SettlementsCashupScreen({super.key});
@@ -964,19 +989,58 @@ class SettlementsCashupScreen extends StatefulWidget {
 }
 
 class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
-  String _tab = 'OPEN';
+  String _tab = 'OPEN_ITEMS';
+  Map<String, dynamic> _ws = const {};
+  WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
+  bool _busy = false;
   String? _error;
+  bool _showForm = false;
 
-  WorkspaceLookup _lookup = WorkspaceLookup();
-  List<Map<String, dynamic>> _openItems = [];
-  List<Map<String, dynamic>> _settlements = [];
-  List<Map<String, dynamic>> _clearings = [];
+  // Shared posting configuration
+  final _periodId = TextEditingController();
+  final _docSeriesId = TextEditingController();
+  final _journalSeriesId = TextEditingController();
+
+  // Settlement fields (`settlementCommandBaseSchema`)
+  final _partyId = TextEditingController();
+  final _instrumentAcctId = TextEditingController();
+  String _method = 'BANK_TRANSFER';
+  final _settlementDate = TextEditingController(text: todayIso());
+  final _amount = TextEditingController();
+  final _paymentRef = TextEditingController();
+  final _providerRef = TextEditingController();
+  final _openItemId = TextEditingController();
+  final _reason = TextEditingController(
+    text: 'Authorized counterparty settlement verified against bank / cash register.',
+  );
+
+  // Provider clearing fields (`postProviderClearingSchema`)
+  final _providerName = TextEditingController(text: 'RAZORPAY');
+  final _providerBatchRef = TextEditingController();
+  final _feeAmt = TextEditingController(text: '0.00');
+  final _sourceClearAcctId = TextEditingController();
+  final _bankAcctId = TextEditingController();
+  final _feeAcctId = TextEditingController();
+  final _settlementDocId = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    for (final c in [
+      _periodId, _docSeriesId, _journalSeriesId, _partyId, _instrumentAcctId,
+      _settlementDate, _amount, _paymentRef, _providerRef, _openItemId, _reason,
+      _providerName, _providerBatchRef, _feeAmt, _sourceClearAcctId,
+      _bankAcctId, _feeAcctId, _settlementDocId,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -986,48 +1050,151 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
     });
     final api = context.read<ApiClient>();
     try {
-      final res = await Future.wait<dynamic>([
+      final res = await Future.wait([
         api.get('/payments'),
         WorkspaceLookup.load(api, includeParties: true, includeAccounting: true),
       ]);
       if (!mounted) return;
-      final ws = asMap(res[0]);
+      final lk = res[1] as WorkspaceLookup;
+      if (_periodId.text.isEmpty && lk.openPeriods().isNotEmpty) {
+        _periodId.text = lk.openPeriods().first.id;
+      }
+      if (_journalSeriesId.text.isEmpty) {
+        final js = lk.seriesFor(const ['JOURNAL']);
+        if (js.isNotEmpty) _journalSeriesId.text = js.first.id;
+      }
+      if (_docSeriesId.text.isEmpty && lk.series.isNotEmpty) {
+        _docSeriesId.text = lk.series.first.id;
+      }
       setState(() {
-        _openItems = asList(ws['openItems'] ?? const []);
-        _settlements = asList(ws['settlements'] ?? const []);
-        _clearings = asList(ws['providerClearings'] ?? const []);
-        _lookup = res[1] as WorkspaceLookup;
+        _ws = asMap(res[0]);
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _openSettlementSheet(String kind) async {
-    final ok = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _NewSettlementSheet(
-        kind: kind,
-        lookup: _lookup,
-        openItems: _openItems,
-      ),
-    );
-    if (ok == true) _load();
+  Future<void> _submitSettlement() async {
+    if (_periodId.text.trim().isEmpty ||
+        _docSeriesId.text.trim().isEmpty ||
+        _journalSeriesId.text.trim().isEmpty ||
+        _reason.text.trim().length < 10) {
+      setState(() => _error = 'Select Posting period, Document series, Journal series, and Reason (10+ chars).');
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final api = context.read<ApiClient>();
+    try {
+      if (_tab == 'CLEARINGS') {
+        await api.post('/payments/provider-clearings', idempotent: true, body: {
+          'provider': _providerName.text.trim().toUpperCase(),
+          'providerBatchRef': _providerBatchRef.text.trim(),
+          'settlementDate': _settlementDate.text.trim(),
+          'feeAmount': _feeAmt.text.trim().isEmpty ? '0.00' : _feeAmt.text.trim(),
+          'sourceAccountId': _sourceClearAcctId.text.trim(),
+          'bankAccountId': _bankAcctId.text.trim(),
+          'feeAccountId': _feeAcctId.text.trim(),
+          'postingPeriodId': _periodId.text.trim(),
+          'documentSeriesId': _docSeriesId.text.trim(),
+          'journalSeriesId': _journalSeriesId.text.trim(),
+          'lines': [
+            {
+              'settlementDocumentId': _settlementDocId.text.trim(),
+              'grossAmount': _amount.text.trim(),
+            },
+          ],
+          'reason': _reason.text.trim(),
+        });
+      } else {
+        final isCardOrUpi = _method == 'CARD' || _method == 'UPI';
+        final path = _tab == 'DISBURSEMENTS'
+            ? '/payments/supplier-disbursements'
+            : _tab == 'REFUNDS'
+                ? '/payments/customer-refunds'
+                : '/payments/customer-receipts';
+        await api.post(path, idempotent: true, body: {
+          'partyId': _partyId.text.trim(),
+          'method': _method,
+          'settlementDate': _settlementDate.text.trim(),
+          'currency': 'INR',
+          'amount': _amount.text.trim(),
+          'instrumentAccountId': _instrumentAcctId.text.trim(),
+          if (isCardOrUpi)
+            'providerReference': _providerRef.text.trim()
+          else if (_paymentRef.text.trim().length >= 2)
+            'paymentReference': _paymentRef.text.trim(),
+          'postingPeriodId': _periodId.text.trim(),
+          'documentSeriesId': _docSeriesId.text.trim(),
+          'journalSeriesId': _journalSeriesId.text.trim(),
+          'allocations': _openItemId.text.trim().isNotEmpty
+              ? [
+                  {
+                    'openItemId': _openItemId.text.trim(),
+                    'amount': _amount.text.trim(),
+                  },
+                ]
+              : [],
+          'reason': _reason.text.trim(),
+        });
+      }
+      if (!mounted) return;
+      _amount.clear();
+      setState(() => _showForm = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Settlement posted to subledger & GL.')),
+      );
+      _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final receipts = _settlements
-        .where((s) => '${s['direction']}'.toUpperCase().contains('IN') || '${s['direction']}'.toUpperCase() == 'RECEIPT')
+    final openItems = asList(_ws['openItems']);
+    final settlements = asList(_ws['settlements']);
+    final clearings = asList(_ws['providerClearings'] ?? _ws['clearings']);
+
+    final openOpts = openItems
+        .map((o) => LookupOption(
+              id: '${o['id']}',
+              label: '${o['documentNumber']} · ${asMap(o['party'])['displayName'] ?? ''} · Open ${inr(o['openAmount'])}',
+              raw: o,
+            ))
         .toList();
-    final disbursements = _settlements
-        .where((s) => '${s['direction']}'.toUpperCase().contains('OUT') || '${s['direction']}'.toUpperCase() == 'DISBURSEMENT')
+    final settlementOpts = settlements
+        .map((s) => LookupOption(
+              id: '${s['id']}',
+              label: '${s['documentNumber'] ?? shortId('${s['id']}')} · ${inr(s['amount'])} (${s['method'] ?? ''})',
+              raw: s,
+            ))
         .toList();
-    final refunds = _settlements
-        .where((s) => '${s['direction']}'.toUpperCase().contains('REFUND'))
-        .toList();
+
+    final methodOptions = (_tab == 'DISBURSEMENTS' || _tab == 'REFUNDS')
+        ? const {
+            'BANK_TRANSFER': 'BANK_TRANSFER',
+            'CASH': 'CASH',
+            'CHEQUE': 'CHEQUE',
+          }
+        : const {
+            'UPI': 'UPI',
+            'CARD': 'CARD',
+            'BANK_TRANSFER': 'BANK_TRANSFER',
+            'CASH': 'CASH',
+            'CHEQUE': 'CHEQUE',
+          };
+    if (!methodOptions.containsKey(_method)) {
+      _method = methodOptions.keys.first;
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -1038,308 +1205,316 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            SaasModuleHeader(
+            const SaasModuleHeader(
               icon: Icons.account_balance_wallet_outlined,
-              badge: 'Financials & GST',
-              title: 'Payments, Settlements & Cashup',
+              title: 'Treasury, Settlements and Open Items',
               subtitle:
-                  'AR receipts, AP disbursements, customer/supplier refunds, open-item allocations, and payment provider clearings.',
-              trailing: _tab == 'OPEN'
-                  ? null
-                  : FilledButton.tonalIcon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Pal.goldBright,
-                        foregroundColor: Pal.ink,
-                        minimumSize: const Size(106, 38),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                      ),
-                      onPressed: () => _openSettlementSheet(_tab),
-                      icon: const Icon(Icons.add_rounded, size: 17),
-                      label: Text('Record', style: T.body(12.5, color: Pal.ink, w: FontWeight.w800)),
-                    ),
+                  'Real-time AR/AP subledger open items, partial settlements, customer advances, and bank/card clearing.',
             ),
             const SizedBox(height: 14),
             PillTabs<String>(
-              selected: _tab,
-              onChanged: (v) => setState(() => _tab = v),
-              items: [
-                ('OPEN', 'Open Items (${_openItems.length})', Icons.pending_actions_rounded),
-                ('RECEIPT', 'Receipts (${receipts.length})', Icons.call_received_rounded),
-                ('DISB', 'Disbursements (${disbursements.length})', Icons.call_made_rounded),
-                ('REFUND', 'Refunds (${refunds.length})', Icons.replay_rounded),
-                ('CLEARING', 'Provider Clearings (${_clearings.length})', Icons.verified_outlined),
+              value: _tab,
+              onChanged: (v) => setState(() {
+                _tab = v;
+                _showForm = v != 'OPEN_ITEMS';
+              }),
+              tabs: [
+                ('OPEN_ITEMS', 'Open Items (${openItems.length})'),
+                ('RECEIPTS', 'Receipts'),
+                ('DISBURSEMENTS', 'Disbursements'),
+                ('REFUNDS', 'Refunds'),
+                ('CLEARINGS', 'Provider Clearings (${clearings.length})'),
               ],
             ),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+
+            if (_tab != 'OPEN_ITEMS') ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ElevatedButton.icon(
+                  onPressed: () => setState(() => _showForm = !_showForm),
+                  icon: const Icon(Icons.add_rounded, size: 17),
+                  label: Text(
+                    _tab == 'RECEIPTS'
+                        ? 'Post Customer Receipt'
+                        : _tab == 'DISBURSEMENTS'
+                            ? 'Post Supplier Disbursement'
+                            : _tab == 'REFUNDS'
+                                ? 'Post Customer Refund'
+                                : 'Post Provider Clearing',
+                  ),
+                ),
+              ),
+            ],
+
+            if (_showForm && _tab != 'OPEN_ITEMS') ...[
+              const SizedBox(height: 12),
+              SaasFormCard(
+                title: _tab == 'CLEARINGS'
+                    ? 'Post Provider Clearing Batch'
+                    : 'Post ${_tab.substring(0, _tab.length - 1)}',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LookupField(label: 'Posting period', controller: _periodId, options: _lk.openPeriods()),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: LookupField(
+                            label: 'Document series',
+                            controller: _docSeriesId,
+                            options: _lk.series,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: LookupField(
+                            label: 'Journal series',
+                            controller: _journalSeriesId,
+                            options: _lk.seriesFor(const ['JOURNAL']),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    DatePickField(label: 'Settlement date', controller: _settlementDate),
+                    const SizedBox(height: 10),
+                    if (_tab == 'CLEARINGS') ...[
+                      Row(
+                        children: [
+                          Expanded(child: SaasField(label: 'Provider (RAZORPAY)', controller: _providerName, mono: true)),
+                          const SizedBox(width: 10),
+                          Expanded(child: SaasField(label: 'Provider batch ref', controller: _providerBatchRef, mono: true)),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      LookupField(
+                        label: 'Source clearing account',
+                        controller: _sourceClearAcctId,
+                        options: _lk.accountsByControl(const ['PAYMENT_CLEARING', 'ASSET']),
+                      ),
+                      const SizedBox(height: 10),
+                      LookupField(
+                        label: 'Bank account',
+                        controller: _bankAcctId,
+                        options: _lk.accountsByControl(const ['BANK', 'ASSET']),
+                      ),
+                      const SizedBox(height: 10),
+                      LookupField(
+                        label: 'Gateway fee expense account',
+                        controller: _feeAcctId,
+                        options: _lk.accountsByControl(const ['EXPENSE']),
+                      ),
+                      const SizedBox(height: 10),
+                      LookupField(
+                        label: 'Card/UPI settlement document',
+                        controller: _settlementDocId,
+                        options: settlementOpts,
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SaasField(
+                              label: 'Gross amount (INR)',
+                              controller: _amount,
+                              mono: true,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: SaasField(
+                              label: 'Fee amount (INR)',
+                              controller: _feeAmt,
+                              mono: true,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      LookupField(
+                        label: _tab == 'DISBURSEMENTS' ? 'Supplier' : 'Customer',
+                        controller: _partyId,
+                        options: _lk.partiesByRole(_tab == 'DISBURSEMENTS' ? 'SUPPLIER' : 'CUSTOMER'),
+                      ),
+                      const SizedBox(height: 10),
+                      LookupField(
+                        label: 'Instrument account (Cash / Bank / Clearing)',
+                        controller: _instrumentAcctId,
+                        options: _lk.accountsByControl(const ['CASH', 'BANK', 'PAYMENT_CLEARING']),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SaasDropdown(
+                              label: 'Method',
+                              value: _method,
+                              options: methodOptions,
+                              onChanged: (v) => setState(() => _method = v),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: SaasField(
+                              label: 'Amount (INR)',
+                              controller: _amount,
+                              mono: true,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      if (_method == 'CARD' || _method == 'UPI')
+                        SaasField(
+                          label: 'Provider reference (required for Card/UPI)',
+                          controller: _providerRef,
+                          mono: true,
+                        )
+                      else
+                        SaasField(
+                          label: 'Payment reference (optional)',
+                          controller: _paymentRef,
+                          mono: true,
+                        ),
+                      const SizedBox(height: 10),
+                      LookupField(
+                        label: _tab == 'REFUNDS'
+                            ? 'Credit open item (required)'
+                            : 'Allocate open item (optional)',
+                        controller: _openItemId,
+                        options: openOpts,
+                        optional: _tab != 'REFUNDS',
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Reason (minimum 10 characters)',
+                      controller: _reason,
+                    ),
+                    const SizedBox(height: 14),
+                    GoldButton(
+                      label: 'Post Settlement',
+                      icon: Icons.check_rounded,
+                      busy: _busy,
+                      onPressed: _submitSettlement,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             const SizedBox(height: 14),
             if (_loading)
-              const Panel(child: Skeleton(height: 100))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
-            else if (_tab == 'OPEN')
-              _buildOpenItems()
-            else if (_tab == 'RECEIPT')
-              _buildSettlementList(receipts, 'RECEIPT', 'No customer receipts recorded yet')
-            else if (_tab == 'DISB')
-              _buildSettlementList(disbursements, 'DISB', 'No supplier disbursements recorded yet')
-            else if (_tab == 'REFUND')
-              _buildSettlementList(refunds, 'REFUND', 'No refunds recorded yet')
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_tab == 'OPEN_ITEMS')
+              openItems.isEmpty
+                  ? const SaasEmptyBox('No open receivable or payable items.')
+                  : Column(
+                      children: [
+                        for (final o in openItems)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: SectionCard(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${o['documentNumber']} · ${asMap(o['party'])['displayName'] ?? ''}',
+                                          style: T.body(14, w: FontWeight.w700),
+                                        ),
+                                      ),
+                                      StatusChip('${o['state'] ?? 'OPEN'}'),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  KVRow('Date / Kind', '${fmtDate('${o['documentDate'] ?? ''}')} · ${o['kind'] ?? ''}'),
+                                  KVRow('GL Account', '${asMap(o['account'])['code'] ?? ''} · ${asMap(o['account'])['name'] ?? ''}'),
+                                  KVRow('Original / Settled', '${inr(o['originalAmount'])} / ${inr(o['settledAmount'])}'),
+                                  KVRow('Open Amount', inr(o['openAmount']), bold: true),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    )
+            else if (_tab == 'CLEARINGS')
+              clearings.isEmpty
+                  ? const SaasEmptyBox('No provider clearings recorded yet.')
+                  : Column(
+                      children: [
+                        for (final c in clearings)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: SectionCard(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('${c['provider'] ?? ''} · ${c['providerBatchRef'] ?? ''}', style: T.body(14, w: FontWeight.w700)),
+                                  const SizedBox(height: 6),
+                                  KVRow('Settlement Date', fmtDate('${c['settlementDate'] ?? ''}')),
+                                  KVRow('Fee', inr(c['feeAmount'])),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    )
             else
-              _buildClearings(),
+              settlements.isEmpty
+                  ? const SaasEmptyBox('No settlement documents recorded yet.')
+                  : Column(
+                      children: [
+                        for (final s in settlements)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: SectionCard(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${s['documentNumber'] ?? shortId('${s['id']}')} · ${asMap(s['party'])['displayName'] ?? ''}',
+                                          style: T.body(14, w: FontWeight.w700),
+                                        ),
+                                      ),
+                                      StatusChip('${s['method'] ?? s['state'] ?? 'POSTED'}'),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  KVRow('Date', fmtDate('${s['settlementDate'] ?? ''}')),
+                                  KVRow('Amount', inr(s['amount']), bold: true),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
           ],
         ),
       ),
     );
   }
-
-  Widget _buildOpenItems() {
-    if (_openItems.isEmpty) {
-      return const Panel(
-        child: EmptyBlock(
-          icon: Icons.check_circle_outline_rounded,
-          title: 'No open receivable or payable items',
-          body: 'Posted sales invoices and supplier bills with unsettled balances appear here.',
-        ),
-      );
-    }
-    return Column(children: [
-      for (final item in _openItems)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Panel(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(child: Text(_fStr(item, ['documentNumber'], 'Open Item'), style: T.display(17))),
-                StatusPill(_fStr(item, ['kind', 'state'], 'OPEN')),
-              ]),
-              const SizedBox(height: 8),
-              KeyValue('Party', _fStr(item, ['party'], '-'), strong: true),
-              KeyValue('Original / Settled', '${inr(item['originalAmount'])} / ${inr(item['settledAmount'])}', mono: true),
-              KeyValue('Open Balance', inr(item['openAmount']), strong: true, mono: true),
-            ]),
-          ),
-        ),
-    ]);
-  }
-
-  Widget _buildSettlementList(List<Map<String, dynamic>> list, String kind, String emptyTitle) {
-    if (list.isEmpty) {
-      return Panel(
-        child: EmptyBlock(
-          icon: Icons.account_balance_wallet_outlined,
-          title: emptyTitle,
-          body: 'Post cash, UPI, card, or RTGS settlements with ledger allocation.',
-          actionLabel: 'Record Settlement',
-          onAction: () => _openSettlementSheet(kind),
-        ),
-      );
-    }
-    return Column(children: [
-      for (final s in list)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Panel(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(child: Text(_fStr(s, ['documentNumber'], 'Settlement'), style: T.display(17))),
-                StatusPill(_fStr(s, ['state'], 'POSTED')),
-              ]),
-              const SizedBox(height: 8),
-              KeyValue('Party', _fStr(s, ['party'], '-'), strong: true),
-              KeyValue('Method & Date', '${_fStr(s, ['method'], 'CASH')} · ${formatDate(s['settlementDate'])}'),
-              KeyValue('Amount', inr(s['amount']), strong: true, mono: true),
-            ]),
-          ),
-        ),
-    ]);
-  }
-
-  Widget _buildClearings() {
-    if (_clearings.isEmpty) {
-      return Panel(
-        child: EmptyBlock(
-          icon: Icons.verified_outlined,
-          title: 'No provider clearing batches yet',
-          body: 'Reconcile card/UPI gateway settlement batches net of MDR fees.',
-          actionLabel: 'Record Clearing Batch',
-          onAction: () => _openSettlementSheet('CLEARING'),
-        ),
-      );
-    }
-    return Column(children: [
-      for (final c in _clearings)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Panel(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(child: Text(_fStr(c, ['clearingBatchReference'], 'Clearing Batch'), style: T.display(17))),
-                StatusPill(_fStr(c, ['state'], 'POSTED')),
-              ]),
-              const SizedBox(height: 8),
-              KeyValue('Gross / Fee', '${inr(c['grossAmount'])} / ${inr(c['feeAmount'])}', mono: true),
-              KeyValue('Net Settled', inr(c['netAmount']), strong: true, mono: true),
-            ]),
-          ),
-        ),
-    ]);
-  }
 }
 
-class _NewSettlementSheet extends StatefulWidget {
-  const _NewSettlementSheet({
-    required this.kind,
-    required this.lookup,
-    required this.openItems,
-  });
-  final String kind;
-  final WorkspaceLookup lookup;
-  final List<Map<String, dynamic>> openItems;
-  @override
-  State<_NewSettlementSheet> createState() => _NewSettlementSheetState();
-}
-
-class _NewSettlementSheetState extends State<_NewSettlementSheet> {
-  final _partyCtrl = TextEditingController();
-  final _periodCtrl = TextEditingController();
-  final _seriesCtrl = TextEditingController();
-  final _bankAcctCtrl = TextEditingController();
-  final _dateCtrl = TextEditingController(text: todayIso());
-  final _amtCtrl = TextEditingController();
-  final _refCtrl = TextEditingController();
-  String _method = 'UPI';
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _partyCtrl.dispose();
-    _periodCtrl.dispose();
-    _seriesCtrl.dispose();
-    _bankAcctCtrl.dispose();
-    _dateCtrl.dispose();
-    _amtCtrl.dispose();
-    _refCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (!isValidAmount(_amtCtrl.text)) {
-      toast(context, 'Enter valid INR amount.', error: true);
-      return;
-    }
-    setState(() => _busy = true);
-    final api = context.read<ApiClient>();
-    try {
-      final path = switch (widget.kind) {
-        'DISB' => '/payments/disbursements',
-        'REFUND' => '/payments/refunds',
-        'CLEARING' => '/payments/provider-clearings',
-        _ => '/payments/receipts',
-      };
-      await api.post(
-        path,
-        idempotencyKey: const Uuid().v4(),
-        body: widget.kind == 'CLEARING'
-            ? {
-                'clearingBatchReference': _refCtrl.text.trim().isEmpty ? 'BATCH-${DateTime.now().millisecondsSinceEpoch}' : _refCtrl.text.trim(),
-                'settlementDate': _dateCtrl.text.trim(),
-                'currency': 'INR',
-                'grossAmount': normAmount(_amtCtrl.text),
-                'feeAmount': '0.00',
-                if (_bankAcctCtrl.text.trim().isNotEmpty) 'bankAccountId': _bankAcctCtrl.text.trim(),
-                if (_periodCtrl.text.trim().isNotEmpty) 'postingPeriodId': _periodCtrl.text.trim(),
-                if (_seriesCtrl.text.trim().isNotEmpty) 'documentSeriesId': _seriesCtrl.text.trim(),
-              }
-            : {
-                'partyId': _partyCtrl.text.trim(),
-                'settlementDate': _dateCtrl.text.trim(),
-                'method': _method,
-                'currency': 'INR',
-                'amount': normAmount(_amtCtrl.text),
-                if (_refCtrl.text.trim().isNotEmpty) 'paymentReference': _refCtrl.text.trim(),
-                if (_bankAcctCtrl.text.trim().isNotEmpty) 'cashOrBankAccountId': _bankAcctCtrl.text.trim(),
-                if (_periodCtrl.text.trim().isNotEmpty) 'postingPeriodId': _periodCtrl.text.trim(),
-                if (_seriesCtrl.text.trim().isNotEmpty) 'documentSeriesId': _seriesCtrl.text.trim(),
-                'allocations': const <Map<String, dynamic>>[],
-              },
-      );
-      if (mounted) {
-        toast(context, 'Settlement posted.');
-        Navigator.pop(context, true);
-      }
-    } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    }
-    if (mounted) setState(() => _busy = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final title = switch (widget.kind) {
-      'DISB' => 'Supplier Disbursement',
-      'REFUND' => 'Customer Refund',
-      'CLEARING' => 'Provider Clearing Batch',
-      _ => 'Customer Receipt',
-    };
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-        Text(title, style: T.display(21)),
-        const SizedBox(height: 14),
-        if (widget.kind != 'CLEARING') ...[
-          LookupField(label: 'Party', controller: _partyCtrl, options: widget.lookup.parties),
-          const SizedBox(height: 10),
-          const FieldLabel('Payment Method'),
-          GoldDropdown<String>(
-            value: _method,
-            items: const [
-              DropdownMenuItem(value: 'CASH', child: Text('CASH')),
-              DropdownMenuItem(value: 'UPI', child: Text('UPI')),
-              DropdownMenuItem(value: 'CARD', child: Text('CARD')),
-              DropdownMenuItem(value: 'BANK_TRANSFER', child: Text('BANK_TRANSFER / RTGS')),
-            ],
-            onChanged: (v) => setState(() => _method = v ?? 'UPI'),
-          ),
-          const SizedBox(height: 10),
-        ],
-        ResponsiveGrid2(children: [
-          DatePickField(label: 'Settlement date', controller: _dateCtrl),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const FieldLabel('Amount (INR)'),
-            TextField(
-              controller: _amtCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: T.mono(13.5),
-              decoration: const InputDecoration(hintText: '0.00'),
-            ),
-          ]),
-        ]),
-        const SizedBox(height: 10),
-        LookupField(
-          label: 'Cash / Bank Ledger Account',
-          controller: _bankAcctCtrl,
-          options: widget.lookup.accounts,
-          optional: true,
-        ),
-        const SizedBox(height: 10),
-        ResponsiveGrid2(children: [
-          LookupField(label: 'Open Period', controller: _periodCtrl, options: widget.lookup.openPeriods(), optional: true),
-          LookupField(label: 'Series', controller: _seriesCtrl, options: widget.lookup.series, optional: true),
-        ]),
-        const SizedBox(height: 10),
-        const FieldLabel('UTR / Batch Reference'),
-        TextField(controller: _refCtrl, style: T.mono(13)),
-        const SizedBox(height: 16),
-        RoyalGoldButton(label: 'Post $title', busy: _busy, onPressed: _submit),
-      ]),
-    );
-  }
-}
-
-// ============================================================================
-// 3. BANKING & RECONCILIATION — Screenshot 690 (`/banking`)
-// ============================================================================
+// ---------------------------------------------------------------------------
+// 3. BANKING & RECONCILIATION (`/banking`) — Screenshot (690)
+// ---------------------------------------------------------------------------
 
 class BankingReconciliationScreen extends StatefulWidget {
   const BankingReconciliationScreen({super.key});
@@ -1348,20 +1523,22 @@ class BankingReconciliationScreen extends StatefulWidget {
 }
 
 class _BankingReconciliationScreenState extends State<BankingReconciliationScreen> {
-  WorkspaceLookup _lookup = WorkspaceLookup();
   List<Map<String, dynamic>> _statements = [];
+  WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
-  final _bankAcctCtrl = TextEditingController();
-  final _stmtIdCtrl = TextEditingController();
-  final _startDateCtrl = TextEditingController(text: monthStartIso());
-  final _endDateCtrl = TextEditingController(text: todayIso());
-  final _openBalCtrl = TextEditingController(text: '0.00');
-  final _closeBalCtrl = TextEditingController(text: '0.00');
-  final _currencyCtrl = TextEditingController(text: 'INR');
-  final _csvCtrl = TextEditingController();
+  final _bankAcctId = TextEditingController();
+  final _statementId = TextEditingController();
+  final _startDate = TextEditingController(text: todayIso());
+  final _endDate = TextEditingController(text: todayIso());
+  final _openingBal = TextEditingController();
+  final _closingBal = TextEditingController();
+  final _currency = TextEditingController(text: 'INR');
+  final _csvText = TextEditingController(
+    text: 'transaction_date,direction,amount,description',
+  );
 
   @override
   void initState() {
@@ -1371,14 +1548,12 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
 
   @override
   void dispose() {
-    _bankAcctCtrl.dispose();
-    _stmtIdCtrl.dispose();
-    _startDateCtrl.dispose();
-    _endDateCtrl.dispose();
-    _openBalCtrl.dispose();
-    _closeBalCtrl.dispose();
-    _currencyCtrl.dispose();
-    _csvCtrl.dispose();
+    for (final c in [
+      _bankAcctId, _statementId, _startDate, _endDate,
+      _openingBal, _closingBal, _currency, _csvText,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -1389,64 +1564,65 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
     });
     final api = context.read<ApiClient>();
     try {
-      final res = await Future.wait<dynamic>([
+      final res = await Future.wait([
         api.get('/banking'),
         WorkspaceLookup.load(api, includeParties: false, includeAccounting: true),
       ]);
       if (!mounted) return;
       setState(() {
-        _statements = asList(res[0], keys: const ['statements', 'bankStatements', 'items', 'rows']);
-        _lookup = res[1] as WorkspaceLookup;
+        _statements = asList(res[0], keys: const ['statements', 'bankStatements', 'items']);
+        _lk = res[1] as WorkspaceLookup;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _importCsv() async {
-    if (_bankAcctCtrl.text.trim().isEmpty || _stmtIdCtrl.text.trim().isEmpty) {
-      toast(context, 'Select Bank account UUID and enter Statement ID.', error: true);
+  Future<void> _importStatement() async {
+    if (_bankAcctId.text.trim().isEmpty ||
+        _statementId.text.trim().isEmpty ||
+        _openingBal.text.trim().isEmpty ||
+        _closingBal.text.trim().isEmpty ||
+        _csvText.text.trim().isEmpty) {
+      setState(() => _error = 'Complete Bank account UUID, Statement ID, Opening/Closing balances, and CSV rows.');
       return;
     }
-    if (_csvCtrl.text.trim().isEmpty) {
-      toast(context, 'Paste normalized CSV statement lines.', error: true);
-      return;
-    }
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await context.read<ApiClient>().post(
-        '/banking',
-        idempotencyKey: const Uuid().v4(),
+        '/banking/statements',
+        idempotent: true,
         body: {
-          'bankAccountId': _bankAcctCtrl.text.trim(),
-          'statementId': _stmtIdCtrl.text.trim(),
-          'externalStatementId': _stmtIdCtrl.text.trim(),
-          'startDate': _startDateCtrl.text.trim(),
-          'endDate': _endDateCtrl.text.trim(),
-          'openingBalance': normAmount(_openBalCtrl.text),
-          'closingBalance': normAmount(_closeBalCtrl.text),
-          'currency': _currencyCtrl.text.trim().toUpperCase(),
-          'csvContent': _csvCtrl.text.trim(),
-          'csv': _csvCtrl.text.trim(),
+          'bankAccountId': _bankAcctId.text.trim(),
+          'externalStatementId': _statementId.text.trim(),
+          'startDate': _startDate.text.trim(),
+          'endDate': _endDate.text.trim(),
+          'openingBalance': _openingBal.text.trim(),
+          'closingBalance': _closingBal.text.trim(),
+          'currency': _currency.text.trim().toUpperCase(),
+          'csvContent': _csvText.text.trim(),
         },
       );
-      _stmtIdCtrl.clear();
-      _csvCtrl.clear();
-      await _load();
-      if (mounted) toast(context, 'Bank statement imported.');
+      if (!mounted) return;
+      _statementId.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bank statement imported.')),
+      );
+      _load();
     } on ApiException catch (e) {
-      if (mounted) toast(context, e.message, error: true);
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    if (mounted) setState(() => _busy = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final assetAccts = _lookup.accounts
-        .where((a) => '${a.raw['group']}'.toUpperCase() == 'ASSET')
-        .toList();
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Banking & Reconciliation'),
@@ -1456,110 +1632,119 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
             const SaasModuleHeader(
-              icon: Icons.account_balance_rounded,
-              badge: 'Financials & GST',
-              title: 'Bank Statement Import & Reconciliation',
+              icon: Icons.account_balance_outlined,
+              title: 'Bank Statements & Reconciliation',
               subtitle:
-                  'Duplicate-safe CSV import, settlement/clearing matching, adjustment journals, and immutable reconciliation sign-off.',
+                  'Immutable statement imports, balance continuity checks, exact/allocated matches, and period sign-off.',
+            ),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+            const SizedBox(height: 14),
+            SaasFormCard(
+              title: 'Import normalized bank CSV',
+              subtitle:
+                  'Required columns: transaction_date, direction, amount, description. Optional: value_date, reference, bank_transaction_id.',
+              icon: Icons.upload_rounded,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  LookupField(
+                    label: 'Bank account UUID',
+                    controller: _bankAcctId,
+                    options: _lk.accountsByControl(const ['BANK', 'ASSET']),
+                    hint: 'Bank account UUID',
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Statement ID',
+                    controller: _statementId,
+                    hint: 'Statement ID',
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: DatePickField(label: 'Start date', controller: _startDate)),
+                      const SizedBox(width: 10),
+                      Expanded(child: DatePickField(label: 'End date', controller: _endDate)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Opening balance',
+                          controller: _openingBal,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Closing balance',
+                          controller: _closingBal,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(label: 'Currency', controller: _currency, mono: true),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Normalized CSV content',
+                    controller: _csvText,
+                    mono: true,
+                    maxLines: 5,
+                  ),
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : _importStatement,
+                      child: Text(_busy ? 'Importing…' : 'Import statement'),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 14),
-            Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Import normalized bank CSV', style: T.display(18)),
-                const SizedBox(height: 14),
-                LookupField(
-                  label: 'Bank account UUID',
-                  controller: _bankAcctCtrl,
-                  options: assetAccts.isNotEmpty ? assetAccts : _lookup.accounts,
-                ),
-                const SizedBox(height: 12),
-                const FieldLabel('Statement ID'),
-                TextField(
-                  controller: _stmtIdCtrl,
-                  style: T.mono(13.5),
-                  decoration: const InputDecoration(hintText: 'Bank statement reference ID'),
-                ),
-                const SizedBox(height: 12),
-                ResponsiveGrid2(children: [
-                  DatePickField(label: 'Start date', controller: _startDateCtrl),
-                  DatePickField(label: 'End date', controller: _endDateCtrl),
-                ]),
-                const SizedBox(height: 12),
-                ResponsiveGrid2(children: [
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const FieldLabel('Opening balance'),
-                    TextField(
-                      controller: _openBalCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: T.mono(13.5),
-                    ),
-                  ]),
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const FieldLabel('Closing balance'),
-                    TextField(
-                      controller: _closeBalCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: T.mono(13.5),
-                    ),
-                  ]),
-                ]),
-                const SizedBox(height: 12),
-                const FieldLabel('Currency'),
-                TextField(controller: _currencyCtrl, style: T.mono(13.5)),
-                const SizedBox(height: 12),
-                const FieldLabel('Normalized CSV rows (date,reference,description,debit,credit)'),
-                TextField(
-                  controller: _csvCtrl,
-                  maxLines: 4,
-                  style: T.mono(12),
-                  decoration: const InputDecoration(
-                    hintText: 'date,reference,description,debit,credit',
-                  ),
-                ),
-                const SizedBox(height: 16),
-                RoyalGoldButton(
-                  label: 'Import statement',
-                  icon: Icons.upload_file_outlined,
-                  busy: _busy,
-                  onPressed: _importCsv,
-                ),
-              ]),
-            ),
-            const SectionLabel('Imported Statements'),
             if (_loading)
-              const Panel(child: Skeleton(height: 80))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
-            else if (_statements.isEmpty)
-              const Panel(
-                child: EmptyBlock(
-                  icon: Icons.account_balance_rounded,
-                  title: 'No bank statements imported yet',
-                  body: 'Import a normalized bank CSV statement above to begin matching settlements.',
-                ),
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
               )
+            else if (_statements.isEmpty)
+              const SaasEmptyBox('No bank statements imported yet.')
             else
               for (final s in _statements)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Panel(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Expanded(
-                          child: Text(
-                            _fStr(s, ['statementId', 'externalStatementId', 'id'], 'Statement'),
-                            style: T.display(17),
-                          ),
+                  child: SectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${s['externalStatementId'] ?? shortId('${s['id']}')}',
+                                style: T.mono(13.5, w: FontWeight.w700),
+                              ),
+                            ),
+                            StatusChip('${s['state'] ?? s['status'] ?? 'IMPORTED'}'),
+                          ],
                         ),
-                        StatusPill(_fStr(s, ['state', 'status'], 'IMPORTED')),
-                      ]),
-                      const SizedBox(height: 8),
-                      KeyValue('Period', '${formatDate(s['startDate'])} – ${formatDate(s['endDate'])}'),
-                      KeyValue('Opening / Closing', '${inr(s['openingBalance'])} → ${inr(s['closingBalance'])}', mono: true),
-                    ]),
+                        const SizedBox(height: 6),
+                        KVRow('Period', '${fmtDate('${s['startDate'] ?? ''}')} → ${fmtDate('${s['endDate'] ?? ''}')}'),
+                        KVRow('Opening / Closing', '${inr(s['openingBalance'])} → ${inr(s['closingBalance'])}', bold: true),
+                      ],
+                    ),
                   ),
                 ),
           ],
@@ -1569,19 +1754,21 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
   }
 }
 
-// ============================================================================
-// 4. CONSOLIDATED CHAIN ANALYTICS — Screenshot 691 (`GET /chain-analytics`)
-// ============================================================================
+// ---------------------------------------------------------------------------
+// 4. CONSOLIDATED CHAIN ANALYTICS (`/chain-analytics`) — Screenshot (691)
+// ---------------------------------------------------------------------------
 
-class ConsolidatedAnalyticsScreen extends StatefulWidget {
-  const ConsolidatedAnalyticsScreen({super.key});
+class ConsolidatedChainAnalyticsScreen extends StatefulWidget {
+  const ConsolidatedChainAnalyticsScreen({super.key});
   @override
-  State<ConsolidatedAnalyticsScreen> createState() => _ConsolidatedAnalyticsScreenState();
+  State<ConsolidatedChainAnalyticsScreen> createState() =>
+      _ConsolidatedChainAnalyticsScreenState();
 }
 
-class _ConsolidatedAnalyticsScreenState extends State<ConsolidatedAnalyticsScreen> {
-  final _fromCtrl = TextEditingController(text: '${DateTime.now().year}-01-01');
-  final _toCtrl = TextEditingController(text: todayIso());
+class _ConsolidatedChainAnalyticsScreenState
+    extends State<ConsolidatedChainAnalyticsScreen> {
+  final _fromDate = TextEditingController(text: monthStartIso());
+  final _toDate = TextEditingController(text: todayIso());
   Map<String, dynamic> _data = const {};
   bool _loading = true;
   String? _error;
@@ -1594,8 +1781,8 @@ class _ConsolidatedAnalyticsScreenState extends State<ConsolidatedAnalyticsScree
 
   @override
   void dispose() {
-    _fromCtrl.dispose();
-    _toCtrl.dispose();
+    _fromDate.dispose();
+    _toDate.dispose();
     super.dispose();
   }
 
@@ -1606,25 +1793,28 @@ class _ConsolidatedAnalyticsScreenState extends State<ConsolidatedAnalyticsScree
     });
     try {
       final d = await context.read<ApiClient>().get('/chain-analytics', query: {
-        'startDate': _fromCtrl.text.trim(),
-        'endDate': _toCtrl.text.trim(),
-        'from': _fromCtrl.text.trim(),
-        'to': _toCtrl.text.trim(),
+        'from': _fromDate.text.trim(),
+        'to': _toDate.text.trim(),
+        'startDate': _fromDate.text.trim(),
+        'endDate': _toDate.text.trim(),
       });
-      if (mounted) setState(() => _data = asMap(d));
+      if (!mounted) return;
+      setState(() => _data = asMap(d));
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     final reported = asMap(_data['reportedTotals'] ?? _data['reportedLedgerTotals']);
     final consolidated = asMap(_data['consolidatedTotals'] ?? _data['afterEliminations']);
-    final recon = asMap(_data['intercompanyReconciliation']);
-    final eliminations = asList(_data['eliminationSchedule'] ?? const []);
-    final entities = asList(_data['entityComparison'] ?? _data['legalEntities'] ?? const []);
+    final icPairs = asList(_data['intercompanyReconciliation'] ?? _data['entityPairs']);
+    final eliminations = asList(_data['eliminationSchedule'] ?? _data['eliminations']);
+    final entities = asList(_data['legalEntities'] ?? _data['legalEntityComparison']);
+    final balanced = _data['intercompanyBalanced'] != false;
 
     return Scaffold(
       appBar: AppBar(
@@ -1635,133 +1825,142 @@ class _ConsolidatedAnalyticsScreenState extends State<ConsolidatedAnalyticsScree
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
             const SaasModuleHeader(
-              icon: Icons.hub_outlined,
-              badge: 'Multi-Entity Rollup',
-              title: 'Consolidated Multi-Entity & Chain Analytics',
+              icon: Icons.insights_rounded,
+              title: 'Consolidated Chain Analytics',
               subtitle:
-                  'Read-only rollup across authorized legal entities and branches, with separate intercompany elimination schedules.',
+                  'Derived multi-entity reporting with balanced intercompany eliminations and zero ledger mutation.',
             ),
-            const SizedBox(height: 14),
-            Panel(
-              padding: const EdgeInsets.all(14),
-              child: Column(children: [
-                ResponsiveGrid2(children: [
-                  DatePickField(
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: DatePickField(
                     label: 'From',
-                    controller: _fromCtrl,
+                    controller: _fromDate,
                     onChanged: (_) => _load(),
                   ),
-                  DatePickField(
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: DatePickField(
                     label: 'To',
-                    controller: _toCtrl,
+                    controller: _toDate,
                     onChanged: (_) => _load(),
                   ),
-                ]),
-              ]),
+                ),
+              ],
+            ),
+            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+            const SizedBox(height: 14),
+            SaasKpiGrid(
+              items: [
+                (
+                  label: 'AUTHORIZED ENTITIES',
+                  value: '${_data['authorizedEntities'] ?? entities.length}',
+                ),
+                (
+                  label: 'AUTHORIZED BRANCHES',
+                  value: '${_data['authorizedBranches'] ?? 0}',
+                ),
+                (
+                  label: 'REPORTED PROFIT · INR',
+                  value: '${reported['profit'] ?? _data['reportedProfit'] ?? '0.00'}',
+                ),
+                (
+                  label: 'CONSOLIDATED PROFIT · INR',
+                  value: '${consolidated['profit'] ?? _data['consolidatedProfit'] ?? '0.00'}',
+                ),
+              ],
             ),
             const SizedBox(height: 14),
             if (_loading)
-              const Panel(child: Skeleton(height: 120))
-            else if (_error != null)
-              ErrorBlock(_error!, onRetry: _load)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              )
             else ...[
-              ResponsiveGrid2(children: [
-                MetricTile(
-                  label: 'Authorized Entities',
-                  value: '${_data['authorizedEntitiesCount'] ?? _data['authorizedEntities'] ?? entities.length}',
-                  icon: Icons.domain_rounded,
+              SaasFormCard(
+                title: 'Reported ledger totals',
+                child: Column(
+                  children: [
+                    KVRow('Revenue', inr(reported['revenue'] ?? '0.00')),
+                    KVRow('Expense', inr(reported['expense'] ?? '0.00')),
+                    KVRow('Net Profit', inr(reported['profit'] ?? _data['reportedProfit'] ?? '0.00'), bold: true),
+                  ],
                 ),
-                MetricTile(
-                  label: 'Authorized Branches',
-                  value: '${_data['authorizedBranchesCount'] ?? _data['authorizedBranches'] ?? 0}',
-                  icon: Icons.storefront_outlined,
-                ),
-                MetricTile(
-                  label: 'Reported Profit · INR',
-                  value: inr(reported['netProfit'] ?? _data['reportedProfit'] ?? '0.00'),
-                  icon: Icons.trending_up_rounded,
-                ),
-                MetricTile(
-                  label: 'Consolidated Profit',
-                  value: inr(consolidated['netProfit'] ?? _data['consolidatedProfit'] ?? '0.00'),
-                  icon: Icons.workspace_premium_outlined,
-                ),
-              ]),
-              const SectionLabel('Reported Ledger Totals'),
-              Panel(
-                child: Column(children: [
-                  KeyValue('Revenue', inr(reported['revenue'] ?? '0.00'), mono: true),
-                  KeyValue('Expenses', inr(reported['expenses'] ?? '0.00'), mono: true),
-                  KeyValue('Net Profit', inr(reported['netProfit'] ?? '0.00'), strong: true, mono: true),
-                  KeyValue('Assets', inr(reported['assets'] ?? '0.00'), mono: true),
-                  KeyValue('Liabilities', inr(reported['liabilities'] ?? '0.00'), mono: true),
-                  KeyValue('Inventory Cost', inr(reported['inventoryCost'] ?? '0.00'), mono: true),
-                  KeyValue('Pure Fine Gold/Metal', fineGrams(reported['pureFineGrams'] ?? '0.000000'), mono: true),
-                ]),
               ),
-              const SectionLabel('After Consolidation Eliminations'),
-              Panel(
-                child: Column(children: [
-                  KeyValue('Revenue', inr(consolidated['revenue'] ?? '0.00'), mono: true),
-                  KeyValue('Expenses', inr(consolidated['expenses'] ?? '0.00'), mono: true),
-                  KeyValue('Net Profit', inr(consolidated['netProfit'] ?? '0.00'), strong: true, mono: true),
-                  KeyValue('Assets', inr(consolidated['assets'] ?? '0.00'), mono: true),
-                  KeyValue('Liabilities', inr(consolidated['liabilities'] ?? '0.00'), mono: true),
-                  KeyValue('Inventory Cost', inr(consolidated['inventoryCost'] ?? '0.00'), mono: true),
-                ]),
+              const SizedBox(height: 12),
+              SaasFormCard(
+                title: 'After consolidation eliminations',
+                child: Column(
+                  children: [
+                    KVRow('Consolidated Revenue', inr(consolidated['revenue'] ?? '0.00')),
+                    KVRow('Consolidated Expense', inr(consolidated['expense'] ?? '0.00')),
+                    KVRow('Consolidated Profit', inr(consolidated['profit'] ?? _data['consolidatedProfit'] ?? '0.00'), bold: true),
+                  ],
+                ),
               ),
-              const SectionLabel('Intercompany Reconciliation'),
-              Panel(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    Expanded(child: Text('Elimination Match Status', style: T.body(14, w: FontWeight.w700))),
-                    StatusPill('${recon['state'] ?? recon['status'] ?? 'RECONCILED'}'),
-                  ]),
-                  const SizedBox(height: 8),
-                  KeyValue('Intercompany AR', inr(recon['receivables'] ?? '0.00'), mono: true),
-                  KeyValue('Intercompany AP', inr(recon['payables'] ?? '0.00'), mono: true),
-                  KeyValue('Unrealized Stock Profit', inr(recon['unrealizedInventoryProfit'] ?? '0.00'), mono: true),
-                ]),
+              const SizedBox(height: 12),
+              SaasFormCard(
+                title: 'Intercompany reconciliation',
+                trailing: StatusChip(balanced ? 'BALANCED' : 'VARIANCE'),
+                child: icPairs.isEmpty
+                    ? Text('No intercompany receivable or payable balances.', style: T.body(12.5, color: Pal.muted))
+                    : Column(
+                        children: [
+                          for (final p in icPairs)
+                            KVRow(
+                              '${p['entityPair'] ?? ''}',
+                              'AR ${inr(p['receivable'])} / AP ${inr(p['payable'])} (Diff ${inr(p['difference'])})',
+                            ),
+                        ],
+                      ),
               ),
-              if (eliminations.isNotEmpty) ...[
-                const SectionLabel('Elimination Schedule'),
-                for (final el in eliminations)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Panel(
-                      child: Row(children: [
-                        Expanded(child: Text(_fStr(el, ['description', 'kind'], 'Elimination'), style: T.body(13.5, w: FontWeight.w700))),
-                        Text(inr(el['amount'] ?? '0.00'), style: T.mono(13, w: FontWeight.w700)),
-                      ]),
-                    ),
-                  ),
-              ],
-              const SectionLabel('Legal-Entity Comparison'),
-              if (entities.isEmpty)
-                const Panel(
-                  child: EmptyBlock(
-                    icon: Icons.domain_rounded,
-                    title: 'Single or unposted entity scope',
-                    body: 'Per-entity revenue, profit, and vault custody comparisons appear here.',
-                  ),
-                )
-              else
-                for (final ent in entities)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Panel(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(_fStr(ent, ['legalName', 'name'], 'Legal Entity'), style: T.display(17)),
-                        const SizedBox(height: 8),
-                        KeyValue('Revenue', inr(ent['revenue'] ?? '0.00'), mono: true),
-                        KeyValue('Net Profit', inr(ent['netProfit'] ?? '0.00'), strong: true, mono: true),
-                        KeyValue('Inventory Cost', inr(ent['inventoryCost'] ?? '0.00'), mono: true),
-                      ]),
-                    ),
-                  ),
+              const SizedBox(height: 12),
+              SaasFormCard(
+                title: 'Elimination schedule',
+                child: eliminations.isEmpty
+                    ? Text('No posted inter-entity elimination entries in the selected range.', style: T.body(12.5, color: Pal.muted))
+                    : Column(
+                        children: [
+                          for (final el in eliminations)
+                            KVRow('${el['description'] ?? el['reference'] ?? ''}', inr(el['amount'])),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 12),
+              SaasFormCard(
+                title: 'Legal-entity comparison',
+                child: entities.isEmpty
+                    ? Text('No legal-entity comparison rows returned.', style: T.body(12.5, color: Pal.muted))
+                    : Column(
+                        children: [
+                          for (final e in entities)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: SaasSubBox(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('${e['legalName'] ?? e['name'] ?? 'Entity'}', style: T.body(13.8, w: FontWeight.w700)),
+                                    Text(
+                                      '${e['authorizedBranchCount'] ?? asList(e['branches']).length} authorized branch(es) · ${e['currency'] ?? 'INR'}',
+                                      style: T.body(11.8, color: Pal.muted),
+                                    ),
+                                    if (e['profit'] != null) ...[
+                                      const SizedBox(height: 4),
+                                      KVRow('Profit', inr(e['profit']), bold: true),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+              ),
             ],
           ],
         ),
@@ -1769,3 +1968,5 @@ class _ConsolidatedAnalyticsScreenState extends State<ConsolidatedAnalyticsScree
     );
   }
 }
+
+typedef ConsolidatedAnalyticsScreen = ConsolidatedChainAnalyticsScreen;

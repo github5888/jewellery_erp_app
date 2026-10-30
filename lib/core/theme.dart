@@ -18,9 +18,12 @@ class Pal {
   // Warm Royal Ivory & Champagne Linen light surfaces
   static const pearl = Color(0xFFFAF7F1);
   static const surfaceAlt = Color(0xFFF3ECE0);
+  static const surfaceTint = surfaceAlt;
   static const card = Color(0xFFFFFFFF);
   static const line = Color(0xFFE7DEC9);
   static const lineStrong = Color(0xFFD6C6A9);
+  static const border = line;
+  static const borderStrong = lineStrong;
 
   // Warm Espresso Typography Inks
   static const text = Color(0xFF1A140E);
@@ -50,6 +53,7 @@ class Pal {
   static const warn = Color(0xFFB4690E);
   static const warnWash = Color(0xFFFEF5E7);
   static const danger = Color(0xFF9E2A2B);
+  static const err = danger;
   static const dangerWash = Color(0xFFFDF0F0);
   static const violet = Color(0xFF5C2D68);
   static const violetWash = Color(0xFFF6EFF8);
@@ -80,12 +84,14 @@ class T {
     Color color = Pal.text,
     FontWeight w = FontWeight.w500,
     double height = 1.38,
+    double? letterSpacing,
   }) =>
       GoogleFonts.plusJakartaSans(
         fontSize: size,
         fontWeight: w,
         color: color,
         height: height,
+        letterSpacing: letterSpacing,
         fontFeatures: _tab,
       );
 
@@ -175,14 +181,28 @@ ThemeData buildTheme() {
         textStyle: T.body(14.5, w: FontWeight.w700),
       ),
     ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Pal.gold,
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: Pal.line,
+        disabledForegroundColor: Pal.muted,
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+        textStyle: T.body(13.5, w: FontWeight.w700),
+      ),
+    ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: Pal.goldDeep,
         backgroundColor: Colors.white,
-        minimumSize: const Size.fromHeight(48),
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         side: const BorderSide(color: Pal.goldBorder, width: 1.1),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-        textStyle: T.body(14, w: FontWeight.w700),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+        textStyle: T.body(13.5, w: FontWeight.w700),
       ),
     ),
     textButtonTheme: TextButtonThemeData(

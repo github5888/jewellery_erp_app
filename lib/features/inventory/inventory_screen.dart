@@ -28,6 +28,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   List<MaterialLotItem> _lots = [];
   List<StockLocationItem> _locations = [];
   List<ReservationItem> _reservations = [];
+  List<Map<String, dynamic>> _transformations = [];
   bool _loading = true;
   String? _error;
 
@@ -57,6 +58,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           _lots = asList(d, keys: const ['materialLots']).map(MaterialLotItem.fromJson).toList();
           _locations = asList(d, keys: const ['locations']).map(StockLocationItem.fromJson).toList();
           _reservations = asList(d, keys: const ['reservations']).map(ReservationItem.fromJson).toList();
+          _transformations = asList(d, keys: const ['materialTransformations']);
         });
       } else {
         setState(() {
@@ -147,6 +149,24 @@ class _InventoryScreenState extends State<InventoryScreen> {
     if (created == true) _load();
   }
 
+  Future<void> _receiveLotSheet() async {
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _ReceiveMaterialLotSheet(locations: _locations),
+    );
+    if (created == true) _load();
+  }
+
+  Future<void> _createLocationSheet() async {
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _CreateLocationSheet(),
+    );
+    if (created == true) _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filteredArticles;
@@ -224,6 +244,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
               ('ARTICLES', 'Tagged (${_articles.length})', Icons.diamond_outlined),
               ('LOTS', 'Bullion Lots (${_lots.length})', Icons.layers_outlined),
               ('VAULTS', 'Vaults (${_locations.length})', Icons.account_balance_outlined),
+              ('TRANSFORM', 'Transform (${_transformations.length})', Icons.merge_type_rounded),
             ],
           ),
         ),
@@ -304,6 +325,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         child: _ArticleCard(article: a, onTap: () => _showArticleSheet(a)),
                       ),
                 ] else if (_tab == 'LOTS') ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: ElevatedButton.icon(
+                        onPressed: _receiveLotSheet,
+                        icon: const Icon(Icons.add_rounded, size: 17),
+                        label: const Text('Receive fungible material lot'),
+                      ),
+                    ),
+                  ),
                   if (_lots.isEmpty)
                     const Panel(
                       child: EmptyBlock(
@@ -332,7 +364,23 @@ class _InventoryScreenState extends State<InventoryScreen> {
                           ]),
                         ),
                       ),
+                ] else if (_tab == 'TRANSFORM') ...[
+                  _MaterialTransformationView(
+                    transformations: _transformations,
+                    onTransformed: _load,
+                  ),
                 ] else ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: OutlinedButton.icon(
+                        onPressed: _createLocationSheet,
+                        icon: const Icon(Icons.add_location_alt_outlined, size: 17),
+                        label: const Text('New stock location'),
+                      ),
+                    ),
+                  ),
                   if (_locations.isEmpty)
                     const Panel(
                       child: EmptyBlock(
@@ -799,15 +847,550 @@ class _ReceiveArticleSheetState extends State<_ReceiveArticleSheet> {
           if (_err != null)
             Padding(padding: const EdgeInsets.only(top: 12), child: Text(_err!, style: T.body(13, color: Pal.danger, w: FontWeight.w700))),
           const SizedBox(height: 18),
-          FilledButton(
-            onPressed: _busy ? null : _submit,
-            style: FilledButton.styleFrom(backgroundColor: Pal.teal),
-            child: _busy
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
-                : const Text('Receive Into Showroom Custody'),
-          ),
+        FilledButton(
+          onPressed: _busy ? null : _submit,
+          style: FilledButton.styleFrom(backgroundColor: Pal.teal),
+          child: _busy
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
+              : const Text('Receive Into Showroom Custody'),
+        ),
         ],
       ]),
+    );
+  }
+}
+
+class _CreateLocationSheet extends StatefulWidget {
+  const _CreateLocationSheet();
+  @override
+  State<_CreateLocationSheet> createState() => _CreateLocationSheetState();
+}
+
+class _CreateLocationSheetState extends State<_CreateLocationSheet> {
+  final _code = TextEditingController();
+  final _name = TextEditingController();
+  String _type = 'VAULT';
+  bool _busy = false;
+  String? _err;
+
+  @override
+  void dispose() {
+    _code.dispose();
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_code.text.trim().isEmpty || _name.text.trim().length < 2) {
+      setState(() => _err = 'Enter location code and name.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _err = null;
+    });
+    try {
+      await context.read<ApiClient>().post('/inventory/locations', body: {
+        'code': _code.text.trim().toUpperCase(),
+        'name': _name.text.trim(),
+        'type': _type,
+      });
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _err = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('New Stock Location', style: T.display(20)),
+          const SizedBox(height: 12),
+          SaasField(label: 'Code (VAULT_MAIN)', controller: _code, mono: true),
+          const SizedBox(height: 10),
+          SaasField(label: 'Location name', controller: _name),
+          const SizedBox(height: 10),
+          SaasDropdown(
+            label: 'Custody type',
+            value: _type,
+            options: const {
+              'VAULT': 'VAULT',
+              'COUNTER': 'COUNTER',
+              'TRANSIT': 'TRANSIT',
+              'QUARANTINE': 'QUARANTINE',
+              'EXTERNAL_CUSTODY': 'EXTERNAL_CUSTODY',
+              'CUSTOMER_CUSTODY': 'CUSTOMER_CUSTODY',
+            },
+            onChanged: (v) => setState(() => _type = v),
+          ),
+          if (_err != null) ...[
+            const SizedBox(height: 10),
+            Text(_err!, style: T.body(12.5, color: Pal.danger, w: FontWeight.w700)),
+          ],
+          const SizedBox(height: 14),
+          GoldButton(label: 'Create Location', busy: _busy, onPressed: _submit),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReceiveMaterialLotSheet extends StatefulWidget {
+  const _ReceiveMaterialLotSheet({required this.locations});
+  final List<StockLocationItem> locations;
+  @override
+  State<_ReceiveMaterialLotSheet> createState() => _ReceiveMaterialLotSheetState();
+}
+
+class _ReceiveMaterialLotSheetState extends State<_ReceiveMaterialLotSheet> {
+  final _lotCode = TextEditingController();
+  final _desc = TextEditingController();
+  final _qty = TextEditingController();
+  final _cost = TextEditingController();
+  final _reason = TextEditingController(
+    text: 'Authorized showroom receipt of fungible bullion material lot.',
+  );
+
+  WorkspaceLookup _lk = WorkspaceLookup();
+  final _locationId = TextEditingController();
+  final _metalId = TextEditingController();
+  final _purityId = TextEditingController();
+  final _unitId = TextEditingController();
+  bool _loading = true;
+  bool _busy = false;
+  String? _err;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.locations.isNotEmpty) _locationId.text = widget.locations.first.id;
+    _init();
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_lotCode, _desc, _qty, _cost, _reason, _locationId, _metalId, _purityId, _unitId]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _init() async {
+    final lk = await WorkspaceLookup.load(
+      context.read<ApiClient>(),
+      includeParties: false,
+      includeInventory: true,
+      includeMaterials: true,
+    );
+    if (!mounted) return;
+    if (lk.metals.isNotEmpty) _metalId.text = lk.metals.first.id;
+    if (lk.units.isNotEmpty) _unitId.text = lk.units.first.id;
+    setState(() {
+      _lk = lk;
+      _loading = false;
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_locationId.text.trim().isEmpty ||
+        _lotCode.text.trim().isEmpty ||
+        _desc.text.trim().length < 3 ||
+        _metalId.text.trim().isEmpty ||
+        _purityId.text.trim().isEmpty ||
+        _unitId.text.trim().isEmpty ||
+        !isValidWeight(_qty.text) ||
+        !isValidAmount(_cost.text)) {
+      setState(() => _err = 'Complete location, lot code, description, metal, purity, unit, quantity, and carrying cost.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _err = null;
+    });
+    try {
+      const uuid = Uuid();
+      await context.read<ApiClient>().post(
+        '/inventory/material-lots/receive',
+        idempotencyKey: uuid.v4(),
+        body: {
+          'locationId': _locationId.text.trim(),
+          'lotCode': _lotCode.text.trim().toUpperCase(),
+          'description': _desc.text.trim(),
+          'metalId': _metalId.text.trim(),
+          'purityGradeId': _purityId.text.trim(),
+          'unitId': _unitId.text.trim(),
+          'quantity': normWeight6(_qty.text),
+          'ownershipKind': 'ENTITY',
+          'sourceType': 'OPENING_STOCK',
+          'sourceId': uuid.v4(),
+          'businessDate': todayIso(),
+          'reason': _reason.text.trim(),
+          'carryingCost': normAmount(_cost.text),
+          'currency': 'INR',
+          'costMethod': 'FIFO',
+        },
+      );
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _err = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Receive Fungible Material Lot', style: T.display(20)),
+          const SizedBox(height: 12),
+          if (_loading)
+            const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()))
+          else ...[
+            LookupField(label: 'Location', controller: _locationId, options: _lk.locations),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: SaasField(label: 'Lot code', controller: _lotCode, mono: true)),
+                const SizedBox(width: 10),
+                Expanded(child: LookupField(label: 'Unit', controller: _unitId, options: _lk.units)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SaasField(label: 'Description', controller: _desc),
+            const SizedBox(height: 10),
+            LookupField(
+              label: 'Metal',
+              controller: _metalId,
+              options: _lk.metals,
+              onSelected: (_) => setState(() => _purityId.clear()),
+            ),
+            const SizedBox(height: 10),
+            LookupField(
+              label: 'Purity grade',
+              controller: _purityId,
+              options: _lk.puritiesForMetal(_metalId.text.trim()),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: SaasField(
+                    label: 'Quantity',
+                    controller: _qty,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SaasField(
+                    label: 'Carrying cost (INR)',
+                    controller: _cost,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SaasField(label: 'Authorization reason (min 10 chars)', controller: _reason),
+            if (_err != null) ...[
+              const SizedBox(height: 10),
+              Text(_err!, style: T.body(12.5, color: Pal.danger, w: FontWeight.w700)),
+            ],
+            const SizedBox(height: 14),
+            GoldButton(label: 'Receive Material Lot', busy: _busy, onPressed: _submit),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 1:1 mobile version of `MaterialTransformationPanel.tsx` (`POST /inventory/material-lots/transform`).
+class _MaterialTransformationView extends StatefulWidget {
+  const _MaterialTransformationView({
+    required this.transformations,
+    required this.onTransformed,
+  });
+
+  final List<Map<String, dynamic>> transformations;
+  final VoidCallback onTransformed;
+
+  @override
+  State<_MaterialTransformationView> createState() => _MaterialTransformationViewState();
+}
+
+class _MaterialTransformationViewState extends State<_MaterialTransformationView> {
+  WorkspaceLookup _lk = WorkspaceLookup();
+  bool _loading = true;
+  bool _busy = false;
+  String? _err;
+
+  final _businessDate = TextEditingController(text: todayIso());
+  final _inputBalanceId = TextEditingController();
+  final _inputQtyGrams = TextEditingController();
+  int _expectedBalanceVersion = 1;
+
+  final _outLotCode = TextEditingController();
+  final _outDesc = TextEditingController();
+  final _outLocationId = TextEditingController();
+  final _outPurityId = TextEditingController();
+  final _outUnitId = TextEditingController();
+  final _outQty = TextEditingController();
+
+  final _approvedLoss = TextEditingController(text: '0');
+  final _lossReason = TextEditingController();
+  final _reason = TextEditingController(
+    text: 'Authorized material transformation with measured input and output weights.',
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  @override
+  void dispose() {
+    for (final c in [
+      _businessDate, _inputBalanceId, _inputQtyGrams, _outLotCode, _outDesc,
+      _outLocationId, _outPurityId, _outUnitId, _outQty, _approvedLoss, _lossReason, _reason,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _init() async {
+    final lk = await WorkspaceLookup.load(
+      context.read<ApiClient>(),
+      includeParties: false,
+      includeInventory: true,
+      includeMaterials: true,
+    );
+    if (!mounted) return;
+    if (lk.units.isNotEmpty) _outUnitId.text = lk.units.first.id;
+    setState(() {
+      _lk = lk;
+      _loading = false;
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_inputBalanceId.text.trim().isEmpty ||
+        _inputQtyGrams.text.trim().isEmpty ||
+        _outLotCode.text.trim().isEmpty ||
+        _outDesc.text.trim().length < 3 ||
+        _outLocationId.text.trim().isEmpty ||
+        _outPurityId.text.trim().isEmpty ||
+        _outUnitId.text.trim().isEmpty ||
+        _outQty.text.trim().isEmpty) {
+      setState(() => _err = 'Select source lot balance and fill all output lot fields.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _err = null;
+    });
+    try {
+      const uuid = Uuid();
+      final loss = _approvedLoss.text.trim().isEmpty ? '0' : _approvedLoss.text.trim();
+      await context.read<ApiClient>().post(
+        '/inventory/material-lots/transform',
+        idempotencyKey: uuid.v4(),
+        body: {
+          'inputs': [
+            {
+              'balanceId': _inputBalanceId.text.trim(),
+              'expectedBalanceVersion': _expectedBalanceVersion,
+              'quantityGrams': _inputQtyGrams.text.trim(),
+            },
+          ],
+          'outputs': [
+            {
+              'locationId': _outLocationId.text.trim(),
+              'lotCode': _outLotCode.text.trim().toUpperCase(),
+              'description': _outDesc.text.trim(),
+              'purityGradeId': _outPurityId.text.trim(),
+              'unitId': _outUnitId.text.trim(),
+              'quantity': _outQty.text.trim(),
+            },
+          ],
+          'approvedLossFineWeightGrams': loss,
+          if (loss != '0' && _lossReason.text.trim().isNotEmpty)
+            'lossApprovalReason': _lossReason.text.trim(),
+          'sourceType': 'MATERIAL_TRANSFORMATION',
+          'sourceId': uuid.v4(),
+          'businessDate': _businessDate.text.trim(),
+          'reason': _reason.text.trim(),
+        },
+      );
+      if (!mounted) return;
+      _outLotCode.clear();
+      _outDesc.clear();
+      _outQty.clear();
+      toast(context, 'Material transformation posted.');
+      widget.onTransformed();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _err = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SaasFormCard(
+          title: 'Material transformation',
+          subtitle: 'Fine-metal and historical cost are conserved across immutable lot genealogy.',
+          icon: Icons.merge_type_rounded,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DatePickField(label: 'Business date', controller: _businessDate),
+              const SizedBox(height: 10),
+              LookupField(
+                label: 'Input lot balance',
+                controller: _inputBalanceId,
+                options: _lk.lotBalances,
+                hint: 'Select source lot and custody',
+                onSelected: (opt) {
+                  if (opt != null) {
+                    setState(() {
+                      _expectedBalanceVersion = asInt(opt.raw['balanceVersion'] ?? opt.raw['version'], fallback: 1);
+                      _inputQtyGrams.text = '${opt.raw['quantityGrams'] ?? ''}';
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 10),
+              SaasField(
+                label: 'Input gross grams',
+                controller: _inputQtyGrams,
+                mono: true,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: 12),
+              SaasSubBox(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Output lot', style: T.body(13.2, w: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(child: SaasField(label: 'Output lot code', controller: _outLotCode, mono: true)),
+                        const SizedBox(width: 10),
+                        Expanded(child: LookupField(label: 'Output location', controller: _outLocationId, options: _lk.locations)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(label: 'Description', controller: _outDesc),
+                    const SizedBox(height: 10),
+                    LookupField(label: 'Output purity', controller: _outPurityId, options: _lk.purityGrades),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: LookupField(label: 'Unit', controller: _outUnitId, options: _lk.units)),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Output qty',
+                            controller: _outQty,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: SaasField(
+                      label: 'Approved fine loss g',
+                      controller: _approvedLoss,
+                      mono: true,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SaasField(label: 'Loss approval reason', controller: _lossReason),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SaasField(label: 'Authorization reason', controller: _reason),
+              if (_err != null) ...[
+                const SizedBox(height: 10),
+                Text(_err!, style: T.body(12.5, color: Pal.danger, w: FontWeight.w700)),
+              ],
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ElevatedButton(
+                  onPressed: _busy ? null : _submit,
+                  child: Text(_busy ? 'Posting…' : 'Post transformation'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        SaasFormCard(
+          title: 'Recent genealogy',
+          subtitle: 'Posted batches are immutable and traceable in both directions.',
+          child: widget.transformations.isEmpty
+              ? const SaasEmptyBox('No material transformations posted yet.')
+              : Column(
+                  children: [
+                    for (final item in widget.transformations)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: SaasSubBox(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${fmtDate('${item['businessDate'] ?? ''}')} · ${inr(item['totalCarryingCost'])}',
+                                style: T.body(13.2, w: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 4),
+                              KVRow(
+                                'In / Out Fine',
+                                '${grams(item['inputFineWeightGrams'])} → ${grams(item['outputFineWeightGrams'])} (loss ${grams(item['approvedLossFineWeightGrams'])})',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+        ),
+      ],
     );
   }
 }

@@ -38,7 +38,7 @@ class RatesController extends ChangeNotifier {
 
   void stop() => _timer?.cancel();
 
-  Future<void> refresh() => load();
+  Future<void> refresh({bool force = false}) => load();
 
   Future<void> load({bool silent = false}) async {
     if (!silent) {
@@ -312,3 +312,5 @@ class _BaseMetalQuote {
   Decimal? buyPerGramRef;
   Decimal? buyRefFineness;
 }
+
+typedef RatesStore = RatesController;

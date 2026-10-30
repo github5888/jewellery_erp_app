@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 
 import 'build.dart';
 
@@ -111,14 +112,44 @@ class ApiClient extends ChangeNotifier {
   Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
       _send('GET', path, query: query);
 
-  Future<dynamic> post(String path, {Object? body, String? idempotencyKey}) =>
-      _send('POST', path, body: body ?? const {}, idempotencyKey: idempotencyKey);
+  Future<dynamic> post(
+    String path, {
+    Object? body,
+    String? idempotencyKey,
+    bool idempotent = false,
+  }) =>
+      _send(
+        'POST',
+        path,
+        body: body ?? const {},
+        idempotencyKey: idempotencyKey ?? (idempotent ? const Uuid().v4() : null),
+      );
 
-  Future<dynamic> put(String path, {Object? body, String? idempotencyKey}) =>
-      _send('PUT', path, body: body ?? const {}, idempotencyKey: idempotencyKey);
+  Future<dynamic> put(
+    String path, {
+    Object? body,
+    String? idempotencyKey,
+    bool idempotent = false,
+  }) =>
+      _send(
+        'PUT',
+        path,
+        body: body ?? const {},
+        idempotencyKey: idempotencyKey ?? (idempotent ? const Uuid().v4() : null),
+      );
 
-  Future<dynamic> patch(String path, {Object? body, String? idempotencyKey}) =>
-      _send('PATCH', path, body: body ?? const {}, idempotencyKey: idempotencyKey);
+  Future<dynamic> patch(
+    String path, {
+    Object? body,
+    String? idempotencyKey,
+    bool idempotent = false,
+  }) =>
+      _send(
+        'PATCH',
+        path,
+        body: body ?? const {},
+        idempotencyKey: idempotencyKey ?? (idempotent ? const Uuid().v4() : null),
+      );
 
   // ---- CSRF, Origin & diagnostics ----
 
@@ -369,4 +400,14 @@ List<Map<String, dynamic>> asList(dynamic d, {List<String> keys = const []}) {
   }
   if (l is! List) return const [];
   return l.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+}
+
+int asInt(dynamic v, {int fallback = 0}) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v != null) {
+    final parsed = int.tryParse(v.toString().trim());
+    if (parsed != null) return parsed;
+  }
+  return fallback;
 }
