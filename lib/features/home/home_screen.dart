@@ -21,8 +21,9 @@ import '../more/shift_screen.dart';
 import '../supply/supply_production_screens.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.onJump});
+  const HomeScreen({super.key, required this.onJump, this.onOpenDrawer});
   final ValueChanged<int> onJump;
+  final VoidCallback? onOpenDrawer;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -110,6 +111,44 @@ class _HomeScreenState extends State<HomeScreen> {
     final rates = context.watch<RatesController>();
 
     return Scaffold(
+      appBar: AppBar(
+        leading: widget.onOpenDrawer != null
+            ? IconButton(
+                tooltip: 'Open SaaS Sidebar',
+                onPressed: widget.onOpenDrawer,
+                icon: const Icon(Icons.menu_rounded),
+              )
+            : null,
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                'Jewellery ERP',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: T.display(19, w: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(width: 7),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Pal.goldWash,
+                borderRadius: BorderRadius.circular(5),
+                border: Border.all(color: Pal.goldBorder),
+              ),
+              child: Text('SAAS', style: T.caps(9, color: Pal.goldDeep)),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'All SaaS Modules',
+            onPressed: widget.onOpenDrawer ?? () => widget.onJump(4),
+            icon: const Icon(Icons.apps_rounded, color: Pal.goldDeep),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: RefreshIndicator(
           color: Pal.gold,
