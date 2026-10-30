@@ -608,6 +608,8 @@ class _RateLineDraft {
 }
 
 class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
+  final _search = TextEditingController();
+  String _tab = 'BOOKS';
   Map<String, dynamic> _materials = const {};
   List<Map<String, dynamic>> _rateBooks = [];
   bool _loading = true;
@@ -647,7 +649,7 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
   @override
   void dispose() {
     for (final c in [
-      _metalCode, _metalName, _gradeMetalId, _gradeCode, _gradeKarat,
+      _search, _metalCode, _metalName, _gradeMetalId, _gradeCode, _gradeKarat,
       _gradeFineness, _bookCode, _bookName, _bookCurrency,
       _calcRateVersionId, _calcMetalId, _calcPurityId, _calcWeight,
     ]) {
@@ -907,49 +909,74 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
   Widget build(BuildContext context) {
     final metals = asList(_materials['metals']);
     final units = asList(_materials['units']);
+    final q = _search.text.trim().toLowerCase();
+    final fBooks = _rateBooks.where((b) {
+      if (q.isEmpty) return true;
+      return '${b['name']} ${b['code']} ${b['currency']}'.toLowerCase().contains(q);
+    }).toList();
+    final fMetals = metals.where((m) {
+      if (q.isEmpty) return true;
+      final grades = asList(m['purityGrades']).map((g) => '${g['code']} ${g['displayKarat']}').join(' ');
+      return '${m['name']} ${m['code']} $grades'.toLowerCase().contains(q);
+    }).toList();
+
     return LuxuryModuleScaffold(
       title: 'Materials & Bullion Rates',
       icon: Icons.toll_rounded,
+      searchController: _search,
+      searchHint: 'Search by Rate Book, Metal or Purity...',
+      onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
           onPressed: _load,
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
         ),
       ],
-      topFilterBar: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            OutlinedButton.icon(
-              onPressed: () => setState(() => _openPanel = _openPanel == 'METAL' ? null : 'METAL'),
-              icon: const Icon(Icons.add_rounded, size: 16),
-              label: const Text('Add Metal'),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: () => setState(() => _openPanel = _openPanel == 'PURITY' ? null : 'PURITY'),
-              icon: const Icon(Icons.add_rounded, size: 16),
-              label: const Text('Add Purity'),
-            ),
-            const SizedBox(width: 8),
-            ElevatedButton.icon(
-              onPressed: () => setState(() => _openPanel = _openPanel == 'BOOK' ? null : 'BOOK'),
-              icon: const Icon(Icons.menu_book_rounded, size: 16),
-              label: const Text('New Rate Book'),
-            ),
-          ],
-        ),
+      topFilterBar: PillTabs<String>(
+        value: _tab,
+        onChanged: (v) => setState(() {
+          _tab = v;
+          _openPanel = null;
+        }),
+        tabs: [
+          ('BOOKS', 'Rate Books (${_rateBooks.length})'),
+          ('METALS', 'Metals (${metals.length})'),
+          ('CALC', 'Price Check'),
+        ],
       ),
+      secondaryFilterBar: _tab == 'METALS'
+          ? LuxurySubChips<String>(
+              value: _openPanel ?? '',
+              onChanged: (v) => setState(() => _openPanel = _openPanel == v ? null : v),
+              items: const [
+                ('METAL', '+ Add Metal Master'),
+                ('PURITY', '+ Add Purity Grade'),
+              ],
+            )
+          : null,
+      floatingActionButton: _tab == 'CALC'
+          ? null
+          : GoldAddFab(
+              icon: _openPanel != null ? Icons.close_rounded : Icons.add_rounded,
+              tooltip: _tab == 'BOOKS' ? 'New Rate Book' : 'Add Metal / Purity',
+              onPressed: () => setState(() {
+                if (_openPanel != null) {
+                  _openPanel = null;
+                } else {
+                  _openPanel = _tab == 'BOOKS' ? 'BOOK' : 'PURITY';
+                }
+              }),
+            ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
             if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
 
             if (_openPanel != null) ...[
-              const SizedBox(height: 14),
+              const SizedBox(height: 4),
               SaasFormCard(
                 title: _openPanel == 'METAL'
                     ? 'Add metal master'
@@ -1098,207 +1125,145 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
               ),
             ],
 
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'Material masters',
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : metals.isEmpty
-                      ? const SaasEmptyBox('No metals configured yet.')
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_tab == 'BOOKS') ...[
+              if (fBooks.isEmpty)
+                const SaasEmptyBox('No rate books found. Tap + to create a rate book.')
+              else
+                for (final book in fBooks)
+                  LuxuryRecordCard(
+                    icon: Icons.scale_outlined,
+                    code: '${book['name']}',
+                    status: asList(book['versions']).any((v) => '${v['state']}' == 'PUBLISHED')
+                        ? 'PUBLISHED'
+                        : 'DRAFT',
+                    lines: [
+                      ('Code / Currency', '${book['code']} · ${book['currency']}'),
+                      ('Versions', '${asList(book['versions']).length} recorded'),
+                      for (final v in asList(book['versions']).take(2))
+                        ('v${v['sequenceNumber']} (${v['state']})', '${asList(v['lines']).length} lines · ${fmtDateTime('${v['effectiveAt'] ?? ''}')}'),
+                    ],
+                    amountLabel: 'Current',
+                    amountValue: 'v${book['version'] ?? 1}',
+                    actions: [
+                      OutlinedButton.icon(
+                        onPressed: () => setState(() => _versionTargetBook = book),
+                        icon: const Icon(Icons.add_rounded, size: 15),
+                        label: const Text('New Version'),
+                      ),
+                      for (final v in asList(book['versions']).where((x) => '${x['state']}' == 'DRAFT'))
+                        GoldButton(
+                          label: 'Publish v${v['sequenceNumber']}',
+                          compact: true,
+                          busy: _busy,
+                          icon: Icons.send_rounded,
+                          onPressed: () => _publishVersion(v),
+                        ),
+                    ],
+                  ),
+            ] else if (_tab == 'METALS') ...[
+              if (fMetals.isEmpty)
+                const SaasEmptyBox('No metals configured yet. Tap + to add a metal or purity grade.')
+              else
+                for (final m in fMetals)
+                  LuxuryRecordCard(
+                    icon: Icons.diamond_outlined,
+                    code: '${m['name']}',
+                    status: '${m['code']}',
+                    lines: [
+                      (
+                        'Purity Grades',
+                        asList(m['purityGrades']).isEmpty
+                            ? 'None configured'
+                            : asList(m['purityGrades'])
+                                .map((g) => '${g['code']}${g['displayKarat'] != null ? ' (${g['displayKarat']})' : ''} · ${g['finenessPerThousand']}‰')
+                                .join(', '),
+                      ),
+                      if (units.isNotEmpty)
+                        ('Mass Units', units.map((u) => '${u['code']}').join(' · ')),
+                    ],
+                    amountLabel: 'Purities',
+                    amountValue: '${asList(m['purityGrades']).length} grades',
+                  ),
+            ] else ...[
+              SaasFormCard(
+                title: 'Authoritative metal-price check',
+                icon: Icons.calculate_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LookupField(
+                      label: 'Published rate',
+                      controller: _calcRateVersionId,
+                      options: _publishedVersionOpts,
+                      hint: 'Published rate',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Metal',
+                      controller: _calcMetalId,
+                      options: _metalOpts,
+                      hint: 'Metal',
+                      onSelected: (_) => setState(() => _calcPurityId.clear()),
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Purity grade',
+                      controller: _calcPurityId,
+                      options: _purityOpts(_calcMetalId.text.trim()),
+                      hint: 'Purity',
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Weight grams',
+                            controller: _calcWeight,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasDropdown(
+                            label: 'Side',
+                            value: _calcSide,
+                            options: const {'SELL': 'SELL', 'BUY': 'BUY'},
+                            onChanged: (v) => setState(() => _calcSide = v),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    GoldButton(
+                      label: 'Calculate Metal Value',
+                      busy: _busy,
+                      onPressed: _checkPrice,
+                    ),
+                    if (_priceResult != null) ...[
+                      const SizedBox(height: 12),
+                      SaasSubBox(
+                        child: Column(
                           children: [
-                            for (final m in metals) ...[
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('${m['name']}', style: T.body(14, w: FontWeight.w700)),
-                                  Text('${m['code']}', style: T.mono(12, color: Pal.muted)),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: [
-                                  for (final g in asList(m['purityGrades']))
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Pal.goldWash,
-                                        borderRadius: BorderRadius.circular(99),
-                                        border: Border.all(color: Pal.goldBorder),
-                                      ),
-                                      child: Text(
-                                        '${g['code']}${g['displayKarat'] != null ? ' · ${g['displayKarat']}' : ''} · ${g['finenessPerThousand']}',
-                                        style: T.body(11.5, color: Pal.goldDeep, w: FontWeight.w600),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const Divider(height: 20),
-                            ],
-                            if (units.isNotEmpty)
-                              Text(
-                                'Units: ${units.map((u) => '${u['code']} (${u['baseFactor']} base)').join(' · ')}',
-                                style: T.body(11.8, color: Pal.muted),
+                            KVRow('Total Metal Value', inr(_priceResult!['totalMetalValue']), bold: true),
+                            for (final c in asList(_priceResult!['components']))
+                              KVRow(
+                                '${c['metalCode']} ${c['purityCode']} (${grams(c['fineWeightGrams'])} fine)',
+                                inr(c['metalValue']),
                               ),
                           ],
                         ),
-            ),
-
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'Rate books',
-              icon: Icons.scale_outlined,
-              child: _rateBooks.isEmpty
-                  ? const SaasEmptyBox('No rate books created yet.')
-                  : Column(
-                      children: [
-                        for (final book in _rateBooks) ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            margin: const EdgeInsets.only(bottom: 10),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Pal.border),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text('${book['name']}', style: T.body(14, w: FontWeight.w700)),
-                                          Text(
-                                            '${book['code']} · ${book['currency']} · version ${book['version']}',
-                                            style: T.body(11.8, color: Pal.muted),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    TextButton.icon(
-                                      onPressed: () => setState(() => _versionTargetBook = book),
-                                      icon: const Icon(Icons.add_rounded, size: 15),
-                                      label: const Text('Create version'),
-                                    ),
-                                  ],
-                                ),
-                                for (final v in asList(book['versions'])) ...[
-                                  const Divider(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Version ${v['sequenceNumber']} · ${v['state']}',
-                                              style: T.body(13, w: FontWeight.w600),
-                                            ),
-                                            Text(
-                                              'Effective ${fmtDateTime('${v['effectiveAt'] ?? ''}')} · ${asList(v['lines']).length} lines',
-                                              style: T.body(11.5, color: Pal.muted),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      if ('${v['state']}' == 'DRAFT')
-                                        ElevatedButton.icon(
-                                          onPressed: _busy ? null : () => _publishVersion(v),
-                                          icon: const Icon(Icons.send_rounded, size: 13),
-                                          label: const Text('Publish'),
-                                        ),
-                                    ],
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-            ),
-
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'Authoritative metal-price check',
-              icon: Icons.calculate_outlined,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LookupField(
-                    label: 'Published rate',
-                    controller: _calcRateVersionId,
-                    options: _publishedVersionOpts,
-                    hint: 'Published rate',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Metal',
-                    controller: _calcMetalId,
-                    options: _metalOpts,
-                    hint: 'Metal',
-                    onSelected: (_) => setState(() => _calcPurityId.clear()),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Purity grade',
-                    controller: _calcPurityId,
-                    options: _purityOpts(_calcMetalId.text.trim()),
-                    hint: 'Purity',
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SaasField(
-                          label: 'Weight grams',
-                          controller: _calcWeight,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasDropdown(
-                          label: 'Side',
-                          value: _calcSide,
-                          options: const {'SELL': 'SELL', 'BUY': 'BUY'},
-                          onChanged: (v) => setState(() => _calcSide = v),
-                        ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : _checkPrice,
-                      child: const Text('Calculate metal value'),
-                    ),
-                  ),
-                  if (_priceResult != null) ...[
-                    const SizedBox(height: 12),
-                    SaasSubBox(
-                      child: Column(
-                        children: [
-                          KVRow('Total Metal Value', inr(_priceResult!['totalMetalValue']), bold: true),
-                          for (final c in asList(_priceResult!['components']))
-                            KVRow(
-                              '${c['metalCode']} ${c['purityCode']} (${grams(c['fineWeightGrams'])} fine)',
-                              inr(c['metalValue']),
-                            ),
-                        ],
-                      ),
-                    ),
                   ],
-                ],
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

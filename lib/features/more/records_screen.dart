@@ -5,6 +5,7 @@ import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/workspace_lookup.dart';
 
 /// Formatted enterprise register fallback for custom or future endpoints.
 class RecordsScreen extends StatefulWidget {
@@ -24,6 +25,7 @@ class RecordsScreen extends StatefulWidget {
 }
 
 class _RecordsScreenState extends State<RecordsScreen> {
+  final _search = TextEditingController();
   dynamic _data;
   bool _loading = true;
   String? _error;
@@ -32,6 +34,12 @@ class _RecordsScreenState extends State<RecordsScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -50,16 +58,23 @@ class _RecordsScreenState extends State<RecordsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: widget.title,
+      icon: Icons.folder_open_rounded,
+      searchController: _search,
+      searchHint: 'Search records...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
-        color: Pal.teal,
+        color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: _children(),
         ),
       ),
@@ -78,16 +93,20 @@ class _RecordsScreenState extends State<RecordsScreen> {
     final hasList =
         d is List || (d is Map && d.values.any((v) => v is List && v.isNotEmpty && v.first is Map));
     if (hasList) {
-      final items = asList(d);
+      final q = _search.text.trim().toLowerCase();
+      final items = asList(d).where((m) {
+        if (q.isEmpty) return true;
+        return m.values.map((v) => '$v').join(' ').toLowerCase().contains(q);
+      }).toList();
       if (items.isEmpty) {
-        return [Panel(child: EmptyBlock(icon: Icons.inbox_outlined, title: widget.emptyTitle, body: widget.emptyBody))];
+        return [SaasEmptyBox(widget.emptyBody)];
       }
-      return [for (final m in items) Padding(padding: const EdgeInsets.only(bottom: 10), child: _RecordTile(m))];
+      return [for (final m in items) _RecordTile(m)];
     }
     final map = asMap(d);
     final scalars = map.entries.where((e) => e.value is! Map && e.value is! List).toList();
     if (scalars.isEmpty) {
-      return [Panel(child: EmptyBlock(icon: Icons.inbox_outlined, title: widget.emptyTitle, body: widget.emptyBody))];
+      return [SaasEmptyBox(widget.emptyBody)];
     }
     return [
       Panel(child: Column(children: [for (final e in scalars) KeyValue(humanize(e.key), _fmt(e.key, e.value))])),
@@ -157,22 +176,13 @@ class _RecordTile extends StatelessWidget {
             '${e.value}'.isNotEmpty)
         .take(5)
         .toList();
-    return Panel(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(
-            child: Text(
-              titleKey == null ? 'Record' : '${m[titleKey]}',
-              style: T.display(17.5),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (status != null) StatusPill(status),
-        ]),
-        if (rows.isNotEmpty) const SizedBox(height: 8),
-        for (final e in rows) KeyValue(humanize(e.key), _fmt(e.key, e.value)),
-      ]),
+    return LuxuryRecordCard(
+      icon: Icons.description_outlined,
+      code: titleKey == null ? 'Record' : '${m[titleKey]}',
+      status: status ?? 'RECORD',
+      lines: [
+        for (final e in rows) (humanize(e.key), _fmt(e.key, e.value)),
+      ],
     );
   }
 }

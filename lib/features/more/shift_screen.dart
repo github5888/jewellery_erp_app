@@ -17,6 +17,8 @@ class ShiftScreen extends StatefulWidget {
 }
 
 class _ShiftScreenState extends State<ShiftScreen> {
+  final _search = TextEditingController();
+  String _tab = 'DRAWER';
   Map<String, dynamic>? _activeShift;
   List<Map<String, dynamic>> _history = [];
   bool _loading = true;
@@ -33,6 +35,7 @@ class _ShiftScreenState extends State<ShiftScreen> {
 
   @override
   void dispose() {
+    _search.dispose();
     _cash.dispose();
     _notes.dispose();
     super.dispose();
@@ -159,25 +162,71 @@ class _ShiftScreenState extends State<ShiftScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final q = _search.text.trim().toLowerCase();
+    final fHistory = _history.where((s) {
+      if (q.isEmpty) return true;
+      return '${_pick(s, ['shiftNumber', 'code', 'counterName'])} ${_pick(s, ['status', 'state'])}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
+
     return LuxuryModuleScaffold(
       title: 'POS Counter Shifts',
       icon: Icons.point_of_sale_rounded,
+      searchController: _tab == 'HISTORY' ? _search : null,
+      searchHint: 'Search by Shift # or Status...',
+      onSearchChanged: _tab == 'HISTORY' ? (_) => setState(() {}) : null,
       actions: [
         IconButton(
           onPressed: _load,
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
         ),
       ],
+      topFilterBar: PillTabs<String>(
+        value: _tab,
+        onChanged: (v) => setState(() => _tab = v),
+        tabs: [
+          ('DRAWER', _isOpen ? 'Active Drawer (Open)' : 'Counter Drawer'),
+          ('HISTORY', 'Shift Register (${_history.length})'),
+        ],
+      ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 36),
           children: [
             if (_loading) ...[
               const Panel(child: Skeleton(height: 110)),
               const SizedBox(height: 12),
               const Panel(child: Skeleton(height: 90)),
+            ] else if (_tab == 'HISTORY') ...[
+              if (fHistory.isEmpty)
+                const SaasEmptyBox('No counter shift records found.')
+              else
+                for (final s in fHistory)
+                  LuxuryRecordCard(
+                    icon: Icons.point_of_sale_rounded,
+                    code: _pick(s, ['shiftNumber', 'code', 'counterName'], 'Counter Shift'),
+                    status: _pick(s, ['status', 'state'], 'CLOSED'),
+                    lines: [
+                      ('Opening Float', inr(_pick(s, ['openingCash', 'openingBalance'], '0.00'))),
+                      if (_pick(s, ['openedAt', 'createdAt']).isNotEmpty)
+                        ('Opened', formatDateTime(_pick(s, ['openedAt', 'createdAt']))),
+                      if (_pick(s, ['closedAt']).isNotEmpty)
+                        ('Closed', formatDateTime(_pick(s, ['closedAt']))),
+                    ],
+                    amountLabel: _pick(s, ['closingCash', 'closingBalance']).isNotEmpty
+                        ? 'Closing Cash'
+                        : 'Opening Float',
+                    amountValue: inr(
+                      _pick(
+                        s,
+                        ['closingCash', 'closingBalance', 'openingCash', 'openingBalance'],
+                        '0.00',
+                      ),
+                    ),
+                  ),
             ] else ...[
               LuxuryHeroCard(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -236,8 +285,9 @@ class _ShiftScreenState extends State<ShiftScreen> {
                 ]),
               ),
               SectionLabel(_isOpen ? 'Reconcile & Close Drawer' : 'Start New Counter Shift'),
-              Panel(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SaasFormCard(
+                title: _isOpen ? 'Counted Closing Cash' : 'Opening Cash Float',
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   FieldLabel(_isOpen ? 'Counted Closing Cash (INR)' : 'Opening Cash Float (INR)'),
                   TextField(
                     controller: _cash,
@@ -265,50 +315,14 @@ class _ShiftScreenState extends State<ShiftScreen> {
                       child: Text(_error!, style: T.body(13, color: Pal.danger, w: FontWeight.w700)),
                     ),
                   const SizedBox(height: 16),
-                  FilledButton.icon(
+                  RoyalGoldButton(
+                    busy: _busy,
+                    icon: _isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
+                    label: _isOpen ? 'Close & Reconcile Shift' : 'Open Counter Shift',
                     onPressed: _busy ? null : () => _act(!_isOpen),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _isOpen ? Pal.ink : Pal.teal,
-                    ),
-                    icon: _busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
-                          )
-                        : Icon(_isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded, size: 18),
-                    label: Text(_isOpen ? 'Close & Reconcile Shift' : 'Open Counter Shift'),
                   ),
                 ]),
               ),
-              if (_history.isNotEmpty) ...[
-                SectionLabel('Recent Shift Register', trailing: Text('${_history.length} records', style: T.body(12, color: Pal.muted))),
-                for (final s in _history)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Panel(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [
-                          Expanded(
-                            child: Text(
-                              _pick(s, ['shiftNumber', 'code', 'counterName'], 'Counter Shift'),
-                              style: T.display(17),
-                            ),
-                          ),
-                          StatusPill(_pick(s, ['status', 'state'], 'CLOSED')),
-                        ]),
-                        const SizedBox(height: 10),
-                        KeyValue('Opening Float', inr(_pick(s, ['openingCash', 'openingBalance'], '0.00')), mono: true),
-                        if (_pick(s, ['closingCash', 'closingBalance']).isNotEmpty)
-                          KeyValue('Closing Cash', inr(_pick(s, ['closingCash', 'closingBalance'])), mono: true),
-                        if (_pick(s, ['openedAt', 'createdAt']).isNotEmpty)
-                          KeyValue('Opened', formatDateTime(_pick(s, ['openedAt', 'createdAt']))),
-                        if (_pick(s, ['closedAt']).isNotEmpty)
-                          KeyValue('Closed', formatDateTime(_pick(s, ['closedAt']))),
-                      ]),
-                    ),
-                  ),
-              ],
             ],
           ],
         ),

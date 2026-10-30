@@ -102,17 +102,17 @@ class _ShellState extends State<Shell> {
                 label: Text('$cartCount'),
                 child: const Icon(Icons.point_of_sale_rounded),
               ),
-              label: 'POS Bill',
+              label: 'POS',
             ),
             const NavigationDestination(
               icon: Icon(Icons.people_outline_rounded),
               selectedIcon: Icon(Icons.people_rounded),
-              label: 'Parties',
+              label: 'Clients',
             ),
             const NavigationDestination(
-              icon: Icon(Icons.more_horiz_rounded),
-              selectedIcon: Icon(Icons.apps_rounded),
-              label: 'More',
+              icon: Icon(Icons.grid_view_outlined),
+              selectedIcon: Icon(Icons.grid_view_rounded),
+              label: 'Operations',
             ),
           ],
         ),
@@ -140,79 +140,88 @@ class _PosSaasDrawer extends StatelessWidget {
     final avatarChar = initial.isEmpty ? 'J' : initial[0].toUpperCase();
 
     return Drawer(
-      backgroundColor: Pal.card,
+      backgroundColor: const Color(0xFFFAF6EE),
       surfaceTintColor: Colors.transparent,
       width: 304,
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Brand header matching `pos.hrpocket.in` top-left badge
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Pal.line)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFFE7C664), Color(0xFFB8860B)],
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.diamond_rounded, color: Colors.white, size: 20),
-                  ),
-                  const SizedBox(width: 11),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                'Jewellery ERP',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: T.body(14.5, w: FontWeight.w800),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Pal.goldWash,
-                                borderRadius: BorderRadius.circular(5),
-                                border: Border.all(color: Pal.goldBorder),
-                              ),
-                              child: Text('SAAS', style: T.caps(8.8, color: Pal.goldDeep)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          app.tenantName.isEmpty ? 'Enterprise Workspace' : app.tenantName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: T.body(12, color: Pal.muted),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+      child: Column(
+        children: [
+          // Dark Espresso-Bronze & Radiant Gold brand header matching `image-1.png`
+          Container(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              MediaQuery.of(context).padding.top + 14,
+              12,
+              16,
             ),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF150F09), Color(0xFF281C0E), Color(0xFF3A2812)],
+              ),
+              border: Border(bottom: BorderSide(color: Color(0xFF4C3618))),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFE7C664), Color(0xFFB8860B)],
+                    ),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: const Icon(Icons.diamond_rounded, color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              'Jewellery ERP',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: T.display(17, color: Colors.white, w: FontWeight.w700),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Pal.goldBright.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(5),
+                              border: Border.all(color: Pal.goldBright.withValues(alpha: 0.45)),
+                            ),
+                            child: Text('SAAS', style: T.caps(8.8, color: Pal.goldSoft)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        app.tenantName.isEmpty ? 'Enterprise Workspace' : app.tenantName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: T.body(12, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-            // Scrollable SaaS navigation list matching screenshots 677-696
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                children: [
+          // Scrollable SaaS navigation list matching screenshots 677-696
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              children: [
                   _navTile(
                     Icons.space_dashboard_outlined,
                     'Showroom Dashboard',
@@ -376,52 +385,55 @@ class _PosSaasDrawer extends StatelessWidget {
             ),
 
             // Footer account & sign-out bar
-            Container(
-              padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Pal.line)),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 16,
-                    backgroundColor: Pal.goldWash,
-                    child: Text(avatarChar, style: T.body(13, color: Pal.goldDeep, w: FontWeight.w800)),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          app.userName.isEmpty ? 'Account' : app.userName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: T.body(12.8, w: FontWeight.w700),
-                        ),
-                        Text(
-                          app.branchName.isEmpty ? app.userEmail : app.branchName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: T.body(11, color: Pal.muted),
-                        ),
-                      ],
+            SafeArea(
+              top: false,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: Pal.line)),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Pal.goldWash,
+                      child: Text(avatarChar, style: T.body(13, color: Pal.goldDeep, w: FontWeight.w800)),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Sign out',
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      app.logout();
-                    },
-                    icon: const Icon(Icons.logout_rounded, size: 19, color: Pal.danger),
-                  ),
-                ],
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            app.userName.isEmpty ? 'Account' : app.userName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(12.8, w: FontWeight.w700),
+                          ),
+                          Text(
+                            app.branchName.isEmpty ? app.userEmail : app.branchName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(11, color: Pal.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Sign out',
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        app.logout();
+                      },
+                      icon: const Icon(Icons.logout_rounded, size: 19, color: Pal.danger),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
         ),
-      ),
     );
   }
 

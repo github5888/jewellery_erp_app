@@ -1126,6 +1126,7 @@ class LuxuryModuleScaffold extends StatelessWidget {
     this.onSearchChanged,
     this.actions,
     this.topFilterBar,
+    this.secondaryFilterBar,
     required this.body,
     this.onAddPressed,
     this.addTooltip,
@@ -1139,6 +1140,7 @@ class LuxuryModuleScaffold extends StatelessWidget {
   final ValueChanged<String>? onSearchChanged;
   final List<Widget>? actions;
   final Widget? topFilterBar;
+  final Widget? secondaryFilterBar;
   final Widget body;
   final VoidCallback? onAddPressed;
   final String? addTooltip;
@@ -1210,25 +1212,26 @@ class LuxuryModuleScaffold extends StatelessWidget {
                                     child: Icon(
                                       Icons.arrow_back_rounded,
                                       color: Pal.goldSoft,
-                                      size: 22,
+                                      size: 21,
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 6),
-                              ] else if (icon != null) ...[
+                                const SizedBox(width: 4),
+                              ],
+                              if (icon != null) ...[
                                 Container(
-                                  width: 34,
-                                  height: 34,
+                                  width: 30,
+                                  height: 30,
                                   decoration: BoxDecoration(
                                     color: Pal.goldBright.withValues(alpha: 0.14),
-                                    borderRadius: BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(9),
                                     border: Border.all(
                                       color: Pal.goldBright.withValues(alpha: 0.35),
                                     ),
                                   ),
-                                  child: Icon(icon, color: Pal.goldSoft, size: 18),
+                                  child: Icon(icon, color: Pal.goldSoft, size: 16),
                                 ),
-                                const SizedBox(width: 10),
+                                const SizedBox(width: 9),
                               ],
                               Expanded(
                                 child: Text(
@@ -1322,6 +1325,11 @@ class LuxuryModuleScaffold extends StatelessWidget {
                           padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
                           child: topFilterBar!,
                         ),
+                      if (secondaryFilterBar != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+                          child: secondaryFilterBar!,
+                        ),
                       Expanded(child: body),
                     ],
                   ),
@@ -1329,6 +1337,71 @@ class LuxuryModuleScaffold extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Secondary crisp white outline filter chips matching Screen 3 of `image-1.png`.
+class LuxurySubChips<TValue> extends StatelessWidget {
+  const LuxurySubChips({
+    super.key,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  final TValue value;
+  final List<(TValue, String)> items;
+  final ValueChanged<TValue> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            _chip(items[i].$1, items[i].$2),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(TValue v, String label) {
+    final active = v == value;
+    return Material(
+      color: active ? Pal.goldWash : Pal.card,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: () => onChanged(v),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: active ? Pal.gold : Pal.line),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: T.body(
+                  11.8,
+                  color: active ? Pal.goldDeep : Pal.textSoft,
+                  w: active ? FontWeight.w700 : FontWeight.w600,
+                ),
+              ),
+              if (active) ...[
+                const SizedBox(width: 4),
+                const Icon(Icons.check_rounded, size: 13, color: Pal.goldDeep),
+              ],
+            ],
+          ),
         ),
       ),
     );

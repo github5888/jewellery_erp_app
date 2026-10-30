@@ -554,20 +554,22 @@ class SectionLabel extends StatelessWidget {
       );
 }
 
-enum Tone { ok, warn, bad, danger, neutral, gold, violet }
+enum Tone { ok, warn, info, bad, danger, neutral, gold, violet }
 
 Tone toneFor(String status) {
   final s = status.toUpperCase();
   if ([
     'CONFIRMED',
+    'RECEIVED',
+    'SETTLED',
+    'DELIVERED',
     'IN_VAULT',
     'IN_STOCK',
     'AVAILABLE',
-    'OPEN',
     'ACTIVE',
     'PAID',
     'COMPLETED',
-    'RETURNED',
+    'RECONCILED',
     'POSTED',
     'PUBLISHED',
     'APPROVED',
@@ -575,20 +577,55 @@ Tone toneFor(String status) {
     'GRANTED',
     'PASSED',
     'BALANCED',
+    'SENT',
+    'ELIGIBLE',
   ].contains(s)) {
     return Tone.ok;
   }
   if ([
-    'RESERVED',
     'PENDING',
-    'DRAFT',
+    'IN_PROCESS',
+    'IN_PROGRESS',
+    'IN_TRANSIT',
+    'DISPATCHED',
+    'ASSAYED',
+    'OPEN',
     'PARTIAL',
     'ISSUED',
     'ON_APPROVAL',
     'READY_TO_POST',
     'SUBMITTED',
     'REQUESTED',
+    'QUEUED',
     'CLOSING',
+    'RESERVED',
+  ].contains(s)) {
+    return Tone.warn;
+  }
+  if ([
+    'RETURN',
+    'RETURNED',
+    'DEBIT',
+    'DEBIT_NOTE',
+    'CREDIT',
+    'CREDIT_NOTE',
+    'EINVOICE',
+    'EWAY_BILL',
+    'SUPPLIER',
+    'KARIGAR',
+    'REFINER',
+  ].contains(s)) {
+    return Tone.info;
+  }
+  if ([
+    'DRAFT',
+    'CLOSED',
+    'ARCHIVED',
+  ].contains(s)) {
+    return Tone.neutral;
+  }
+  if ([
+    'CUSTOMER',
     'VALID',
   ].contains(s)) {
     return Tone.gold;
@@ -605,6 +642,7 @@ Tone toneFor(String status) {
     'SUSPENDED',
     'EXPIRED',
     'FAILED_QUARANTINE',
+    'INELIGIBLE',
   ].contains(s)) {
     return Tone.bad;
   }
@@ -620,32 +658,26 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = tone ?? toneFor(text);
     final (bg, fg) = switch (t) {
-      Tone.ok => (Pal.okWash, Pal.ok),
-      Tone.warn => (Pal.warnWash, Pal.warn),
+      Tone.ok => (const Color(0xFFE6F5EC), const Color(0xFF1D7A46)),
+      Tone.warn => (const Color(0xFFFDF0D8), const Color(0xFFB46910)),
+      Tone.info => (const Color(0xFFEBF1FD), const Color(0xFF28559A)),
       Tone.bad || Tone.danger => (Pal.dangerWash, Pal.danger),
       Tone.gold => (Pal.goldWash, Pal.goldDeep),
       Tone.violet => (Pal.violetWash, Pal.violet),
-      Tone.neutral => (Pal.surfaceAlt, Pal.muted),
+      Tone.neutral => (const Color(0xFFEEECE6), const Color(0xFF5A5449)),
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: fg.withValues(alpha: 0.25)),
       ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 5.5, height: 5.5, decoration: BoxDecoration(color: fg, shape: BoxShape.circle)),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(
-            statusLabel(text),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: T.body(11.5, w: FontWeight.w700, color: fg),
-          ),
-        ),
-      ]),
+      child: Text(
+        statusLabel(text),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: T.body(11.4, w: FontWeight.w700, color: fg),
+      ),
     );
   }
 }

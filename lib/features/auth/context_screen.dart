@@ -8,6 +8,7 @@ import '../../core/build.dart';
 import '../../core/showrooms.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/workspace_lookup.dart';
 import '../billing/billing_controller.dart';
 import '../debug/api_inspector.dart';
 
@@ -18,6 +19,7 @@ class ContextScreen extends StatefulWidget {
 }
 
 class _ContextScreenState extends State<ContextScreen> {
+  final _search = TextEditingController();
   String? _busyBranch;
   String? _error;
   String? _diag;
@@ -32,6 +34,12 @@ class _ContextScreenState extends State<ContextScreen> {
         _pick(app.options.first);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
   }
 
   Future<void> _pick(ShowroomOption o) async {
@@ -63,52 +71,45 @@ class _ContextScreenState extends State<ContextScreen> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final q = _search.text.trim().toLowerCase();
 
     // Group: Tenant -> Legal Entity -> Branches
     final grouped = <String, Map<String, List<ShowroomOption>>>{};
     for (final o in app.options) {
+      if (q.isNotEmpty &&
+          !'${o.branchLabel} ${o.branchCode} ${o.entityName} ${o.tenantLabel}'
+              .toLowerCase()
+              .contains(q)) {
+        continue;
+      }
       grouped.putIfAbsent(o.tenantLabel, () => {}).putIfAbsent(o.entityName, () => []).add(o);
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: Row(children: [
-          Container(
-            width: 32,
-            height: 32,
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              color: Pal.goldWash,
-              borderRadius: BorderRadius.circular(9),
-              border: Border.all(color: Pal.goldBorder),
-            ),
-            child: const GemMark(color: Pal.goldDeep),
+    return LuxuryModuleScaffold(
+      title: 'Select Showroom',
+      icon: Icons.storefront_rounded,
+      searchController: app.options.length > 2 ? _search : null,
+      searchHint: 'Search by Showroom, Code or Legal Entity...',
+      onSearchChanged: app.options.length > 2 ? (_) => setState(() {}) : null,
+      actions: [
+        IconButton(
+          tooltip: 'API Diagnostics',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(builder: (_) => const ApiInspector()),
           ),
-          const SizedBox(width: 10),
-          const Text('Select Showroom'),
-        ]),
-        actions: [
-          IconButton(
-            tooltip: 'API Diagnostics',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(builder: (_) => const ApiInspector()),
-            ),
-            icon: const Icon(Icons.monitor_heart_outlined),
-          ),
-          TextButton.icon(
-            onPressed: app.logout,
-            icon: const Icon(Icons.logout_rounded, size: 17),
-            label: const Text('Sign out'),
-          ),
-          const SizedBox(width: 6),
-        ],
-      ),
+          icon: const Icon(Icons.monitor_heart_outlined, color: Pal.goldSoft),
+        ),
+        TextButton.icon(
+          onPressed: app.logout,
+          icon: const Icon(Icons.logout_rounded, size: 17, color: Pal.goldSoft),
+          label: Text('Sign out', style: T.body(12.5, color: Pal.goldSoft, w: FontWeight.w700)),
+        ),
+      ],
       body: app.options.isEmpty
           ? _Unreadable(raw: app.sessionRaw, onRetry: app.refreshSession)
           : ListView(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 32),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
               children: [
                 LuxuryHeroCard(
                   padding: const EdgeInsets.all(18),
@@ -151,84 +152,19 @@ class _ContextScreenState extends State<ContextScreen> {
                 for (final t in grouped.entries) ...[
                   SectionLabel(t.key),
                   for (final e in t.value.entries)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: Panel(
-                        padding: EdgeInsets.zero,
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          if (e.key.isNotEmpty)
-                            Container(
-                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-                              decoration: const BoxDecoration(
-                                color: Pal.surfaceAlt,
-                                border: Border(bottom: BorderSide(color: Pal.line)),
-                              ),
-                              child: Row(children: [
-                                const Icon(Icons.account_balance_rounded, size: 17, color: Pal.goldDeep),
-                                const SizedBox(width: 9),
-                                Expanded(
-                                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                    Text(e.key, style: T.body(13.5, w: FontWeight.w700)),
-                                    Text(
-                                      '${e.value.first.currency} · ${e.value.first.timezone}',
-                                      style: T.body(11.5, color: Pal.muted),
-                                    ),
-                                  ]),
-                                ),
-                              ]),
-                            ),
-                          for (var i = 0; i < e.value.length; i++) ...[
-                            if (i > 0) const Divider(),
-                            InkWell(
-                              onTap: _busyBranch != null ? null : () => _pick(e.value[i]),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-                                child: Row(children: [
-                                  Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: e.value[i].branchId == app.selectedBranchId
-                                          ? Pal.tealWash
-                                          : Pal.goldWash,
-                                      borderRadius: BorderRadius.circular(11),
-                                    ),
-                                    child: Icon(
-                                      Icons.location_on_outlined,
-                                      size: 20,
-                                      color: e.value[i].branchId == app.selectedBranchId
-                                          ? Pal.teal
-                                          : Pal.goldDeep,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 13),
-                                  Expanded(
-                                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                      Text(e.value[i].branchLabel, style: T.display(17.5)),
-                                      const SizedBox(height: 4),
-                                      Row(children: [
-                                        if (e.value[i].branchCode.isNotEmpty) ...[
-                                          MonoTag(e.value[i].branchCode),
-                                          const SizedBox(width: 8),
-                                        ],
-                                        Text('Vault & POS Ready', style: T.body(12, color: Pal.muted)),
-                                      ]),
-                                    ]),
-                                  ),
-                                  _busyBranch == e.value[i].branchId
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(strokeWidth: 2.2),
-                                        )
-                                      : const Icon(Icons.arrow_forward_ios_rounded, size: 15, color: Pal.muted),
-                                ]),
-                              ),
-                            ),
-                          ],
-                        ]),
+                    for (final o in e.value)
+                      LuxuryRecordCard(
+                        icon: Icons.storefront_outlined,
+                        code: o.branchLabel,
+                        status: o.branchId == app.selectedBranchId ? 'ACTIVE' : 'AVAILABLE',
+                        onTap: _busyBranch != null ? null : () => _pick(o),
+                        lines: [
+                          if (e.key.isNotEmpty) ('Legal Entity', e.key),
+                          ('Currency & Zone', '${o.currency} · ${o.timezone}'),
+                        ],
+                        amountLabel: _busyBranch == o.branchId ? 'Activating' : 'Branch Code',
+                        amountValue: _busyBranch == o.branchId ? '...' : o.branchCode,
                       ),
-                    ),
                 ],
               ],
             ),

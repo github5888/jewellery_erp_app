@@ -25,6 +25,7 @@ class MoreScreen extends StatefulWidget {
 
 class _MoreScreenState extends State<MoreScreen> {
   final _searchCtrl = TextEditingController();
+  String _cat = 'ALL';
 
   @override
   void dispose() {
@@ -282,8 +283,20 @@ class _MoreScreenState extends State<MoreScreen> {
       searchController: _searchCtrl,
       searchHint: 'Search SaaS module (GST, Refining, Accounting, Bank...)',
       onSearchChanged: (_) => setState(() {}),
+      topFilterBar: PillTabs<String>(
+        value: _cat,
+        onChanged: (v) => setState(() => _cat = v),
+        tabs: const [
+          ('ALL', 'All Suite'),
+          ('Showroom & Patron Orders', 'Showroom'),
+          ('Supply & Production', 'Supply'),
+          ('Financials & GST', 'Financials'),
+          ('Integrations, Tax & Governance', 'Tax & Admin'),
+          ('Security & Session', 'Security'),
+        ],
+      ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           LuxuryHeroCard(
             padding: const EdgeInsets.all(18),
@@ -344,24 +357,25 @@ class _MoreScreenState extends State<MoreScreen> {
             ]),
           ),
           for (final sec in sections) ...[
-            Builder(builder: (_) {
-              final filtered = q.isEmpty
-                  ? sec.items
-                  : sec.items
-                      .where((i) =>
-                          i.title.toLowerCase().contains(q) ||
-                          i.sub.toLowerCase().contains(q) ||
-                          sec.title.toLowerCase().contains(q))
-                      .toList();
-              if (filtered.isEmpty) return const SizedBox.shrink();
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SectionLabel(sec.title),
-                  _group(filtered),
-                ],
-              );
-            }),
+            if (_cat == 'ALL' || _cat == sec.title)
+              Builder(builder: (_) {
+                final filtered = q.isEmpty
+                    ? sec.items
+                    : sec.items
+                        .where((i) =>
+                            i.title.toLowerCase().contains(q) ||
+                            i.sub.toLowerCase().contains(q) ||
+                            sec.title.toLowerCase().contains(q))
+                        .toList();
+                if (filtered.isEmpty) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SectionLabel(sec.title),
+                    _group(filtered),
+                  ],
+                );
+              }),
           ],
         ],
       ),
@@ -545,7 +559,7 @@ class _MfaEnrollSheetState extends State<_MfaEnrollSheet> {
               },
               child: Row(children: [
                 Expanded(child: SelectableText(_secret!, style: T.mono(13.5, w: FontWeight.w700))),
-                const Icon(Icons.copy_rounded, size: 17, color: Pal.teal),
+                const Icon(Icons.copy_rounded, size: 17, color: Pal.goldDeep),
               ]),
             ),
           ],
@@ -561,12 +575,10 @@ class _MfaEnrollSheetState extends State<_MfaEnrollSheet> {
           if (_err != null)
             Padding(padding: const EdgeInsets.only(top: 10), child: Text(_err!, style: T.body(13, color: Pal.danger, w: FontWeight.w700))),
           const SizedBox(height: 16),
-          FilledButton(
+          RoyalGoldButton(
+            label: 'Verify & Activate 2FA',
+            busy: _verifying,
             onPressed: _verifying ? null : _verify,
-            style: FilledButton.styleFrom(backgroundColor: Pal.teal),
-            child: _verifying
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
-                : const Text('Verify & Activate 2FA'),
           ),
         ],
       ]),

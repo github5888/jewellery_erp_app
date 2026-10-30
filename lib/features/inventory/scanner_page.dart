@@ -53,10 +53,9 @@ class _ScannerPageState extends State<ScannerPage> {
             onSubmitted: (s) => Navigator.pop(ctx, s),
           ),
           const SizedBox(height: 16),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Pal.teal),
+          RoyalGoldButton(
+            label: 'Lookup Tag',
             onPressed: () => Navigator.pop(ctx, tc.text),
-            child: const Text('Lookup Tag'),
           ),
         ]),
       ),

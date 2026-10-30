@@ -38,7 +38,8 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
     ],
   };
 
-  String _tab = 'APPRAISE';
+  final _search = TextEditingController();
+  late String _tab;
   Party? _customer;
   String _metal = 'GOLD';
   String _purity = '916';
@@ -59,6 +60,7 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
   @override
   void initState() {
     super.initState();
+    _tab = widget.pickMode ? 'APPRAISE' : 'HISTORY';
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prefillRate();
       _loadVouchers();
@@ -67,6 +69,7 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
 
   @override
   void dispose() {
+    _search.dispose();
     _gross.dispose();
     _wastage.dispose();
     _rate.dispose();
@@ -182,23 +185,31 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
     return LuxuryModuleScaffold(
       title: 'Old Metal Exchange',
       icon: Icons.recycling_rounded,
+      searchController: _tab == 'HISTORY' ? _search : null,
+      searchHint: 'Search by Voucher #, Assay or Payout...',
+      onSearchChanged: _tab == 'HISTORY' ? (_) => setState(() {}) : null,
       actions: [
-        if (_tab == 'HISTORY')
-          IconButton(
-            onPressed: _loadVouchers,
-            icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
-          ),
+        IconButton(
+          onPressed: _loadVouchers,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
       ],
       topFilterBar: PillTabs<String>(
         selected: _tab,
         onChanged: (v) => setState(() => _tab = v),
         items: [
-          ('APPRAISE', 'New Appraisal', Icons.scale_rounded),
           ('HISTORY', 'Voucher Register (${_vouchers.length})', Icons.receipt_long_outlined),
+          ('APPRAISE', 'New Appraisal', Icons.scale_rounded),
         ],
       ),
+      floatingActionButton: _tab == 'HISTORY'
+          ? GoldAddFab(
+              tooltip: 'New Old Metal Appraisal',
+              onPressed: () => setState(() => _tab = 'APPRAISE'),
+            )
+          : null,
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
         children: [
           if (_tab == 'HISTORY') _buildHistory() else _buildAppraisal(calc),
         ],
@@ -343,7 +354,7 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
             selected: {_payout},
             showSelectedIcon: false,
             style: SegmentedButton.styleFrom(
-              selectedBackgroundColor: Pal.teal,
+              selectedBackgroundColor: Pal.gold,
               selectedForegroundColor: Colors.white,
               side: const BorderSide(color: Pal.line),
               textStyle: T.body(13, w: FontWeight.w700),
@@ -396,17 +407,11 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
           child: Text(_error!, style: T.body(13, color: Pal.danger, w: FontWeight.w700)),
         ),
       const SizedBox(height: 16),
-      FilledButton.icon(
+      RoyalGoldButton(
+        label: 'Issue Old Metal Purchase Voucher',
+        icon: Icons.fact_check_outlined,
+        busy: _busy,
         onPressed: (_busy || calc == null) ? null : _submit,
-        style: FilledButton.styleFrom(backgroundColor: Pal.teal),
-        icon: _busy
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
-              )
-            : const Icon(Icons.fact_check_outlined, size: 18),
-        label: const Text('Issue Old Metal Purchase Voucher'),
       ),
     ]);
   }
@@ -419,57 +424,52 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
       ]);
     }
     if (_historyError != null) return ErrorBlock(_historyError!, onRetry: _loadVouchers);
-    if (_vouchers.isEmpty) {
-      return const Panel(
-        child: EmptyBlock(
-          icon: Icons.recycling_rounded,
-          title: 'No old metal vouchers yet',
-          body: 'Completed customer old gold and silver appraisals will appear here.',
-        ),
+    final q = _search.text.trim().toLowerCase();
+    final filtered = _vouchers.where((v) {
+      if (q.isEmpty) return true;
+      return '${v['voucherNumber'] ?? v['documentNumber'] ?? v['code'] ?? ''} ${v['metal'] ?? ''} ${v['assayedPurity'] ?? ''} ${v['payoutMode'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
+    if (filtered.isEmpty) {
+      return const SaasEmptyBox(
+        'No old metal purchase vouchers found. Tap + to appraise old gold or silver.',
       );
     }
     return Column(children: [
-      for (final v in _vouchers)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Panel(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(
-                  child: Text(
-                    '${v['voucherNumber'] ?? v['documentNumber'] ?? v['code'] ?? 'Purchase Voucher'}',
-                    style: T.display(17),
-                  ),
-                ),
-                StatusPill('${v['status'] ?? v['state'] ?? v['payoutMode'] ?? 'ISSUED'}'),
-              ]),
-              const SizedBox(height: 8),
-              KeyValue('Valuation', inr('${v['totalValuation'] ?? v['amount'] ?? '0.00'}'), strong: true),
-              if (v['grossWeightGrams'] != null)
-                KeyValue('Gross / Fine Wt', '${grams(v['grossWeightGrams'])} · ${fineGrams(v['netPureGrams'] ?? '0')} pure', mono: true),
-              if (v['assayedPurity'] != null || v['metal'] != null)
-                KeyValue('Assay', '${v['metal'] ?? 'GOLD'} ${v['assayedPurity'] ?? ''}'),
-              if (v['createdAt'] != null) KeyValue('Date', formatDateTime(v['createdAt'])),
-              if ('${v['payoutMode'] ?? 'EXCHANGE_CREDIT'}' == 'EXCHANGE_CREDIT' &&
-                  '${v['status'] ?? ''}'.toUpperCase() != 'REDEEMED') ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: () => _applyMapToBill(v),
-                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(40)),
-                  icon: const Icon(Icons.add_shopping_cart_rounded, size: 16),
-                  label: const Text('Attach Credit to POS Bill'),
-                ),
-              ],
-            ]),
-          ),
+      for (final v in filtered)
+        LuxuryRecordCard(
+          icon: Icons.recycling_rounded,
+          code: '${v['voucherNumber'] ?? v['documentNumber'] ?? v['code'] ?? 'Purchase Voucher'}',
+          status: '${v['status'] ?? v['state'] ?? v['payoutMode'] ?? 'ISSUED'}',
+          lines: [
+            if (v['assayedPurity'] != null || v['metal'] != null)
+              ('Assay', '${v['metal'] ?? 'GOLD'} ${v['assayedPurity'] ?? ''}'),
+            if (v['grossWeightGrams'] != null)
+              ('Gross / Fine Wt', '${grams(v['grossWeightGrams'])} · ${fineGrams(v['netPureGrams'] ?? '0')}'),
+            if (v['createdAt'] != null) ('Issued', formatDateTime(v['createdAt'])),
+          ],
+          amountLabel: 'Valuation',
+          amountValue: inr('${v['totalValuation'] ?? v['amount'] ?? '0.00'}'),
+          actions: [
+            if ('${v['payoutMode'] ?? 'EXCHANGE_CREDIT'}' == 'EXCHANGE_CREDIT' &&
+                '${v['status'] ?? ''}'.toUpperCase() != 'REDEEMED')
+              GoldButton(
+                label: 'Attach to POS Bill',
+                compact: true,
+                icon: Icons.add_shopping_cart_rounded,
+                onPressed: () => _applyMapToBill(v),
+              ),
+          ],
         ),
     ]);
   }
 
   Widget _done() {
     final exchange = _payout == 'EXCHANGE_CREDIT';
-    return Scaffold(
-      appBar: AppBar(title: const Text('Purchase Voucher Issued'), automaticallyImplyLeading: false),
+    return LuxuryModuleScaffold(
+      title: 'Purchase Voucher Issued',
+      icon: Icons.verified_rounded,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
         children: [
@@ -504,15 +504,14 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
           ),
           const SizedBox(height: 18),
           if (exchange)
-            FilledButton.icon(
+            RoyalGoldButton(
+              label: 'Apply Credit to Current POS Bill',
+              icon: Icons.receipt_long_rounded,
               onPressed: () => _applyMapToBill(
                 _voucher!,
                 fallbackLabel: 'Old ${humanize(_metal)} $_purity · ${grams(_gross.text.trim())}',
                 fallbackAmount: _savedTotal,
               ),
-              style: FilledButton.styleFrom(backgroundColor: Pal.teal),
-              icon: const Icon(Icons.receipt_long_rounded, size: 18),
-              label: const Text('Apply Credit to Current POS Bill'),
             ),
           const SizedBox(height: 10),
           OutlinedButton(

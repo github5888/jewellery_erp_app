@@ -138,14 +138,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
             else if (_error != null)
               ErrorBlock(_error!, onRetry: _load)
             else if (list.isEmpty)
-              Panel(
-                child: EmptyBlock(
-                  icon: Icons.people_outline_rounded,
-                  title: 'No matching parties',
-                  body: 'Register retail customers, VIP patrons, Karigar artisans, or bullion suppliers with KYC.',
-                  actionLabel: 'Register Party',
-                  onAction: _add,
-                ),
+              const SaasEmptyBox(
+                'No matching parties found. Tap + to register retail customers, Karigars, or bullion suppliers.',
               )
             else
               for (final p in list)
@@ -728,12 +722,10 @@ class _NewPartySheetState extends State<NewPartySheet> {
             child: Text(_error!, style: T.body(13, color: Pal.danger, w: FontWeight.w700)),
           ),
         const SizedBox(height: 18),
-        FilledButton(
+        RoyalGoldButton(
+          label: 'Save Party Record',
+          busy: _busy,
           onPressed: _busy ? null : _save,
-          style: FilledButton.styleFrom(backgroundColor: Pal.teal),
-          child: _busy
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
-              : const Text('Save Party Record'),
         ),
       ]),
     );

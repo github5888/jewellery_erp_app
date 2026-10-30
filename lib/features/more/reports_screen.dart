@@ -21,6 +21,7 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
+  final _search = TextEditingController();
   late String _tab = widget.initialTab;
   String _ageingKind = 'RECEIVABLE';
   Map<String, dynamic>? _stockVal;
@@ -35,6 +36,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -85,6 +92,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return LuxuryModuleScaffold(
       title: 'Reports & Financial Ledgers',
       icon: Icons.insights_rounded,
+      searchController: _search,
+      searchHint: 'Search by Tag, Invoice, Account or Party...',
+      onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
           onPressed: _load,
@@ -174,52 +184,46 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
       if (articles.isNotEmpty) ...[
         SectionLabel('Tagged Stock Valuation (${articles.length})'),
-        for (final a in articles)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  MonoTag('${a['tagNumber'] ?? a['tag'] ?? ''}'),
-                  const Spacer(),
-                  Text(inr('${a['costAmount'] ?? '0.00'}'), style: T.display(17)),
-                ]),
-                const SizedBox(height: 8),
-                KeyValue('Location', '${a['locationName'] ?? '-'}'),
-                KeyValue('Gross / Fine 999', '${grams(a['grossWeightGrams'] ?? '0')} · ${fineGrams(a['fineWeightGrams'] ?? '0')}', mono: true),
-              ]),
-            ),
+        for (final a in articles.where((a) {
+          final q = _search.text.trim().toLowerCase();
+          if (q.isEmpty) return true;
+          return '${a['tagNumber'] ?? a['tag'] ?? ''} ${a['locationName'] ?? ''}'.toLowerCase().contains(q);
+        }))
+          LuxuryRecordCard(
+            icon: Icons.diamond_outlined,
+            code: '${a['tagNumber'] ?? a['tag'] ?? 'Article'}',
+            status: 'CUSTODY',
+            lines: [
+              ('Location', '${a['locationName'] ?? '-'}'),
+              ('Gross / Fine 999', '${grams(a['grossWeightGrams'] ?? '0')} · ${fineGrams(a['fineWeightGrams'] ?? '0')}'),
+            ],
+            amountLabel: 'FIFO Cost',
+            amountValue: inr('${a['costAmount'] ?? '0.00'}'),
           ),
       ],
       if (lots.isNotEmpty) ...[
         SectionLabel('Fungible Bullion Lots (${lots.length})'),
-        for (final l in lots)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  MonoTag('${l['lotCode'] ?? ''}'),
-                  const SizedBox(width: 8),
-                  Chip2('${l['metalCode'] ?? ''} ${pct(l['fineness'] ?? '') == '0%' ? '' : l['fineness'] ?? ''}'),
-                  const Spacer(),
-                  Text(inr('${l['costAmount'] ?? '0.00'}'), style: T.display(17)),
-                ]),
-                const SizedBox(height: 8),
-                KeyValue('Quantity / Fine', '${grams(l['quantityGrams'] ?? '0')} · ${fineGrams(l['fineWeightGrams'] ?? '0')}', mono: true),
-              ]),
-            ),
+        for (final l in lots.where((l) {
+          final q = _search.text.trim().toLowerCase();
+          if (q.isEmpty) return true;
+          return '${l['lotCode'] ?? ''} ${l['metalCode'] ?? ''}'.toLowerCase().contains(q);
+        }))
+          LuxuryRecordCard(
+            icon: Icons.layers_outlined,
+            code: '${l['lotCode'] ?? 'Lot'}',
+            status: '${l['metalCode'] ?? 'BULLION'}',
+            lines: [
+              ('Quantity / Fine', '${grams(l['quantityGrams'] ?? '0')} · ${fineGrams(l['fineWeightGrams'] ?? '0')}'),
+            ],
+            amountLabel: 'FIFO Cost',
+            amountValue: inr('${l['costAmount'] ?? '0.00'}'),
           ),
       ],
       if (articles.isEmpty && lots.isEmpty)
         const Padding(
           padding: EdgeInsets.only(top: 12),
-          child: Panel(
-            child: EmptyBlock(
-              icon: Icons.inventory_2_outlined,
-              title: 'Vault valuation is zero',
-              body: 'Receive tagged pieces or bullion lots to view FIFO cost layers and Fine 999 totals.',
-            ),
+          child: SaasEmptyBox(
+            'Vault valuation is zero. Receive tagged pieces or bullion lots to view FIFO cost layers and Fine 999 totals.',
           ),
         ),
     ]);
@@ -269,30 +273,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
       SectionLabel('Posted Invoice Margins (${invoices.length})'),
       if (invoices.isEmpty)
-        const Panel(
-          child: EmptyBlock(
-            icon: Icons.receipt_long_outlined,
-            title: 'No posted invoices this month',
-            body: 'Issued and posted GST sales invoices appear here with exact FIFO COGS and margin.',
-          ),
+        const SaasEmptyBox(
+          'No posted invoices this month. Issued and posted GST sales invoices appear here with FIFO COGS and margin.',
         )
       else
-        for (final inv in invoices)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(child: Text('${inv['documentNumber'] ?? 'Invoice'}', style: T.display(17))),
-                  StatusPill('${pct(inv['grossMarginPct'] ?? '0')} GP', tone: Tone.ok),
-                ]),
-                const SizedBox(height: 8),
-                KeyValue('Customer', '${inv['customerName'] ?? 'Walk-in'}', strong: true),
-                KeyValue('Invoice Date', formatDate(inv['invoiceDate'])),
-                KeyValue('Total (incl. GST)', inr('${inv['totalAmount'] ?? '0.00'}'), mono: true),
-                KeyValue('Gross Profit', inr('${inv['grossProfit'] ?? '0.00'}'), strong: true, valueColor: Pal.ok),
-              ]),
-            ),
+        for (final inv in invoices.where((inv) {
+          final q = _search.text.trim().toLowerCase();
+          if (q.isEmpty) return true;
+          return '${inv['documentNumber'] ?? ''} ${inv['customerName'] ?? ''}'.toLowerCase().contains(q);
+        }))
+          LuxuryRecordCard(
+            icon: Icons.receipt_long_outlined,
+            code: '${inv['documentNumber'] ?? 'Invoice'}',
+            status: '${pct(inv['grossMarginPct'] ?? '0')} GP',
+            lines: [
+              ('Customer', '${inv['customerName'] ?? 'Walk-in'}'),
+              ('Invoice Date', formatDate(inv['invoiceDate'])),
+              ('Invoice Total', inr('${inv['totalAmount'] ?? '0.00'}')),
+            ],
+            amountLabel: 'Gross Profit',
+            amountValue: inr('${inv['grossProfit'] ?? '0.00'}'),
           ),
     ]);
   }
@@ -301,6 +301,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final d = _trial ?? const {};
     final balanced = d['isBalanced'] != false;
     final accounts = asList(d, keys: const ['accounts']);
+    final q = _search.text.trim().toLowerCase();
+    final fAccounts = accounts.where((acc) {
+      if (q.isEmpty) return true;
+      return '${acc['code'] ?? ''} ${acc['name'] ?? ''} ${acc['group'] ?? ''}'.toLowerCase().contains(q);
+    }).toList();
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       LuxuryHeroCard(
@@ -334,45 +339,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ]),
         ]),
       ),
-      SectionLabel('Account Balances (${accounts.length})'),
-      if (accounts.isEmpty)
-        const Panel(
-          child: EmptyBlock(
-            icon: Icons.account_balance_outlined,
-            title: 'No posted ledger entries',
-            body: 'Double-entry account balances appear automatically once journals and invoices post.',
-          ),
-        )
+      SectionLabel('Account Balances (${fAccounts.length})'),
+      if (fAccounts.isEmpty)
+        const SaasEmptyBox('No posted ledger entries match your filter.')
       else
-        Panel(
-          padding: EdgeInsets.zero,
-          child: Column(children: [
-            for (var i = 0; i < accounts.length; i++) ...[
-              if (i > 0) const Divider(),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                child: Row(children: [
-                  MonoTag('${accounts[i]['code'] ?? ''}'),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('${accounts[i]['name'] ?? ''}', style: T.body(13.8, w: FontWeight.w700)),
-                      Text('${accounts[i]['group'] ?? ''}', style: T.caps(9.5, color: Pal.muted)),
-                    ]),
-                  ),
-                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                    if (decOrZero(accounts[i]['closingDebit']) > decOrZero('0'))
-                      Text('Dr ${inr(accounts[i]['closingDebit'])}', style: T.mono(12.5, color: Pal.text))
-                    else if (decOrZero(accounts[i]['closingCredit']) > decOrZero('0'))
-                      Text('Cr ${inr(accounts[i]['closingCredit'])}', style: T.mono(12.5, color: Pal.teal))
-                    else
-                      Text('₹0.00', style: T.mono(12.5, color: Pal.muted)),
-                  ]),
-                ]),
-              ),
+        for (final acc in fAccounts)
+          LuxuryRecordCard(
+            icon: Icons.account_balance_outlined,
+            code: '${acc['code'] ?? ''} · ${acc['name'] ?? ''}',
+            status: '${acc['group'] ?? 'LEDGER'}',
+            lines: [
+              ('Account Group', '${acc['group'] ?? '-'}'),
             ],
-          ]),
-        ),
+            amountLabel: decOrZero(acc['closingDebit']) > decOrZero('0') ? 'Closing Dr' : 'Closing Cr',
+            amountValue: decOrZero(acc['closingDebit']) > decOrZero('0')
+                ? inr(acc['closingDebit'])
+                : inr(acc['closingCredit'] ?? '0.00'),
+          ),
     ]);
   }
 
@@ -380,25 +363,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final d = _ageing ?? const {};
     final s = asMap(d['summary']);
     final parties = asList(d, keys: const ['parties']);
+    final q = _search.text.trim().toLowerCase();
+    final fParties = parties.where((p) {
+      if (q.isEmpty) return true;
+      return '${asMap(p['party'])['name'] ?? ''}'.toLowerCase().contains(q);
+    }).toList();
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SegmentedButton<String>(
-        segments: const [
-          ButtonSegment(value: 'RECEIVABLE', label: Text('Customer Receivables (AR)')),
-          ButtonSegment(value: 'PAYABLE', label: Text('Supplier Payables (AP)')),
-        ],
-        selected: {_ageingKind},
-        showSelectedIcon: false,
-        style: SegmentedButton.styleFrom(
-          selectedBackgroundColor: Pal.ink,
-          selectedForegroundColor: Colors.white,
-          side: const BorderSide(color: Pal.line),
-          textStyle: T.body(12.5, w: FontWeight.w700),
-        ),
-        onSelectionChanged: (sel) {
-          setState(() => _ageingKind = sel.first);
+      LuxurySubChips<String>(
+        value: _ageingKind,
+        onChanged: (v) {
+          setState(() => _ageingKind = v);
           _load();
         },
+        items: const [
+          ('RECEIVABLE', 'Customer Receivables (AR)'),
+          ('PAYABLE', 'Supplier Payables (AP)'),
+        ],
       ),
       const SizedBox(height: 14),
       ResponsiveGrid2(
@@ -409,35 +390,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
           MetricTile(label: 'Over 60 Days', value: inr((decOrZero(s['days61To90']) + decOrZero(s['daysOver90'])).toStringAsFixed(2), paise: false), icon: Icons.warning_amber_rounded, accent: Pal.danger, accentWash: Pal.dangerWash),
         ],
       ),
-      SectionLabel('Party Dues (${parties.length})'),
-      if (parties.isEmpty)
-        const Panel(
-          child: EmptyBlock(
-            icon: Icons.verified_outlined,
-            title: 'Zero overdue balances',
-            body: 'All open items in this ledger category are settled.',
-          ),
-        )
+      SectionLabel('Party Dues (${fParties.length})'),
+      if (fParties.isEmpty)
+        const SaasEmptyBox('Zero overdue balances in this ledger category.')
       else
-        for (final p in parties)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(
-                      p['party'] is Map ? '${(p['party'] as Map)['name'] ?? ''}' : 'Party',
-                      style: T.body(15, w: FontWeight.w800),
-                    ),
-                  ),
-                  Text(inr('${p['totalOpen'] ?? '0.00'}'), style: T.display(17.5, color: Pal.danger)),
-                ]),
-                const SizedBox(height: 8),
-                KeyValue('Current (0–30d)', inr('${p['current'] ?? '0.00'}'), mono: true),
-                KeyValue('Overdue (31d+)', inr((decOrZero(p['days31To60']) + decOrZero(p['days61To90']) + decOrZero(p['daysOver90'])).toStringAsFixed(2)), mono: true),
-              ]),
-            ),
+        for (final p in fParties)
+          LuxuryRecordCard(
+            icon: Icons.person_outline_rounded,
+            code: p['party'] is Map ? '${(p['party'] as Map)['name'] ?? 'Party'}' : 'Party',
+            status: _ageingKind,
+            lines: [
+              ('Current (0–30d)', inr('${p['current'] ?? '0.00'}')),
+              ('Overdue (31d+)', inr((decOrZero(p['days31To60']) + decOrZero(p['days61To90']) + decOrZero(p['daysOver90'])).toStringAsFixed(2))),
+            ],
+            amountLabel: 'Total Open',
+            amountValue: inr('${p['totalOpen'] ?? '0.00'}'),
           ),
     ]);
   }
@@ -446,6 +413,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final d = _payments ?? const {};
     final openItems = asList(d, keys: const ['openItems']);
     final settlements = asList(d, keys: const ['settlements']);
+    final q = _search.text.trim().toLowerCase();
+    final fSettlements = settlements.where((s) {
+      if (q.isEmpty) return true;
+      return '${s['documentNumber'] ?? ''} ${asMap(s['party'])['displayName'] ?? ''} ${s['method'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
@@ -469,36 +443,22 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ),
       ]),
-      SectionLabel('Recent Settlements (${settlements.length})'),
-      if (settlements.isEmpty)
-        const Panel(
-          child: EmptyBlock(
-            icon: Icons.payments_outlined,
-            title: 'No settlement vouchers yet',
-            body: 'Customer receipts, UPI/Card clearings, and supplier disbursements appear here.',
-          ),
-        )
+      SectionLabel('Recent Settlements (${fSettlements.length})'),
+      if (fSettlements.isEmpty)
+        const SaasEmptyBox('No settlement vouchers found.')
       else
-        for (final s in settlements)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Panel(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(child: Text('${s['documentNumber'] ?? 'Settlement'}', style: T.display(17))),
-                  StatusPill('${s['state'] ?? 'POSTED'}'),
-                ]),
-                const SizedBox(height: 8),
-                KeyValue(
-                  'Party',
-                  s['party'] is Map ? '${(s['party'] as Map)['displayName'] ?? ''}' : '-',
-                  strong: true,
-                ),
-                KeyValue('Method', '${s['method'] ?? '-'} · ${s['direction'] ?? ''}'),
-                KeyValue('Amount', inr('${s['amount'] ?? '0.00'}'), strong: true),
-                KeyValue('Date', formatDate(s['settlementDate'])),
-              ]),
-            ),
+        for (final s in fSettlements)
+          LuxuryRecordCard(
+            icon: Icons.payments_outlined,
+            code: '${s['documentNumber'] ?? 'Settlement'}',
+            status: '${s['state'] ?? 'POSTED'}',
+            lines: [
+              ('Party', s['party'] is Map ? '${(s['party'] as Map)['displayName'] ?? '-'}' : '-'),
+              ('Method', '${s['method'] ?? '-'} · ${s['direction'] ?? ''}'),
+              ('Date', formatDate(s['settlementDate'])),
+            ],
+            amountLabel: 'Amount',
+            amountValue: inr('${s['amount'] ?? '0.00'}'),
           ),
     ]);
   }

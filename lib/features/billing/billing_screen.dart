@@ -21,11 +21,13 @@ class BillingScreen extends StatefulWidget {
 
 class _BillingScreenState extends State<BillingScreen> {
   final _barcode = TextEditingController();
+  final _regSearch = TextEditingController();
   String _tab = 'POS';
 
   @override
   void dispose() {
     _barcode.dispose();
+    _regSearch.dispose();
     super.dispose();
   }
 
@@ -73,10 +75,9 @@ class _BillingScreenState extends State<BillingScreen> {
             decoration: const InputDecoration(prefixText: '₹ '),
           ),
           const SizedBox(height: 16),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Pal.teal),
+          RoyalGoldButton(
+            label: 'Update Line Making Charge',
             onPressed: () => Navigator.pop(ctx, ctrl.text),
-            child: const Text('Update Line Making Charge'),
           ),
         ]),
       ),
@@ -135,13 +136,12 @@ class _BillingScreenState extends State<BillingScreen> {
               ),
             ],
             const SizedBox(height: 18),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Pal.teal),
+            RoyalGoldButton(
+              label: 'Add Payment Split',
               onPressed: () {
                 if (!isValidAmount(amt.text)) return;
                 Navigator.pop(ctx, PayEntry(mode, normAmount(amt.text), reference: ref.text.trim()));
               },
-              child: const Text('Add Payment Split'),
             ),
           ]),
         ),
@@ -166,6 +166,9 @@ class _BillingScreenState extends State<BillingScreen> {
     return LuxuryModuleScaffold(
       title: 'POS Counter & Sales',
       icon: Icons.point_of_sale_rounded,
+      searchController: _tab == 'REGISTER' ? _regSearch : null,
+      searchHint: 'Search by Invoice #, Quote # or Customer...',
+      onSearchChanged: _tab == 'REGISTER' ? (_) => setState(() {}) : null,
       actions: [
         if (_tab == 'POS' && (c.lines.isNotEmpty || c.customer != null || c.payments.isNotEmpty || c.oldGold != null))
           TextButton.icon(
@@ -182,7 +185,7 @@ class _BillingScreenState extends State<BillingScreen> {
           ('REGISTER', 'Sales Register', Icons.receipt_long_outlined),
         ],
       ),
-      body: _tab == 'POS' ? _buildPosCart(c) : const _SalesRegisterView(),
+      body: _tab == 'POS' ? _buildPosCart(c) : _SalesRegisterView(searchQuery: _regSearch.text),
     );
   }
 
@@ -350,10 +353,10 @@ class _BillingScreenState extends State<BillingScreen> {
               ('CASH', 'Full Cash', Icons.payments_outlined),
             ])
               ActionChip(
-                avatar: Icon(quick.$3, size: 15, color: Pal.teal),
-                label: Text(quick.$2, style: T.body(12, color: Pal.teal, w: FontWeight.w700)),
-                backgroundColor: Pal.tealWash,
-                side: BorderSide(color: Pal.teal.withValues(alpha: 0.3)),
+                avatar: Icon(quick.$3, size: 15, color: Pal.goldDeep),
+                label: Text(quick.$2, style: T.body(12, color: Pal.goldDeep, w: FontWeight.w700)),
+                backgroundColor: Pal.goldWash,
+                side: BorderSide(color: Pal.gold.withValues(alpha: 0.45)),
                 onPressed: () => c.fillRemainingBalance(quick.$1),
               ),
           ]),
@@ -440,17 +443,13 @@ class _BillingScreenState extends State<BillingScreen> {
           ),
 
         const SizedBox(height: 18),
-        FilledButton.icon(
+        RoyalGoldButton(
+          busy: c.busy,
+          icon: Icons.receipt_long_rounded,
           onPressed: c.busy ? null : () => _checkout(c),
-          style: FilledButton.styleFrom(backgroundColor: Pal.teal),
-          icon: c.busy
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Icon(Icons.receipt_long_rounded, size: 19),
-          label: Text(
-            c.lines.isEmpty
-                ? 'Issue GST Tax Invoice'
-                : 'Issue GST Invoice · ${inr(c.netPayableDecimal.toStringAsFixed(2))}',
-          ),
+          label: c.lines.isEmpty
+              ? 'Issue GST Tax Invoice'
+              : 'Issue GST Invoice · ${inr(c.netPayableDecimal.toStringAsFixed(2))}',
         ),
       ],
     );
@@ -512,11 +511,11 @@ class _CartLineCard extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(children: [
-                  Text('Making Charges', style: T.body(12.8, color: Pal.teal, w: FontWeight.w700)),
+                  Text('Making Charges', style: T.body(12.8, color: Pal.goldDeep, w: FontWeight.w700)),
                   const SizedBox(width: 4),
-                  const Icon(Icons.edit_outlined, size: 13, color: Pal.teal),
+                  const Icon(Icons.edit_outlined, size: 13, color: Pal.goldDeep),
                   const Spacer(),
-                  Text(inr(line.makingCharge), style: T.mono(13, color: Pal.teal, w: FontWeight.w700)),
+                  Text(inr(line.makingCharge), style: T.mono(13, color: Pal.goldDeep, w: FontWeight.w700)),
                 ]),
               ),
             ),
@@ -584,7 +583,8 @@ class _InvoiceReceiptSheet extends StatelessWidget {
 }
 
 class _SalesRegisterView extends StatefulWidget {
-  const _SalesRegisterView();
+  const _SalesRegisterView({this.searchQuery = ''});
+  final String searchQuery;
   @override
   State<_SalesRegisterView> createState() => _SalesRegisterViewState();
 }
@@ -753,413 +753,397 @@ class _SalesRegisterViewState extends State<_SalesRegisterView> {
             ))
         .toList();
 
-    return RefreshIndicator(
-      color: Pal.gold,
-      onRefresh: _load,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 36),
-        children: [
-          PillTabs<String>(
-            value: _sub,
-            onChanged: (v) => setState(() => _sub = v),
-            tabs: [
-              ('INVOICES', 'Invoices (${_invoices.length})'),
-              ('ESTIMATES', 'Estimates (${_estimates.length})'),
-              ('CREDITS', 'Credit Notes (${_credits.length})'),
-              ('TAX_PROFILES', 'Tax Profiles (${_taxProfiles.length})'),
-            ],
-          ),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => setState(() => _activeForm = _activeForm == 'TAX' ? null : 'TAX'),
-                  icon: const Icon(Icons.percent_rounded, size: 15),
-                  label: const Text('+ Tax Profile'),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () => setState(() => _activeForm = _activeForm == 'INVOICE' ? null : 'INVOICE'),
-                  icon: const Icon(Icons.receipt_long_rounded, size: 15),
-                  label: const Text('+ Invoice from Estimate'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: () => setState(() => _activeForm = _activeForm == 'CN' ? null : 'CN'),
-                  icon: const Icon(Icons.assignment_return_outlined, size: 15),
-                  label: const Text('+ Credit Note'),
-                ),
-              ],
-            ),
-          ),
-          if (_error != null) ...[const SizedBox(height: 10), ErrorBanner(_error!, onRetry: _load)],
+    final q = widget.searchQuery.trim().toLowerCase();
+    final fInvoices = _invoices.where((inv) {
+      if (q.isEmpty) return true;
+      return '${inv['documentNumber'] ?? ''} ${asMap(inv['customer'])['displayName'] ?? ''} ${inv['state'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
+    final fEstimates = _estimates.where((est) {
+      if (q.isEmpty) return true;
+      return '${est['quoteNumber'] ?? ''} ${asMap(est['customer'])['displayName'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
+    final fCredits = _credits.where((cn) {
+      if (q.isEmpty) return true;
+      return '${cn['documentNumber'] ?? ''} ${asMap(cn['customer'])['displayName'] ?? ''} ${cn['reason'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
+    final fTax = _taxProfiles.where((tp) {
+      if (q.isEmpty) return true;
+      return '${tp['code'] ?? ''} ${tp['name'] ?? ''}'.toLowerCase().contains(q);
+    }).toList();
 
-          if (_activeForm == 'TAX') ...[
-            const SizedBox(height: 12),
-            SaasFormCard(
-              title: 'New GST Tax Profile',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
+    return Stack(
+      children: [
+        RefreshIndicator(
+          color: Pal.gold,
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+            children: [
+              PillTabs<String>(
+                value: _sub,
+                onChanged: (v) => setState(() {
+                  _sub = v;
+                  _activeForm = null;
+                }),
+                tabs: [
+                  ('INVOICES', 'Invoices (${_invoices.length})'),
+                  ('ESTIMATES', 'Estimates (${_estimates.length})'),
+                  ('CREDITS', 'Credit Notes (${_credits.length})'),
+                  ('TAX_PROFILES', 'Tax Profiles (${_taxProfiles.length})'),
+                ],
+              ),
+              if (_error != null) ...[const SizedBox(height: 10), ErrorBanner(_error!, onRetry: _load)],
+
+              if (_activeForm == 'TAX') ...[
+                const SizedBox(height: 12),
+                SaasFormCard(
+                  title: 'New GST Tax Profile',
+                  trailing: TextButton(
+                    onPressed: () => setState(() => _activeForm = null),
+                    child: const Text('Close'),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(child: SaasField(label: 'Code (GST_3)', controller: _tpCode, mono: true)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasField(
-                          label: 'Rate (%)',
-                          controller: _tpRate,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      Row(
+                        children: [
+                          Expanded(child: SaasField(label: 'Code (GST_3)', controller: _tpCode, mono: true)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: SaasField(
+                              label: 'Rate (%)',
+                              controller: _tpRate,
+                              mono: true,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      SaasField(label: 'Tax profile name', controller: _tpName),
+                      const SizedBox(height: 10),
+                      DatePickField(label: 'Effective from', controller: _tpEffFrom),
+                      const SizedBox(height: 8),
+                      SaasCheckRow(
+                        label: 'Synthetic test profile only',
+                        value: _tpSynthetic,
+                        onChanged: (v) => setState(() => _tpSynthetic = v),
+                      ),
+                      const SizedBox(height: 10),
+                      GoldButton(
+                        label: 'Create Tax Profile',
+                        busy: _busy,
+                        onPressed: () => _mutate(
+                          (api) => api.post('/sales/tax-profiles', body: {
+                            'code': _tpCode.text.trim().toUpperCase(),
+                            'name': _tpName.text.trim(),
+                            'ratePercent': _tpRate.text.trim(),
+                            'syntheticTestOnly': _tpSynthetic,
+                            'effectiveFrom': _tpEffFrom.text.trim(),
+                          }),
+                          'Tax profile created.',
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  SaasField(label: 'Tax profile name', controller: _tpName),
-                  const SizedBox(height: 10),
-                  DatePickField(label: 'Effective from', controller: _tpEffFrom),
-                  const SizedBox(height: 8),
-                  SaasCheckRow(
-                    label: 'Synthetic test profile only',
-                    value: _tpSynthetic,
-                    onChanged: (v) => setState(() => _tpSynthetic = v),
-                  ),
-                  const SizedBox(height: 10),
-                  GoldButton(
-                    label: 'Create Tax Profile',
-                    busy: _busy,
-                    onPressed: () => _mutate(
-                      (api) => api.post('/sales/tax-profiles', body: {
-                        'code': _tpCode.text.trim().toUpperCase(),
-                        'name': _tpName.text.trim(),
-                        'ratePercent': _tpRate.text.trim(),
-                        'syntheticTestOnly': _tpSynthetic,
-                        'effectiveFrom': _tpEffFrom.text.trim(),
-                      }),
-                      'Tax profile created.',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+                ),
+              ],
 
-          if (_activeForm == 'INVOICE') ...[
-            const SizedBox(height: 12),
-            SaasFormCard(
-              title: 'Create Sales Invoice from Estimate',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LookupField(label: 'Estimate', controller: _estId, options: estOpts),
-                  const SizedBox(height: 10),
-                  DatePickField(label: 'Invoice date', controller: _invDate),
-                  const SizedBox(height: 10),
-                  LookupField(label: 'Receivable account', controller: _recvAcctId, options: _lk.accounts),
-                  const SizedBox(height: 10),
-                  LookupField(label: 'Revenue account', controller: _revAcctId, options: _lk.accounts),
-                  const SizedBox(height: 10),
-                  LookupField(label: 'Output tax account', controller: _taxAcctId, options: _lk.accounts, optional: true),
-                  const SizedBox(height: 10),
-                  LookupField(label: 'COGS account', controller: _cogsAcctId, options: _lk.accounts),
-                  const SizedBox(height: 10),
-                  LookupField(label: 'Inventory account', controller: _invAcctId, options: _lk.accounts),
-                  const SizedBox(height: 12),
-                  GoldButton(
-                    label: 'Create Sales Invoice',
-                    busy: _busy,
-                    onPressed: () => _mutate(
-                      (api) => api.post('/sales/invoices', idempotent: true, body: {
-                        'estimateId': _estId.text.trim(),
-                        'invoiceDate': _invDate.text.trim(),
-                        'reservationExpiresAt': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
-                        'receivableAccountId': _recvAcctId.text.trim(),
-                        'revenueAccountId': _revAcctId.text.trim(),
-                        if (_taxAcctId.text.trim().isNotEmpty) 'outputTaxAccountId': _taxAcctId.text.trim(),
-                        'cogsAccountId': _cogsAcctId.text.trim(),
-                        'inventoryAccountId': _invAcctId.text.trim(),
-                      }),
-                      'Draft sales invoice created.',
-                    ),
+              if (_activeForm == 'INVOICE') ...[
+                const SizedBox(height: 12),
+                SaasFormCard(
+                  title: 'Create Sales Invoice from Estimate',
+                  trailing: TextButton(
+                    onPressed: () => setState(() => _activeForm = null),
+                    child: const Text('Close'),
                   ),
-                ],
-              ),
-            ),
-          ],
-
-          if (_activeForm == 'CN') ...[
-            const SizedBox(height: 12),
-            SaasFormCard(
-              title: 'New Sales Credit Note / Return',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LookupField(label: 'Posted Sales Invoice', controller: _cnInvId, options: invOpts),
-                  const SizedBox(height: 10),
-                  DatePickField(label: 'Credit note date', controller: _cnDate),
-                  const SizedBox(height: 10),
-                  SaasDropdown(
-                    label: 'Disposition',
-                    value: _cnDisposition,
-                    options: const {
-                      'RESTOCK': 'RESTOCK',
-                      'QUARANTINE': 'QUARANTINE',
-                      'SCRAP': 'SCRAP',
-                    },
-                    onChanged: (v) => setState(() => _cnDisposition = v),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Restock location (optional)',
-                    controller: _cnRestockLocId,
-                    options: _lk.locations,
-                    optional: true,
-                  ),
-                  const SizedBox(height: 10),
-                  SaasField(label: 'Line return reason (min 5 chars)', controller: _cnLineReason),
-                  const SizedBox(height: 10),
-                  SaasField(label: 'Credit note reason (min 10 chars)', controller: _cnReason),
-                  const SizedBox(height: 12),
-                  GoldButton(
-                    label: 'Create Credit Note',
-                    busy: _busy,
-                    onPressed: () {
-                      final inv = _invoices.where((i) => '${i['id']}' == _cnInvId.text.trim()).firstOrNull;
-                      final invLines = asList(inv?['lines']);
-                      if (invLines.isEmpty) {
-                        setState(() => _error = 'Select a sales invoice with at least one line.');
-                        return;
-                      }
-                      _mutate(
-                        (api) => api.post('/sales/credit-notes', idempotent: true, body: {
-                          'salesInvoiceId': _cnInvId.text.trim(),
-                          'creditNoteDate': _cnDate.text.trim(),
-                          'reason': _cnReason.text.trim(),
-                          'lines': [
-                            {
-                              'salesInvoiceLineId': '${invLines.first['id']}',
-                              'returnReason': _cnLineReason.text.trim(),
-                              'qcState': 'PASSED',
-                              'disposition': _cnDisposition,
-                              if (_cnRestockLocId.text.trim().isNotEmpty)
-                                'restockLocationId': _cnRestockLocId.text.trim(),
-                            },
-                          ],
-                        }),
-                        'Sales credit note draft created.',
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 14),
-          if (_loading)
-            const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
-          else if (_sub == 'TAX_PROFILES')
-            _taxProfiles.isEmpty
-                ? const SaasEmptyBox('No tax profiles configured yet.')
-                : Column(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      for (final tp in _taxProfiles)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: SectionCard(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text('${tp['code']} · ${tp['name']}', style: T.body(14, w: FontWeight.w700)),
-                                    ),
-                                    StatusChip('${tp['state'] ?? 'DRAFT'}'),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                KVRow('Rate / Effective', '${tp['ratePercent']}% · ${fmtDate('${tp['effectiveFrom'] ?? ''}')}', bold: true),
-                                if ('${tp['state']}' == 'DRAFT') ...[
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: ElevatedButton(
-                                      onPressed: _busy
-                                          ? null
-                                          : () => _mutate(
-                                                (api) => api.post('/sales/tax-profiles/${tp['id']}/approve', body: {
-                                                  'expectedVersion': asInt(tp['version'], fallback: 1),
-                                                  'reason': 'Approved GST tax profile after statutory rate verification.',
-                                                }),
-                                                'Tax profile approved.',
-                                              ),
-                                      child: const Text('Approve'),
+                      LookupField(label: 'Estimate', controller: _estId, options: estOpts),
+                      const SizedBox(height: 10),
+                      DatePickField(label: 'Invoice date', controller: _invDate),
+                      const SizedBox(height: 10),
+                      LookupField(label: 'Receivable account', controller: _recvAcctId, options: _lk.accounts),
+                      const SizedBox(height: 10),
+                      LookupField(label: 'Revenue account', controller: _revAcctId, options: _lk.accounts),
+                      const SizedBox(height: 10),
+                      LookupField(label: 'Output tax account', controller: _taxAcctId, options: _lk.accounts, optional: true),
+                      const SizedBox(height: 10),
+                      LookupField(label: 'COGS account', controller: _cogsAcctId, options: _lk.accounts),
+                      const SizedBox(height: 10),
+                      LookupField(label: 'Inventory account', controller: _invAcctId, options: _lk.accounts),
+                      const SizedBox(height: 12),
+                      GoldButton(
+                        label: 'Create Sales Invoice',
+                        busy: _busy,
+                        onPressed: () => _mutate(
+                          (api) => api.post('/sales/invoices', idempotent: true, body: {
+                            'estimateId': _estId.text.trim(),
+                            'invoiceDate': _invDate.text.trim(),
+                            'reservationExpiresAt': DateTime.now().toUtc().add(const Duration(hours: 4)).toIso8601String(),
+                            'receivableAccountId': _recvAcctId.text.trim(),
+                            'revenueAccountId': _revAcctId.text.trim(),
+                            if (_taxAcctId.text.trim().isNotEmpty) 'outputTaxAccountId': _taxAcctId.text.trim(),
+                            'cogsAccountId': _cogsAcctId.text.trim(),
+                            'inventoryAccountId': _invAcctId.text.trim(),
+                          }),
+                          'Draft sales invoice created.',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              if (_activeForm == 'CN') ...[
+                const SizedBox(height: 12),
+                SaasFormCard(
+                  title: 'New Sales Credit Note / Return',
+                  trailing: TextButton(
+                    onPressed: () => setState(() => _activeForm = null),
+                    child: const Text('Close'),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      LookupField(label: 'Posted Sales Invoice', controller: _cnInvId, options: invOpts),
+                      const SizedBox(height: 10),
+                      DatePickField(label: 'Credit note date', controller: _cnDate),
+                      const SizedBox(height: 10),
+                      SaasDropdown(
+                        label: 'Disposition',
+                        value: _cnDisposition,
+                        options: const {
+                          'RESTOCK': 'RESTOCK',
+                          'QUARANTINE': 'QUARANTINE',
+                          'SCRAP': 'SCRAP',
+                        },
+                        onChanged: (v) => setState(() => _cnDisposition = v),
+                      ),
+                      const SizedBox(height: 10),
+                      LookupField(
+                        label: 'Restock location (optional)',
+                        controller: _cnRestockLocId,
+                        options: _lk.locations,
+                        optional: true,
+                      ),
+                      const SizedBox(height: 10),
+                      SaasField(label: 'Line return reason (min 5 chars)', controller: _cnLineReason),
+                      const SizedBox(height: 10),
+                      SaasField(label: 'Credit note reason (min 10 chars)', controller: _cnReason),
+                      const SizedBox(height: 12),
+                      GoldButton(
+                        label: 'Create Credit Note',
+                        busy: _busy,
+                        onPressed: () {
+                          final inv = _invoices.where((i) => '${i['id']}' == _cnInvId.text.trim()).firstOrNull;
+                          final invLines = asList(inv?['lines']);
+                          if (invLines.isEmpty) {
+                            setState(() => _error = 'Select a sales invoice with at least one line.');
+                            return;
+                          }
+                          _mutate(
+                            (api) => api.post('/sales/credit-notes', idempotent: true, body: {
+                              'salesInvoiceId': _cnInvId.text.trim(),
+                              'creditNoteDate': _cnDate.text.trim(),
+                              'reason': _cnReason.text.trim(),
+                              'lines': [
+                                {
+                                  'salesInvoiceLineId': '${invLines.first['id']}',
+                                  'returnReason': _cnLineReason.text.trim(),
+                                  'qcState': 'PASSED',
+                                  'disposition': _cnDisposition,
+                                  if (_cnRestockLocId.text.trim().isNotEmpty)
+                                    'restockLocationId': _cnRestockLocId.text.trim(),
+                                },
+                              ],
+                            }),
+                            'Sales credit note draft created.',
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 14),
+              if (_loading)
+                const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+              else if (_sub == 'TAX_PROFILES')
+                fTax.isEmpty
+                    ? const SaasEmptyBox('No tax profiles found. Tap + to create a GST tax profile.')
+                    : Column(
+                        children: [
+                          for (final tp in fTax)
+                            LuxuryRecordCard(
+                              icon: Icons.percent_rounded,
+                              code: '${tp['code']} · ${tp['name']}',
+                              status: '${tp['state'] ?? 'DRAFT'}',
+                              lines: [
+                                ('Effective From', fmtDate('${tp['effectiveFrom'] ?? ''}')),
+                              ],
+                              amountLabel: 'GST Rate',
+                              amountValue: '${tp['ratePercent']}%',
+                              actions: [
+                                if ('${tp['state']}' == 'DRAFT')
+                                  GoldButton(
+                                    label: 'Approve',
+                                    compact: true,
+                                    busy: _busy,
+                                    onPressed: () => _mutate(
+                                      (api) => api.post('/sales/tax-profiles/${tp['id']}/approve', body: {
+                                        'expectedVersion': asInt(tp['version'], fallback: 1),
+                                        'reason': 'Approved GST tax profile after statutory rate verification.',
+                                      }),
+                                      'Tax profile approved.',
                                     ),
                                   ),
-                                ],
                               ],
                             ),
-                          ),
-                        ),
-                    ],
-                  )
-          else if (_sub == 'ESTIMATES')
-            _estimates.isEmpty
-                ? const SaasEmptyBox('No estimates generated yet.')
-                : Column(
-                    children: [
-                      for (final est in _estimates)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: SectionCard(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        '${est['quoteNumber']} · ${asMap(est['customer'])['displayName'] ?? ''}',
-                                        style: T.body(14, w: FontWeight.w700),
-                                      ),
-                                    ),
-                                    StatusChip('${est['state'] ?? 'OPEN'}'),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                KVRow('Metal / Making', '${inr(est['metalValue'])} / ${inr(est['makingAmount'])}'),
-                                KVRow('Tax / Total', '${inr(est['taxAmount'])} / ${inr(est['totalAmount'])}', bold: true),
+                        ],
+                      )
+              else if (_sub == 'ESTIMATES')
+                fEstimates.isEmpty
+                    ? const SaasEmptyBox('No estimates generated yet.')
+                    : Column(
+                        children: [
+                          for (final est in fEstimates)
+                            LuxuryRecordCard(
+                              icon: Icons.request_quote_outlined,
+                              code: '${est['quoteNumber'] ?? shortId('${est['id']}')}',
+                              status: '${est['state'] ?? 'OPEN'}',
+                              lines: [
+                                ('Customer', '${asMap(est['customer'])['displayName'] ?? '-'}'),
+                                ('Metal / Making', '${inr(est['metalValue'])} · ${inr(est['makingAmount'])}'),
+                              ],
+                              amountLabel: 'Total Estimate',
+                              amountValue: inr(est['totalAmount']),
+                            ),
+                        ],
+                      )
+              else if (_sub == 'CREDITS')
+                fCredits.isEmpty
+                    ? const SaasEmptyBox('No sales credit notes found. Tap + to record a sales return.')
+                    : Column(
+                        children: [
+                          for (final cn in fCredits)
+                            LuxuryRecordCard(
+                              icon: Icons.assignment_return_outlined,
+                              code: '${cn['documentNumber'] ?? shortId('${cn['id']}')}',
+                              status: '${cn['state'] ?? 'DRAFT'}',
+                              lines: [
+                                ('Customer', '${asMap(cn['customer'])['displayName'] ?? '-'}'),
+                                if ('${cn['reason'] ?? ''}'.isNotEmpty) ('Reason', '${cn['reason']}'),
+                              ],
+                              amountLabel: 'Credit Value',
+                              amountValue: inr(cn['totalAmount']),
+                              actions: [
+                                if ('${cn['state']}' == 'DRAFT' || '${cn['state']}' == 'APPROVED')
+                                  GoldButton(
+                                    label: '${cn['state']}' == 'DRAFT' ? 'Approve' : 'Post Return',
+                                    compact: true,
+                                    busy: _busy,
+                                    onPressed: () {
+                                      if ('${cn['state']}' == 'DRAFT') {
+                                        _mutate(
+                                          (api) => api.post('/sales/credit-notes/${cn['id']}/approve', body: {
+                                            'expectedVersion': asInt(cn['version'], fallback: 1),
+                                            'reason': 'Approved sales return credit note after QC verification.',
+                                          }),
+                                          'Credit note approved.',
+                                        );
+                                      } else {
+                                        _mutate(
+                                          (api) => api.post('/sales/credit-notes/${cn['id']}/post', idempotent: true, body: {
+                                            'expectedVersion': asInt(cn['version'], fallback: 1),
+                                            'postingPeriodId': _periodId.text.trim(),
+                                            'documentSeriesId': _cnSeriesId.text.trim(),
+                                            'journalSeriesId': _jvSeriesId.text.trim(),
+                                            'reason': 'Posted approved sales credit note to inventory & AR.',
+                                          }),
+                                          'Credit note posted.',
+                                        );
+                                      }
+                                    },
+                                  ),
                               ],
                             ),
-                          ),
-                        ),
-                    ],
-                  )
-          else if (_sub == 'CREDITS')
-            _credits.isEmpty
-                ? const SaasEmptyBox('No sales credit notes recorded yet.')
-                : Column(
-                    children: [
-                      for (final cn in _credits)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: SectionCard(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        '${cn['documentNumber'] ?? shortId('${cn['id']}')} · ${asMap(cn['customer'])['displayName'] ?? ''}',
-                                        style: T.body(14, w: FontWeight.w700),
-                                      ),
-                                    ),
-                                    StatusChip('${cn['state'] ?? 'DRAFT'}'),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                KVRow('Reason', '${cn['reason'] ?? ''}'),
-                                KVRow('Total Amount', inr(cn['totalAmount']), bold: true),
-                                if ('${cn['state']}' == 'DRAFT' || '${cn['state']}' == 'APPROVED') ...[
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: ElevatedButton(
-                                      onPressed: _busy
-                                          ? null
-                                          : () {
-                                              if ('${cn['state']}' == 'DRAFT') {
-                                                _mutate(
-                                                  (api) => api.post('/sales/credit-notes/${cn['id']}/approve', body: {
-                                                    'expectedVersion': asInt(cn['version'], fallback: 1),
-                                                    'reason': 'Approved sales return credit note after QC verification.',
-                                                  }),
-                                                  'Credit note approved.',
-                                                );
-                                              } else {
-                                                _mutate(
-                                                  (api) => api.post('/sales/credit-notes/${cn['id']}/post', idempotent: true, body: {
-                                                    'expectedVersion': asInt(cn['version'], fallback: 1),
-                                                    'postingPeriodId': _periodId.text.trim(),
-                                                    'documentSeriesId': _cnSeriesId.text.trim(),
-                                                    'journalSeriesId': _jvSeriesId.text.trim(),
-                                                    'reason': 'Posted approved sales credit note to inventory & AR.',
-                                                  }),
-                                                  'Credit note posted.',
-                                                );
-                                              }
-                                            },
-                                      child: Text('${cn['state']}' == 'DRAFT' ? 'Approve' : 'Post Return'),
+                        ],
+                      )
+              else
+                fInvoices.isEmpty
+                    ? const SaasEmptyBox('No sales invoices found. Tap + to create an invoice from an estimate.')
+                    : Column(
+                        children: [
+                          for (final inv in fInvoices)
+                            LuxuryRecordCard(
+                              icon: Icons.receipt_long_outlined,
+                              code: '${inv['documentNumber'] ?? shortId('${inv['id']}')}',
+                              status: '${inv['state'] ?? 'DRAFT'}',
+                              lines: [
+                                ('Customer', '${asMap(inv['customer'])['displayName'] ?? '-'}'),
+                                ('Invoice Date', fmtDate('${inv['invoiceDate'] ?? ''}')),
+                                ('Taxable / GST', '${inr(inv['taxableAmount'])} · ${inr(inv['taxAmount'])}'),
+                              ],
+                              amountLabel: 'Total',
+                              amountValue: inr(inv['totalAmount']),
+                              actions: [
+                                if ('${inv['state']}' == 'DRAFT')
+                                  GoldButton(
+                                    label: 'Post Invoice',
+                                    compact: true,
+                                    busy: _busy,
+                                    onPressed: () => _mutate(
+                                      (api) => api.post('/sales/invoices/${inv['id']}/post', idempotent: true, body: {
+                                        'expectedVersion': asInt(inv['version'], fallback: 1),
+                                        'postingPeriodId': _periodId.text.trim(),
+                                        'documentSeriesId': _invSeriesId.text.trim(),
+                                        'journalSeriesId': _jvSeriesId.text.trim(),
+                                        'reason': 'Posted showroom sales invoice to AR & inventory ledger.',
+                                      }),
+                                      'Sales invoice posted.',
                                     ),
                                   ),
-                                ],
                               ],
                             ),
-                          ),
-                        ),
-                    ],
-                  )
-          else
-            _invoices.isEmpty
-                ? const SaasEmptyBox('No sales invoices created yet.')
-                : Column(
-                    children: [
-                      for (final inv in _invoices)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: SectionCard(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        '${inv['documentNumber'] ?? shortId('${inv['id']}')} · ${asMap(inv['customer'])['displayName'] ?? ''}',
-                                        style: T.body(14, w: FontWeight.w700),
-                                      ),
-                                    ),
-                                    StatusChip('${inv['state'] ?? 'DRAFT'}'),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                KVRow('Date', fmtDate('${inv['invoiceDate'] ?? ''}')),
-                                KVRow('Taxable / Tax', '${inr(inv['taxableAmount'])} / ${inr(inv['taxAmount'])}'),
-                                KVRow('Total / Outstanding', '${inr(inv['totalAmount'])} / ${inr(inv['outstandingAmount'])}', bold: true),
-                                if ('${inv['state']}' == 'DRAFT') ...[
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: ElevatedButton(
-                                      onPressed: _busy
-                                          ? null
-                                          : () => _mutate(
-                                                (api) => api.post('/sales/invoices/${inv['id']}/post', idempotent: true, body: {
-                                                  'expectedVersion': asInt(inv['version'], fallback: 1),
-                                                  'postingPeriodId': _periodId.text.trim(),
-                                                  'documentSeriesId': _invSeriesId.text.trim(),
-                                                  'journalSeriesId': _jvSeriesId.text.trim(),
-                                                  'reason': 'Posted showroom sales invoice to AR & inventory ledger.',
-                                                }),
-                                                'Sales invoice posted.',
-                                              ),
-                                      child: const Text('Post Invoice'),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-        ],
-      ),
+                        ],
+                      ),
+            ],
+          ),
+        ),
+        if (_sub != 'ESTIMATES')
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: GoldAddFab(
+              icon: _activeForm != null ? Icons.close_rounded : Icons.add_rounded,
+              tooltip: _sub == 'TAX_PROFILES'
+                  ? 'New Tax Profile'
+                  : _sub == 'CREDITS'
+                      ? 'New Credit Note'
+                      : 'New Invoice from Estimate',
+              onPressed: () => setState(() {
+                if (_activeForm != null) {
+                  _activeForm = null;
+                } else {
+                  _activeForm = _sub == 'TAX_PROFILES'
+                      ? 'TAX'
+                      : _sub == 'CREDITS'
+                          ? 'CN'
+                          : 'INVOICE';
+                }
+              }),
+            ),
+          ),
+      ],
     );
   }
 }

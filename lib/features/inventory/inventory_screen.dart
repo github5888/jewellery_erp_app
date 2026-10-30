@@ -24,6 +24,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   final _search = TextEditingController();
   String _tab = 'ARTICLES';
   String _statusFilter = 'ALL';
+  bool _showTransformForm = false;
   List<Article> _articles = [];
   List<MaterialLotItem> _lots = [];
   List<StockLocationItem> _locations = [];
@@ -171,12 +172,23 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Widget build(BuildContext context) {
     final filtered = _filteredArticles;
     final availableCount = _articles.where((a) => a.isAvailable).length;
+    final reservedCount = _articles.where((a) => a.status.toUpperCase() == 'RESERVED').length;
+    final soldCount = _articles.where((a) => a.status.toUpperCase() == 'SOLD').length;
+    final q = _search.text.trim().toLowerCase();
+    final fLots = _lots.where((l) {
+      if (q.isEmpty) return true;
+      return '${l.lotCode} ${l.metal} ${l.purityLabel} ${l.locationName}'.toLowerCase().contains(q);
+    }).toList();
+    final fLocs = _locations.where((loc) {
+      if (q.isEmpty) return true;
+      return '${loc.code} ${loc.name} ${loc.type}'.toLowerCase().contains(q);
+    }).toList();
 
     return LuxuryModuleScaffold(
       title: 'Vault & Tagged Stock',
       icon: Icons.diamond_outlined,
       searchController: _search,
-      searchHint: 'Search Tag, Ornament, Purity or Vault...',
+      searchHint: 'Search by Tag, Ornament, Purity or Vault...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -192,25 +204,45 @@ class _InventoryScreenState extends State<InventoryScreen> {
       ],
       topFilterBar: PillTabs<String>(
         selected: _tab,
-        onChanged: (v) => setState(() => _tab = v),
+        onChanged: (v) => setState(() {
+          _tab = v;
+          if (v != 'TRANSFORM') _showTransformForm = false;
+        }),
         items: [
           ('ARTICLES', 'Tagged (${_articles.length})', Icons.diamond_outlined),
-          ('LOTS', 'Bullion Lots (${_lots.length})', Icons.layers_outlined),
+          ('LOTS', 'Bullion (${_lots.length})', Icons.layers_outlined),
           ('VAULTS', 'Vaults (${_locations.length})', Icons.account_balance_outlined),
           ('TRANSFORM', 'Transform (${_transformations.length})', Icons.merge_type_rounded),
         ],
       ),
+      secondaryFilterBar: _tab == 'ARTICLES'
+          ? LuxurySubChips<String>(
+              value: _statusFilter,
+              onChanged: (v) => setState(() => _statusFilter = v),
+              items: [
+                ('ALL', 'All (${_articles.length})'),
+                ('AVAILABLE', 'Available ($availableCount)'),
+                ('RESERVED', 'Reserved ($reservedCount)'),
+                ('SOLD', 'Sold ($soldCount)'),
+              ],
+            )
+          : null,
       floatingActionButton: GoldAddFab(
+        icon: (_tab == 'TRANSFORM' && _showTransformForm) ? Icons.close_rounded : Icons.add_rounded,
         onPressed: _tab == 'LOTS'
             ? _receiveLotSheet
             : _tab == 'VAULTS'
                 ? _createLocationSheet
-                : _receiveSheet,
+                : _tab == 'TRANSFORM'
+                    ? () => setState(() => _showTransformForm = !_showTransformForm)
+                    : _receiveSheet,
         tooltip: _tab == 'LOTS'
             ? 'Receive Bullion Lot'
             : _tab == 'VAULTS'
                 ? 'New Stock Location'
-                : 'Receive Tagged Piece',
+                : _tab == 'TRANSFORM'
+                    ? 'New Material Transformation'
+                    : 'Receive Tagged Piece',
       ),
       body: RefreshIndicator(
         color: Pal.gold,
@@ -218,215 +250,93 @@ class _InventoryScreenState extends State<InventoryScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 92),
           children: [
-                // Custody Summary Strip
-                Panel(
-                  color: Pal.obsidian,
-                  borderColor: Pal.goldBright.withValues(alpha: 0.3),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                  child: Row(children: [
-                    Expanded(
-                      child: _statCol('AVAILABLE', '$availableCount / ${_articles.length} pcs'),
-                    ),
-                    Container(width: 1, height: 28, color: Colors.white12),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 12),
-                        child: _statCol('BULLION LOTS', '${_lots.length} active'),
-                      ),
-                    ),
-                    Container(width: 1, height: 28, color: Colors.white12),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 12),
-                        child: _statCol('PURE 999 WT', fineGrams(_totalFineGrams.toString()), gold: true),
-                      ),
-                    ),
-                  ]),
-                ),
-                const SizedBox(height: 12),
-                if (_loading)
-                  for (var i = 0; i < 4; i++)
-                    const Padding(padding: EdgeInsets.only(bottom: 10), child: Panel(child: Skeleton(height: 82)))
-                else if (_error != null)
-                  ErrorBlock(_error!, onRetry: _load)
-                else if (_tab == 'ARTICLES') ...[
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(children: [
-                      for (final f in const [
-                        ('ALL', 'All Pieces'),
-                        ('AVAILABLE', 'Available'),
-                        ('RESERVED', 'Reserved'),
-                        ('SOLD', 'Sold'),
-                      ])
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8, bottom: 10),
-                          child: ChoiceChip(
-                            label: Text(f.$2),
-                            selected: _statusFilter == f.$1,
-                            showCheckmark: false,
-                            selectedColor: Pal.goldWash,
-                            onSelected: (_) => setState(() => _statusFilter = f.$1),
-                          ),
-                        ),
-                    ]),
-                  ),
-                  if (filtered.isEmpty)
-                    Panel(
-                      child: EmptyBlock(
-                        icon: Icons.diamond_outlined,
-                        title: 'No matching tagged pieces',
-                        body: 'Receive ornaments into a showroom vault or counter tray, or scan another tag.',
-                        actionLabel: 'Receive Piece',
-                        onAction: _receiveSheet,
-                      ),
-                    )
-                  else
-                    for (final a in filtered)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _ArticleCard(article: a, onTap: () => _showArticleSheet(a)),
-                      ),
-                ] else if (_tab == 'LOTS') ...[
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: ElevatedButton.icon(
-                        onPressed: _receiveLotSheet,
-                        icon: const Icon(Icons.add_rounded, size: 17),
-                        label: const Text('Receive fungible material lot'),
-                      ),
-                    ),
-                  ),
-                  if (_lots.isEmpty)
-                    const Panel(
-                      child: EmptyBlock(
-                        icon: Icons.layers_outlined,
-                        title: 'No fungible bullion lots',
-                        body: 'Pure gold bars, granules, and scrap lots received into the vault appear here.',
-                      ),
-                    )
-                  else
-                    for (final l in _lots)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Panel(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Row(children: [
-                              MonoTag(l.lotCode),
-                              const SizedBox(width: 8),
-                              Chip2('${l.metal} ${l.purityLabel}', gold: true),
-                              const Spacer(),
-                              StatusPill(l.form),
-                            ]),
-                            const SizedBox(height: 8),
-                            KeyValue('Vault Location', l.locationName.isEmpty ? '-' : l.locationName),
-                            KeyValue('Gross Quantity', grams(l.quantityGrams), mono: true),
-                            KeyValue('Pure 999 Content', fineGrams(l.fineGrams), strong: true, valueColor: Pal.goldDeep),
-                          ]),
-                        ),
-                      ),
-                ] else if (_tab == 'TRANSFORM') ...[
-                  _MaterialTransformationView(
-                    transformations: _transformations,
-                    onTransformed: _load,
-                  ),
-                ] else ...[
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: OutlinedButton.icon(
-                        onPressed: _createLocationSheet,
-                        icon: const Icon(Icons.add_location_alt_outlined, size: 17),
-                        label: const Text('New stock location'),
-                      ),
-                    ),
-                  ),
-                  if (_locations.isEmpty)
-                    const Panel(
-                      child: EmptyBlock(
-                        icon: Icons.account_balance_outlined,
-                        title: 'No vault locations configured',
-                        body: 'Configure showroom vaults and display trays on the web portal.',
-                      ),
-                    )
-                  else
-                    for (final loc in _locations)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Panel(
-                          child: Row(children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: loc.type == 'VAULT' ? Pal.goldWash : Pal.tealWash,
-                                borderRadius: BorderRadius.circular(11),
-                              ),
-                              child: Icon(
-                                loc.type == 'VAULT' ? Icons.lock_outline_rounded : Icons.storefront_outlined,
-                                color: loc.type == 'VAULT' ? Pal.goldDeep : Pal.teal,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Text(loc.name, style: T.body(14.5, w: FontWeight.w800)),
-                                const SizedBox(height: 2),
-                                Row(children: [
-                                  MonoTag(loc.code),
-                                  const SizedBox(width: 6),
-                                  Text(loc.type, style: T.caps(9.5, color: Pal.muted)),
-                                ]),
-                              ]),
-                            ),
-                            Text(
-                              '${_articles.where((a) => a.locationId == loc.id).length} pcs',
-                              style: T.mono(13, w: FontWeight.w700),
-                            ),
-                          ]),
-                        ),
-                      ),
-                  if (_reservations.isNotEmpty) ...[
-                    SectionLabel('Active Custody Reservations (${_reservations.length})'),
-                    for (final r in _reservations)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Panel(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Row(children: [
-                              MonoTag(r.articleTag.isEmpty ? r.id.substring(0, 8) : r.articleTag),
-                              const Spacer(),
-                              StatusPill(r.state),
-                            ]),
-                            const SizedBox(height: 8),
-                            KeyValue('Reference', r.referenceType),
-                            if (r.expiresAt.isNotEmpty) KeyValue('Hold Expires', formatDateTime(r.expiresAt)),
-                          ]),
-                        ),
-                      ),
-                  ],
-                ],
+            SaasKpiGrid(
+              items: [
+                (label: 'AVAILABLE PIECES', value: '$availableCount / ${_articles.length}'),
+                (label: 'BULLION LOTS', value: '${_lots.length} active'),
+                (label: 'PURE 999 WT', value: fineGrams(_totalFineGrams.toString())),
               ],
             ),
-          ),
+            const SizedBox(height: 12),
+            if (_loading)
+              for (var i = 0; i < 4; i++)
+                const Padding(padding: EdgeInsets.only(bottom: 10), child: Panel(child: Skeleton(height: 82)))
+            else if (_error != null)
+              ErrorBlock(_error!, onRetry: _load)
+            else if (_tab == 'ARTICLES') ...[
+              if (filtered.isEmpty)
+                const SaasEmptyBox(
+                  'No matching tagged ornaments in showroom custody. Tap + to receive a tagged piece or scan a tag.',
+                )
+              else
+                for (final a in filtered)
+                  _ArticleCard(article: a, onTap: () => _showArticleSheet(a)),
+            ] else if (_tab == 'LOTS') ...[
+              if (fLots.isEmpty)
+                const SaasEmptyBox(
+                  'No fungible bullion lots in custody. Tap + to receive a bullion bar, granule, or scrap lot.',
+                )
+              else
+                for (final l in fLots)
+                  LuxuryRecordCard(
+                    icon: Icons.layers_outlined,
+                    code: l.lotCode,
+                    status: l.form.isEmpty ? 'AVAILABLE' : l.form,
+                    lines: [
+                      ('Metal & Purity', '${l.metal} ${l.purityLabel}'),
+                      ('Vault Location', l.locationName.isEmpty ? '-' : l.locationName),
+                      ('Gross Weight', grams(l.quantityGrams)),
+                    ],
+                    amountLabel: 'Pure 999 Content',
+                    amountValue: fineGrams(l.fineGrams),
+                  ),
+            ] else if (_tab == 'TRANSFORM') ...[
+              _MaterialTransformationView(
+                transformations: _transformations,
+                showForm: _showTransformForm,
+                onCloseForm: () => setState(() => _showTransformForm = false),
+                onTransformed: () {
+                  setState(() => _showTransformForm = false);
+                  _load();
+                },
+              ),
+            ] else ...[
+              if (fLocs.isEmpty)
+                const SaasEmptyBox(
+                  'No showroom vaults or display trays configured yet. Tap + to create a stock location.',
+                )
+              else
+                for (final loc in fLocs)
+                  LuxuryRecordCard(
+                    icon: loc.type == 'VAULT' ? Icons.lock_outline_rounded : Icons.storefront_outlined,
+                    code: loc.name,
+                    status: loc.type,
+                    lines: [
+                      ('Location Code', loc.code),
+                      ('Custody Type', statusLabel(loc.type)),
+                    ],
+                    amountLabel: 'Tagged Stock',
+                    amountValue: '${_articles.where((a) => a.locationId == loc.id).length} pcs',
+                  ),
+              if (_reservations.isNotEmpty) ...[
+                SectionLabel('Active Custody Reservations (${_reservations.length})'),
+                for (final r in _reservations)
+                  LuxuryRecordCard(
+                    icon: Icons.timer_outlined,
+                    code: r.articleTag.isEmpty ? shortId(r.id) : r.articleTag,
+                    status: r.state,
+                    lines: [
+                      ('Reference', r.referenceType),
+                      if (r.expiresAt.isNotEmpty) ('Hold Expires', formatDateTime(r.expiresAt)),
+                    ],
+                  ),
+              ],
+            ],
+          ],
+        ),
+      ),
     );
   }
-
-  Widget _statCol(String label, String val, {bool gold = false}) =>
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: T.caps(9, color: Colors.white60)),
-        const SizedBox(height: 3),
-        Text(
-          val,
-          style: T.mono(12.5, color: gold ? Pal.goldSoft : Colors.white, w: FontWeight.w700),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ]);
 
   void _showArticleSheet(Article a) {
     final rates = context.read<RatesController>();
@@ -471,14 +381,15 @@ class _InventoryScreenState extends State<InventoryScreen> {
               if (a.carryingCost.isNotEmpty && decOrZero(a.carryingCost) > Decimal.zero)
                 KeyValue('Vault Carrying Cost', inr(a.carryingCost), mono: true),
               if (estMetal > Decimal.zero)
-                KeyValue('Est. Live Metal Value', inr(estMetal.toStringAsFixed(2)), strong: true, valueColor: Pal.teal),
+                KeyValue('Est. Live Metal Value', inr(estMetal.toStringAsFixed(2)), strong: true, valueColor: Pal.goldDeep),
               if (a.makingCharges.isNotEmpty && decOrZero(a.makingCharges) > Decimal.zero)
                 KeyValue('Making Charges', inr(a.makingCharges), mono: true),
             ]),
           ),
           const SizedBox(height: 16),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(backgroundColor: Pal.teal),
+          RoyalGoldButton(
+            label: 'Add Ornament to POS Bill',
+            icon: Icons.add_shopping_cart_rounded,
             onPressed: a.status.toUpperCase() == 'SOLD'
                 ? null
                 : () async {
@@ -493,8 +404,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
                       toast(context, billing.error!, error: true);
                     }
                   },
-            icon: const Icon(Icons.add_shopping_cart_rounded, size: 18),
-            label: const Text('Add Ornament to POS Bill'),
           ),
         ]),
       ),
@@ -510,63 +419,21 @@ class _ArticleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final a = article;
-    return Panel(
+    return LuxuryRecordCard(
+      icon: Icons.diamond_outlined,
+      code: a.name.isEmpty ? a.barcode : '${a.barcode} · ${a.name}',
+      status: a.status.isEmpty ? 'AVAILABLE' : a.status,
       onTap: onTap,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Pal.goldWash,
-              borderRadius: BorderRadius.circular(11),
-              border: Border.all(color: Pal.gold.withValues(alpha: 0.45)),
-            ),
-            child: const Icon(Icons.diamond_outlined, size: 19, color: Pal.goldDeep),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(
-                a.name.isEmpty ? a.barcode : a.name,
-                style: T.body(15, w: FontWeight.w800),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 3),
-              Row(children: [
-                MonoTag(a.barcode),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    a.locationName.isEmpty ? '${a.metal} ${a.karatLabel}' : a.locationName,
-                    style: T.body(11.8, color: Pal.muted),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ]),
-            ]),
-          ),
-          const SizedBox(width: 8),
-          if (a.status.isNotEmpty) StatusPill(a.status),
-        ]),
-        const SizedBox(height: 11),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-          decoration: BoxDecoration(
-            color: Pal.surfaceAlt,
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: Row(children: [
-            Chip2('${a.metal} ${a.karatLabel}', gold: true),
-            const Spacer(),
-            Text('Gross ${grams(a.grossWeight)}', style: T.mono(12, color: Pal.muted)),
-            const SizedBox(width: 10),
-            Text('Net ${grams(a.effectiveNetWeight)}', style: T.mono(12.5, w: FontWeight.w700)),
-          ]),
-        ),
-      ]),
+      lines: [
+        ('Purity & Vault', '${a.metal} ${a.karatLabel}${a.locationName.isEmpty ? '' : ' · ${a.locationName}'}'),
+        ('Weights', 'Gross ${grams(a.grossWeight)} · Net ${grams(a.effectiveNetWeight)}'),
+      ],
+      amountLabel: a.carryingCost.isNotEmpty && decOrZero(a.carryingCost) > Decimal.zero
+          ? 'Carrying Cost'
+          : 'Net Metal',
+      amountValue: a.carryingCost.isNotEmpty && decOrZero(a.carryingCost) > Decimal.zero
+          ? inr(a.carryingCost)
+          : grams(a.effectiveNetWeight),
     );
   }
 }
@@ -808,13 +675,11 @@ class _ReceiveArticleSheetState extends State<_ReceiveArticleSheet> {
           if (_err != null)
             Padding(padding: const EdgeInsets.only(top: 12), child: Text(_err!, style: T.body(13, color: Pal.danger, w: FontWeight.w700))),
           const SizedBox(height: 18),
-        FilledButton(
-          onPressed: _busy ? null : _submit,
-          style: FilledButton.styleFrom(backgroundColor: Pal.teal),
-          child: _busy
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
-              : const Text('Receive Into Showroom Custody'),
-        ),
+          GoldButton(
+            label: 'Receive Into Showroom Custody',
+            busy: _busy,
+            onPressed: _submit,
+          ),
         ],
       ]),
     );
@@ -1084,10 +949,14 @@ class _ReceiveMaterialLotSheetState extends State<_ReceiveMaterialLotSheet> {
 class _MaterialTransformationView extends StatefulWidget {
   const _MaterialTransformationView({
     required this.transformations,
+    required this.showForm,
+    required this.onCloseForm,
     required this.onTransformed,
   });
 
   final List<Map<String, dynamic>> transformations;
+  final bool showForm;
+  final VoidCallback onCloseForm;
   final VoidCallback onTransformed;
 
   @override
@@ -1220,137 +1089,126 @@ class _MaterialTransformationViewState extends State<_MaterialTransformationView
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SaasFormCard(
-          title: 'Material transformation',
-          subtitle: 'Fine-metal and historical cost are conserved across immutable lot genealogy.',
-          icon: Icons.merge_type_rounded,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              DatePickField(label: 'Business date', controller: _businessDate),
-              const SizedBox(height: 10),
-              LookupField(
-                label: 'Input lot balance',
-                controller: _inputBalanceId,
-                options: _lk.lotBalances,
-                hint: 'Select source lot and custody',
-                onSelected: (opt) {
-                  if (opt != null) {
-                    setState(() {
-                      _expectedBalanceVersion = asInt(opt.raw['balanceVersion'] ?? opt.raw['version'], fallback: 1);
-                      _inputQtyGrams.text = '${opt.raw['quantityGrams'] ?? ''}';
-                    });
-                  }
-                },
-              ),
-              const SizedBox(height: 10),
-              SaasField(
-                label: 'Input gross grams',
-                controller: _inputQtyGrams,
-                mono: true,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              ),
-              const SizedBox(height: 12),
-              SaasSubBox(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('Output lot', style: T.body(13.2, w: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(child: SaasField(label: 'Output lot code', controller: _outLotCode, mono: true)),
-                        const SizedBox(width: 10),
-                        Expanded(child: LookupField(label: 'Output location', controller: _outLocationId, options: _lk.locations)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    SaasField(label: 'Description', controller: _outDesc),
-                    const SizedBox(height: 10),
-                    LookupField(label: 'Output purity', controller: _outPurityId, options: _lk.purityGrades),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: LookupField(label: 'Unit', controller: _outUnitId, options: _lk.units)),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasField(
-                            label: 'Output qty',
-                            controller: _outQty,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: SaasField(
-                      label: 'Approved fine loss g',
-                      controller: _approvedLoss,
-                      mono: true,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: SaasField(label: 'Loss approval reason', controller: _lossReason),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              SaasField(label: 'Authorization reason', controller: _reason),
-              if (_err != null) ...[
+        if (widget.showForm) ...[
+          SaasFormCard(
+            title: 'Material transformation',
+            subtitle: 'Fine-metal and historical cost are conserved across immutable lot genealogy.',
+            icon: Icons.merge_type_rounded,
+            trailing: TextButton(
+              onPressed: widget.onCloseForm,
+              child: const Text('Close'),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DatePickField(label: 'Business date', controller: _businessDate),
                 const SizedBox(height: 10),
-                Text(_err!, style: T.body(12.5, color: Pal.danger, w: FontWeight.w700)),
-              ],
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: ElevatedButton(
-                  onPressed: _busy ? null : _submit,
-                  child: Text(_busy ? 'Posting…' : 'Post transformation'),
+                LookupField(
+                  label: 'Input lot balance',
+                  controller: _inputBalanceId,
+                  options: _lk.lotBalances,
+                  hint: 'Select source lot and custody',
+                  onSelected: (opt) {
+                    if (opt != null) {
+                      setState(() {
+                        _expectedBalanceVersion = asInt(opt.raw['balanceVersion'] ?? opt.raw['version'], fallback: 1);
+                        _inputQtyGrams.text = '${opt.raw['quantityGrams'] ?? ''}';
+                      });
+                    }
+                  },
                 ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        SaasFormCard(
-          title: 'Recent genealogy',
-          subtitle: 'Posted batches are immutable and traceable in both directions.',
-          child: widget.transformations.isEmpty
-              ? const SaasEmptyBox('No material transformations posted yet.')
-              : Column(
-                  children: [
-                    for (final item in widget.transformations)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: SaasSubBox(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${fmtDate('${item['businessDate'] ?? ''}')} · ${inr(item['totalCarryingCost'])}',
-                                style: T.body(13.2, w: FontWeight.w700),
-                              ),
-                              const SizedBox(height: 4),
-                              KVRow(
-                                'In / Out Fine',
-                                '${grams(item['inputFineWeightGrams'])} → ${grams(item['outputFineWeightGrams'])} (loss ${grams(item['approvedLossFineWeightGrams'])})',
-                              ),
-                            ],
-                          ),
-                        ),
+                const SizedBox(height: 10),
+                SaasField(
+                  label: 'Input gross grams',
+                  controller: _inputQtyGrams,
+                  mono: true,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                SaasSubBox(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('Output lot', style: T.body(13.2, w: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(child: SaasField(label: 'Output lot code', controller: _outLotCode, mono: true)),
+                          const SizedBox(width: 10),
+                          Expanded(child: LookupField(label: 'Output location', controller: _outLocationId, options: _lk.locations)),
+                        ],
                       ),
+                      const SizedBox(height: 10),
+                      SaasField(label: 'Description', controller: _outDesc),
+                      const SizedBox(height: 10),
+                      LookupField(label: 'Output purity', controller: _outPurityId, options: _lk.purityGrades),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(child: LookupField(label: 'Unit', controller: _outUnitId, options: _lk.units)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: SaasField(
+                              label: 'Output qty',
+                              controller: _outQty,
+                              mono: true,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SaasField(
+                        label: 'Approved fine loss g',
+                        controller: _approvedLoss,
+                        mono: true,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: SaasField(label: 'Loss approval reason', controller: _lossReason),
+                    ),
                   ],
                 ),
-        ),
+                const SizedBox(height: 10),
+                SaasField(label: 'Authorization reason', controller: _reason),
+                if (_err != null) ...[
+                  const SizedBox(height: 10),
+                  Text(_err!, style: T.body(12.5, color: Pal.danger, w: FontWeight.w700)),
+                ],
+                const SizedBox(height: 12),
+                GoldButton(
+                  label: _busy ? 'Posting…' : 'Post Transformation',
+                  busy: _busy,
+                  onPressed: _submit,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (widget.transformations.isEmpty)
+          const SaasEmptyBox('No material transformations posted yet. Tap + to transform a material lot.')
+        else
+          for (final item in widget.transformations)
+            LuxuryRecordCard(
+              icon: Icons.merge_type_rounded,
+              code: 'Genealogy · ${fmtDate('${item['businessDate'] ?? ''}')}',
+              status: 'POSTED',
+              lines: [
+                ('In → Out Fine', '${grams(item['inputFineWeightGrams'])} → ${grams(item['outputFineWeightGrams'])}'),
+                ('Approved Loss', grams(item['approvedLossFineWeightGrams'])),
+              ],
+              amountLabel: 'Carrying Cost',
+              amountValue: inr(item['totalCarryingCost']),
+            ),
       ],
     );
   }

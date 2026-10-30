@@ -77,7 +77,12 @@ class _PoDraftLine {
 }
 
 class _ProcurementScreenState extends State<ProcurementScreen> {
-  late String _tab = widget.initialTab;
+  late String _tab = widget.initialTab == 'BILL'
+      ? 'BILLS'
+      : widget.initialTab == 'RETURN'
+          ? 'RETURNS'
+          : widget.initialTab;
+  String _statusFilter = 'ALL';
   final _search = TextEditingController();
   Map<String, dynamic> _ws = const {};
   WorkspaceLookup _lk = WorkspaceLookup();
@@ -660,21 +665,87 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       return fields.any((f) => '${m[f] ?? ''}'.toLowerCase().contains(q));
     }
 
-    final fPos = pos.where((m) => matches(m, const ['documentNumber', 'orderNumber', 'id', 'state'])).toList();
-    final fGrns = grns.where((m) => matches(m, const ['documentNumber', 'supplierDeliveryNote', 'id', 'state'])).toList();
-    final fBills = bills.where((m) => matches(m, const ['supplierInvoiceNumber', 'documentNumber', 'id', 'state'])).toList();
-    final fRets = rets.where((m) => matches(m, const ['documentNumber', 'reason', 'id', 'state'])).toList();
+    bool matchesState(Map<String, dynamic> m) {
+      if (_statusFilter == 'ALL') return true;
+      final st = '${m['state'] ?? m['status'] ?? 'DRAFT'}'.toUpperCase();
+      if (_statusFilter == 'PENDING') {
+        return st == 'DRAFT' || st == 'PENDING' || st == 'SUBMITTED';
+      }
+      if (_statusFilter == 'DONE') {
+        return st == 'APPROVED' || st == 'POSTED' || st == 'RECEIVED' || st == 'CONFIRMED';
+      }
+      if (_statusFilter == 'CLOSED') {
+        return st == 'CLOSED' || st == 'CANCELLED';
+      }
+      return true;
+    }
 
-    final (pageTitle, searchHint, formTarget) = switch (_tab) {
-      'GRN' => ('Goods Receipts', 'Search by GRN / Supplier...', 'GRN'),
-      'BILLS' => ('Supplier Bills', 'Search by Bill No. / Supplier...', 'BILL'),
-      'RETURNS' => ('Returns / Debits', 'Search by Return No. / Supplier...', 'RETURN'),
-      _ => ('Purchase Orders', 'Search by PO No. / Supplier...', 'PO'),
+    int countState(List<Map<String, dynamic>> src, String bucket) {
+      return src.where((m) {
+        final st = '${m['state'] ?? m['status'] ?? 'DRAFT'}'.toUpperCase();
+        if (bucket == 'PENDING') return st == 'DRAFT' || st == 'PENDING' || st == 'SUBMITTED';
+        if (bucket == 'DONE') return st == 'APPROVED' || st == 'POSTED' || st == 'RECEIVED' || st == 'CONFIRMED';
+        if (bucket == 'CLOSED') return st == 'CLOSED' || st == 'CANCELLED';
+        return true;
+      }).length;
+    }
+
+    final fPos = pos.where((m) => matchesState(m) && matches(m, const ['documentNumber', 'orderNumber', 'id', 'state'])).toList();
+    final fGrns = grns.where((m) => matchesState(m) && matches(m, const ['documentNumber', 'supplierDeliveryNote', 'id', 'state'])).toList();
+    final fBills = bills.where((m) => matchesState(m) && matches(m, const ['supplierInvoiceNumber', 'documentNumber', 'id', 'state'])).toList();
+    final fRets = rets.where((m) => matchesState(m) && matches(m, const ['documentNumber', 'reason', 'id', 'state'])).toList();
+
+    final (pageTitle, pageIcon, searchHint, formTarget, statusTabs) = switch (_tab) {
+      'GRN' => (
+          'Goods Receipts',
+          Icons.inventory_outlined,
+          'Search by GRN / Supplier...',
+          'GRN',
+          [
+            ('ALL', 'All (${grns.length})'),
+            ('DONE', 'Received (${countState(grns, 'DONE')})'),
+            ('PENDING', 'Pending (${countState(grns, 'PENDING')})'),
+          ],
+        ),
+      'BILLS' => (
+          'Supplier Bills',
+          Icons.receipt_long_outlined,
+          'Search by Bill No. / Supplier...',
+          'BILL',
+          [
+            ('ALL', 'All (${bills.length})'),
+            ('DONE', 'Posted (${countState(bills, 'DONE')})'),
+            ('PENDING', 'Pending (${countState(bills, 'PENDING')})'),
+          ],
+        ),
+      'RETURNS' => (
+          'Returns / Debits',
+          Icons.assignment_return_outlined,
+          'Search by Return / Debit No...',
+          'RETURN',
+          [
+            ('ALL', 'All (${rets.length})'),
+            ('DONE', 'Posted (${countState(rets, 'DONE')})'),
+            ('PENDING', 'Pending (${countState(rets, 'PENDING')})'),
+          ],
+        ),
+      _ => (
+          'Purchase Orders',
+          Icons.shopping_bag_outlined,
+          'Search by PO No. / Supplier...',
+          'PO',
+          [
+            ('ALL', 'All (${pos.length})'),
+            ('PENDING', 'Pending (${countState(pos, 'PENDING')})'),
+            ('DONE', 'Approved (${countState(pos, 'DONE')})'),
+            ('CLOSED', 'Closed (${countState(pos, 'CLOSED')})'),
+          ],
+        ),
     };
 
     return LuxuryModuleScaffold(
       title: pageTitle,
-      icon: Icons.shopping_bag_outlined,
+      icon: pageIcon,
       searchController: _search,
       searchHint: searchHint,
       onSearchChanged: (_) => setState(() {}),
@@ -694,16 +765,22 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         ),
       ],
       topFilterBar: PillTabs<String>(
+        value: _statusFilter,
+        onChanged: (v) => setState(() => _statusFilter = v),
+        tabs: statusTabs,
+      ),
+      secondaryFilterBar: LuxurySubChips<String>(
         value: _tab,
         onChanged: (v) => setState(() {
           _tab = v;
+          _statusFilter = 'ALL';
           _activeForm = null;
         }),
-        tabs: [
-          ('PO', 'Orders (${pos.length})'),
-          ('GRN', 'Receipts (${grns.length})'),
-          ('BILLS', 'Bills (${bills.length})'),
-          ('RETURNS', 'Returns (${rets.length})'),
+        items: [
+          ('PO', 'Purchase Orders (${pos.length})'),
+          ('GRN', 'Goods Receipts (${grns.length})'),
+          ('BILLS', 'Supplier Bills (${bills.length})'),
+          ('RETURNS', 'Returns / Debits (${rets.length})'),
         ],
       ),
       floatingActionButton: GoldAddFab(
