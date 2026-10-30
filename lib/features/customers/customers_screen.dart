@@ -8,6 +8,7 @@ import '../../core/format.dart';
 import '../../core/models.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/workspace_lookup.dart';
 
 /// Parties & CRM Directory matching `PartiesPanel.tsx` on `pos.hrpocket.in`.
 /// Supports Customers, Karigars, Suppliers, and Refiners with GSTIN & KYC (PAN/Aadhaar).
@@ -141,6 +142,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
               ('CUSTOMER', 'Customers', Icons.person_outline_rounded),
               ('KARIGAR', 'Karigars', Icons.handyman_outlined),
               ('SUPPLIER', 'Suppliers', Icons.local_shipping_outlined),
+              ('REFINER', 'Refiners', Icons.balance_rounded),
             ],
           ),
         ),
@@ -344,6 +346,134 @@ class _PartyDetailSheetState extends State<_PartyDetailSheet> {
     if (ok == true) _fetchKyc();
   }
 
+  Future<void> _addCreditPolicyDialog() async {
+    final limitCtrl = TextEditingController();
+    final daysCtrl = TextEditingController(text: '15');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Pal.card,
+        title: Text('Add Credit Policy', style: T.display(20)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+            controller: limitCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: T.mono(14),
+            decoration: const InputDecoration(labelText: 'Credit Limit (INR)', hintText: '0.00'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: daysCtrl,
+            keyboardType: TextInputType.number,
+            style: T.mono(14),
+            decoration: const InputDecoration(labelText: 'Terms (Days)'),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(110, 42)),
+            onPressed: () async {
+              if (!isValidAmount(limitCtrl.text)) {
+                toast(ctx, 'Enter a valid credit limit amount.', error: true);
+                return;
+              }
+              try {
+                final api = context.read<ApiClient>();
+                final res = asMap(await api.post(
+                  '/parties/${widget.party.id}/credit-policies',
+                  body: {
+                    'limitAmount': normAmount(limitCtrl.text),
+                    'currency': 'INR',
+                    'termsDays': int.tryParse(daysCtrl.text.trim()) ?? 15,
+                    'effectiveFrom': todayIso(),
+                  },
+                ));
+                final policyId = '${res['id'] ?? ''}';
+                if (policyId.isNotEmpty) {
+                  try {
+                    await api.post(
+                      '/parties/credit-policies/$policyId/approve',
+                      body: {
+                        'expectedVersion': (res['version'] as num?)?.toInt() ?? 1,
+                        'reason': 'Approved commercial credit limit.',
+                      },
+                    );
+                  } catch (_) {}
+                }
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              } on ApiException catch (e) {
+                if (ctx.mounted) toast(ctx, e.message, error: true);
+              }
+            },
+            child: const Text('Save Policy'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      toast(context, 'Credit policy saved.');
+    }
+  }
+
+  Future<void> _recordConsentDialog() async {
+    var channel = 'WHATSAPP';
+    final evidenceCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          backgroundColor: Pal.card,
+          title: Text('Record Communication Consent', style: T.display(19)),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            GoldDropdown<String>(
+              value: channel,
+              labelText: 'Channel',
+              items: const [
+                DropdownMenuItem(value: 'WHATSAPP', child: Text('WhatsApp')),
+                DropdownMenuItem(value: 'SMS', child: Text('SMS')),
+                DropdownMenuItem(value: 'EMAIL', child: Text('Email')),
+                DropdownMenuItem(value: 'PHONE', child: Text('Phone')),
+              ],
+              onChanged: (v) => setLocal(() => channel = v ?? 'WHATSAPP'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: evidenceCtrl,
+              decoration: const InputDecoration(labelText: 'Consent Evidence / Reference'),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(minimumSize: const Size(110, 42)),
+              onPressed: () async {
+                try {
+                  await context.read<ApiClient>().post(
+                    '/parties/${widget.party.id}/consents',
+                    body: {
+                      'channel': channel,
+                      'purpose': 'TRANSACTIONAL_AND_UPDATES',
+                      'state': 'GRANTED',
+                      'evidence': evidenceCtrl.text.trim().isEmpty
+                          ? 'In-showroom counter sign-off'
+                          : evidenceCtrl.text.trim(),
+                    },
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx, true);
+                } on ApiException catch (e) {
+                  if (ctx.mounted) toast(ctx, e.message, error: true);
+                }
+              },
+              child: const Text('Record'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true && mounted) toast(context, 'Consent recorded.');
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = widget.party;
@@ -371,6 +501,26 @@ class _PartyDetailSheetState extends State<_PartyDetailSheet> {
             if (p.creditLimit.isNotEmpty) KeyValue('Approved Credit Limit', inr(p.creditLimit), strong: true),
           ]),
         ),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(42)),
+              onPressed: _addCreditPolicyDialog,
+              icon: const Icon(Icons.credit_score_outlined, size: 16),
+              label: const Text('Credit Policy'),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(42)),
+              onPressed: _recordConsentDialog,
+              icon: const Icon(Icons.mark_chat_read_outlined, size: 16),
+              label: const Text('Consent'),
+            ),
+          ),
+        ]),
         const SizedBox(height: 14),
         Row(children: [
           Text('KYC COMPLIANCE VAULT', style: T.caps(10.5)),
@@ -449,7 +599,7 @@ class _NewPartySheetState extends State<NewPartySheet> {
     super.dispose();
   }
 
-  /// Normalizes Indian 10-digit numbers (`9876543210` / `09876543210`) into E.164 `+919876543210`.
+  /// Normalizes Indian 10-digit mobile numbers into international E.164 format (`+91...`).
   String? _normalizeE164(String raw) {
     final cleaned = raw.replaceAll(RegExp(r'[\s()-]'), '');
     if (cleaned.isEmpty) return null;
@@ -571,11 +721,12 @@ class _NewPartySheetState extends State<NewPartySheet> {
         Text('Register Enterprise Party', style: T.display(22)),
         const SizedBox(height: 14),
         const FieldLabel('Party Role'),
-        Wrap(spacing: 8, children: [
+        Wrap(spacing: 8, runSpacing: 8, children: [
           for (final r in const [
             ('CUSTOMER', 'Customer'),
             ('KARIGAR', 'Karigar'),
             ('SUPPLIER', 'Supplier'),
+            ('REFINER', 'Refiner'),
           ])
             ChoiceChip(
               label: Text(r.$2),
@@ -584,7 +735,7 @@ class _NewPartySheetState extends State<NewPartySheet> {
               selectedColor: Pal.goldWash,
               onSelected: (_) => setState(() {
                 _role = r.$1;
-                if (r.$1 == 'SUPPLIER') _kind = 'ORGANIZATION';
+                if (r.$1 == 'SUPPLIER' || r.$1 == 'REFINER') _kind = 'ORGANIZATION';
               }),
             ),
         ]),

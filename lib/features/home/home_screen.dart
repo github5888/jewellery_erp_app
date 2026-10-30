@@ -9,12 +9,16 @@ import '../../core/models.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/workspace_lookup.dart';
 import '../billing/billing_controller.dart';
+import '../finance/accounting_finance_screens.dart';
+import '../governance/tax_governance_screens.dart';
 import '../inventory/scanner_page.dart';
 import '../more/old_gold_screen.dart';
 import '../more/operations_screens.dart';
 import '../more/reports_screen.dart';
 import '../more/shift_screen.dart';
+import '../supply/supply_production_screens.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.onJump});
@@ -168,9 +172,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ]),
                   const SizedBox(height: 14),
                   Wrap(spacing: 8, runSpacing: 6, children: [
+                    const BullionHeaderBadge(dark: true),
                     if (app.branchCode.isNotEmpty)
                       EnterpriseBadge(app.branchCode, icon: Icons.storefront_outlined),
-                    EnterpriseBadge('${app.currency} · Fine 999 Ledger', icon: Icons.verified_outlined),
                   ]),
                 ]),
               ),
@@ -309,6 +313,55 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: 'Ledger Reports',
                     sub: 'Margin, TB & AR ageing',
                     onTap: () => _push(const ReportsScreen()),
+                  ),
+                ],
+              ),
+
+              // 5. Enterprise SaaS Suite Quick Launchers
+              SectionLabel(
+                'Supply, Accounting & GST',
+                trailing: TextButton(
+                  onPressed: () => widget.onJump(4),
+                  child: const Text('All 25+ Modules →'),
+                ),
+              ),
+              ResponsiveGrid2(
+                children: [
+                  _QuickCard(
+                    icon: Icons.shopping_cart_outlined,
+                    title: 'Procurement',
+                    sub: 'POs, GRN QC & bills',
+                    onTap: () => _push(const ProcurementScreen()),
+                  ),
+                  _QuickCard(
+                    icon: Icons.handyman_outlined,
+                    title: 'Karigar Work',
+                    sub: 'Fine 999 artisan jobs',
+                    onTap: () => _push(const JobWorkScreen()),
+                  ),
+                  _QuickCard(
+                    icon: Icons.balance_rounded,
+                    title: 'Refining & Melt',
+                    sub: 'Crucible & assay loss',
+                    onTap: () => _push(const RefiningMeltingScreen()),
+                  ),
+                  _QuickCard(
+                    icon: Icons.account_balance_outlined,
+                    title: 'Accounting',
+                    sub: 'Journals, P&L & close',
+                    onTap: () => _push(const DoubleEntryAccountingScreen()),
+                  ),
+                  _QuickCard(
+                    icon: Icons.account_balance_wallet_outlined,
+                    title: 'Settlements',
+                    sub: 'Receipts & clearings',
+                    onTap: () => _push(const SettlementsCashupScreen()),
+                  ),
+                  _QuickCard(
+                    icon: Icons.description_outlined,
+                    title: 'GST & ITC',
+                    sub: 'GSTR-2B & E-invoicing',
+                    onTap: () => _push(const GstReturnsItcScreen()),
                   ),
                 ],
               ),

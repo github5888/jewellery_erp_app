@@ -85,9 +85,9 @@ class _ShellState extends State<Shell> {
               label: 'Parties',
             ),
             const NavigationDestination(
-              icon: Icon(Icons.grid_view_outlined),
-              selectedIcon: Icon(Icons.grid_view_rounded),
-              label: 'Operations',
+              icon: Icon(Icons.apps_outlined),
+              selectedIcon: Icon(Icons.apps_rounded),
+              label: 'SaaS Suite',
             ),
           ],
         ),

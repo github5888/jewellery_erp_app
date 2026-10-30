@@ -9,6 +9,7 @@ import '../../core/models.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/workspace_lookup.dart';
 import '../billing/billing_controller.dart';
 import 'scanner_page.dart';
 
@@ -726,9 +727,8 @@ class _ReceiveArticleSheetState extends State<_ReceiveArticleSheet> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const FieldLabel('Vault / Tray'),
-                DropdownButtonFormField<String>(
-                  initialValue: _locationId,
-                  isExpanded: true,
+                GoldDropdown<String>(
+                  value: _locationId,
                   items: [
                     for (final l in widget.locations)
                       DropdownMenuItem(value: l.id, child: Text(l.name, overflow: TextOverflow.ellipsis)),
