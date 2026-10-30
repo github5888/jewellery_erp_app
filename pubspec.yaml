@@ -1,0 +1,29 @@
+name: jewellery_erp
+description: Jewellery ERP mobile app - rates, stock, POS billing, old gold and customers.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.7.0
+  dio_cookie_manager: ^3.1.1
+  cookie_jar: ^4.0.8
+  path_provider: ^2.1.4
+  provider: ^6.1.2
+  google_fonts: ^6.2.1
+  decimal: ^3.0.2
+  mobile_scanner: ^6.0.2
+  uuid: ^4.5.1
+  shared_preferences: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
