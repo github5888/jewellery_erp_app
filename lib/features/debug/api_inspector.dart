@@ -3,11 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api.dart';
+import '../../core/build.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 
-/// Shows what the server really answered, so screens can be matched to the
-/// real API instead of guessed. Paste "Copy all" into the chat.
+/// Live API Gateway Diagnostics & Request Inspector with 1-tap health ping.
 class ApiInspector extends StatefulWidget {
   const ApiInspector({super.key});
   @override
@@ -15,99 +15,156 @@ class ApiInspector extends StatefulWidget {
 }
 
 class _ApiInspectorState extends State<ApiInspector> {
-  bool _running = false;
+  bool _pinging = false;
+  String? _pingResult;
 
-  static const _checks = [
-    '/session',
-    '/rates',
-    '/inventory',
-    '/parties',
-    '/pos-shifts/current',
-    '/reports/sales-daily',
-    '/reports/inventory-summary',
-  ];
-
-  Future<void> _run() async {
-    final api = context.read<ApiClient>();
-    setState(() => _running = true);
-    for (final p in _checks) {
-      try {
-        await api.get(p);
-      } catch (_) {}
-      if (!mounted) return;
-      setState(() {});
+  Future<void> _pingHealth() async {
+    setState(() {
+      _pinging = true;
+      _pingResult = null;
+    });
+    try {
+      final d = asMap(await context.read<ApiClient>().get('/health/live'));
+      if (mounted) {
+        setState(() => _pingResult = 'Gateway Healthy (${d['status'] ?? 'ok'})');
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _pingResult = 'Error: ${e.message}');
     }
-    if (mounted) setState(() => _running = false);
-  }
-
-  Future<void> _copy(List<ApiLogEntry> log) async {
-    final b = StringBuffer('Server: ${context.read<ApiClient>().baseUrl}\n\n');
-    for (final e in log.reversed) {
-      b.writeln('=== ${e.method} ${e.path} -> ${e.status ?? 'no response'}');
-      b.writeln(e.body.length > 2500 ? '${e.body.substring(0, 2500)}\n...(cut)' : e.body);
-      b.writeln(e.note);
-      b.writeln();
-    }
-    await Clipboard.setData(ClipboardData(text: b.toString()));
-    if (mounted) toast(context, 'Copied. Paste it in the chat.');
+    if (mounted) setState(() => _pinging = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final api = context.read<ApiClient>();
-    final log = api.log;
+    final api = context.watch<ApiClient>();
     return Scaffold(
-      appBar: AppBar(title: const Text('API check')),
+      appBar: AppBar(
+        title: const Text('API Gateway Diagnostics'),
+        actions: [
+          IconButton(
+            tooltip: 'Ping /health/live',
+            onPressed: _pinging ? null : _pingHealth,
+            icon: _pinging
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.wifi_tethering_rounded),
+          ),
+          if (api.log.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                api.clearLog();
+                setState(() {});
+              },
+              child: const Text('Clear'),
+            ),
+        ],
+      ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
         children: [
-          Text(api.baseUrl, style: T.body(13, color: Pal.muted)),
-          const SizedBox(height: 14),
-          Row(children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: _running ? null : _run,
-                icon: _running
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
-                    : const Icon(Icons.play_arrow_rounded),
-                label: const Text('Test endpoints'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: log.isEmpty ? null : () => _copy(log),
-                icon: const Icon(Icons.copy_rounded, size: 18),
-                label: const Text('Copy all'),
-              ),
-            ),
-          ]),
-          const SizedBox(height: 6),
-          Text('Sign in first, then tap Test endpoints. Passwords are never recorded.', style: T.body(12.5, color: Pal.muted)),
-          const SizedBox(height: 16),
-          if (log.isEmpty)
-            const EmptyBlock(icon: Icons.monitor_heart_outlined, title: 'No requests yet', body: 'Sign in or tap Test endpoints, and every server reply shows up here.'),
-          for (final e in log)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Panel(
-                padding: EdgeInsets.zero,
-                child: Theme(
-                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                  child: ExpansionTile(
-                    tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    title: Text('${e.method}  ${e.path}', style: T.body(14.5, w: FontWeight.w800)),
-                    trailing: StatusPill(e.status == null ? 'No reply' : '${e.status}', tone: e.ok ? Tone.ok : Tone.bad),
-                    children: [
-                      Align(alignment: Alignment.centerLeft, child: SelectableText(e.body, style: T.body(12))),
-                      const SizedBox(height: 10),
-                      Align(alignment: Alignment.centerLeft, child: SelectableText(e.note, style: T.body(11.5, color: Pal.muted))),
-                    ],
+          LuxuryHeroCard(
+            padding: const EdgeInsets.all(16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const EnterpriseBadge('Active API Gateway', icon: Icons.dns_outlined),
+                const Spacer(),
+                Text(kBuildVersion, style: T.mono(11, color: Colors.white60)),
+              ]),
+              const SizedBox(height: 10),
+              SelectableText(api.baseUrl, style: T.mono(13.5, color: Pal.goldSoft, w: FontWeight.w700)),
+              if (_pingResult != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _pingResult!,
+                  style: T.body(
+                    12.5,
+                    color: _pingResult!.startsWith('Error') ? const Color(0xFFFCA5A5) : const Color(0xFF6EE7B7),
+                    w: FontWeight.w700,
                   ),
                 ),
+              ],
+            ]),
+          ),
+          SectionLabel('Recent HTTP Calls (${api.log.length})'),
+          if (api.log.isEmpty)
+            const Panel(
+              child: EmptyBlock(
+                icon: Icons.http_rounded,
+                title: 'No requests logged yet',
+                body: 'Every API call, HTTP status, latency, and JSON payload appears here for instant field debugging.',
               ),
-            ),
+            )
+          else
+            for (final e in api.log)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Panel(
+                  onTap: () => showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) => DraggableScrollableSheet(
+                      expand: false,
+                      initialChildSize: 0.72,
+                      maxChildSize: 0.94,
+                      builder: (ctx, sc) => ListView(
+                        controller: sc,
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+                        children: [
+                          Row(children: [
+                            Expanded(child: Text('${e.method} ${e.path}', style: T.mono(14, w: FontWeight.w700))),
+                            IconButton(
+                              tooltip: 'Copy JSON',
+                              icon: const Icon(Icons.copy_rounded, size: 18),
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: e.summary));
+                                toast(ctx, 'Response payload copied.');
+                              },
+                            ),
+                          ]),
+                          Text('HTTP ${e.status ?? "ERR"} · ${e.durationMs}ms · ${e.at.toIso8601String()}', style: T.mono(11.5, color: Pal.muted)),
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Pal.obsidian,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: SelectableText(
+                              e.summary,
+                              style: T.mono(12, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      StatusPill(
+                        '${e.status ?? "ERR"}',
+                        tone: e.ok ? Tone.ok : Tone.danger,
+                      ),
+                      const SizedBox(width: 8),
+                      MonoTag(e.method),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          e.path,
+                          style: T.mono(12.5, w: FontWeight.w700),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Text('${e.durationMs}ms', style: T.mono(11, color: Pal.muted)),
+                    ]),
+                    const SizedBox(height: 6),
+                    Text(
+                      e.summary,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: T.mono(11.2, color: Pal.muted),
+                    ),
+                  ]),
+                ),
+              ),
         ],
       ),
     );

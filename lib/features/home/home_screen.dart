@@ -1,3 +1,4 @@
+import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,84 +9,304 @@ import '../../core/models.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../billing/billing_controller.dart';
+import '../inventory/scanner_page.dart';
 import '../more/old_gold_screen.dart';
+import '../more/operations_screens.dart';
+import '../more/reports_screen.dart';
+import '../more/shift_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.onNavigate});
-  final ValueChanged<int> onNavigate;
+  const HomeScreen({super.key, required this.onJump});
+  final ValueChanged<int> onJump;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  Map<String, dynamic>? _today;
+  bool _perTenGram = false;
+  Map<String, dynamic>? _stockSummary;
+  int _invoiceCount = 0;
+  Decimal _salesTotal = Decimal.zero;
+  bool _kpiLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadToday();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshAll());
   }
 
-  Future<void> _loadToday() async {
+  Future<void> _refreshAll() async {
+    final rates = context.read<RatesController>();
+    final api = context.read<ApiClient>();
+    await Future.wait([
+      rates.refresh(),
+      _loadKpis(api),
+    ]);
+  }
+
+  Future<void> _loadKpis(ApiClient api) async {
+    if (mounted) setState(() => _kpiLoading = true);
     try {
-      final d = await context.read<ApiClient>().get('/reports/sales-daily');
-      if (mounted) setState(() => _today = d is Map ? Map<String, dynamic>.from(d) : null);
-    } on ApiException {
-      // The Today strip is optional; stay quiet if the report isn't available for this role.
+      final results = await Future.wait<dynamic>([
+        api.get('/reports/stock-valuation').catchError((_) => null),
+        api.get('/sales').catchError((_) => null),
+      ]);
+      if (!mounted) return;
+      final valMap = asMap(results[0]);
+      final summary = asMap(valMap['summary']);
+
+      final salesRaw = results[1];
+      final invList = salesRaw is Map
+          ? asList(salesRaw, keys: const ['invoices', 'salesInvoices'])
+          : asList(salesRaw);
+      var rev = Decimal.zero;
+      for (final inv in invList) {
+        if ('${inv['state'] ?? inv['status']}'.toUpperCase() != 'VOID') {
+          rev += decOrZero(inv['totalAmount']);
+        }
+      }
+
+      setState(() {
+        _stockSummary = summary.isEmpty ? null : summary;
+        _invoiceCount = invList.length;
+        _salesTotal = rev;
+        _kpiLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _kpiLoading = false);
     }
   }
 
-  Future<void> _refresh() async {
-    await Future.wait([context.read<RatesController>().load(silent: true), _loadToday()]);
+  void _push(Widget w) => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => w));
+
+  Future<void> _quickScanToBill() async {
+    final code = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const ScannerPage()),
+    );
+    if (code == null || !mounted) return;
+    final billing = context.read<BillingController>();
+    await billing.scanAndAdd(code);
+    if (!mounted) return;
+    widget.onJump(2);
+  }
+
+  void _openCalculator() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _MetalPriceCalculatorSheet(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final rates = context.watch<RatesController>();
+
     return Scaffold(
       body: SafeArea(
         child: RefreshIndicator(
-          color: Pal.ink,
-          onRefresh: _refresh,
+          color: Pal.teal,
+          onRefresh: _refreshAll,
           child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
             children: [
-              Row(children: [
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(app.branchName.isEmpty ? 'Showroom' : app.branchName, style: T.display(25)),
-                    const SizedBox(height: 3),
-                    Text(
-                      [if (app.tenantName.isNotEmpty) app.tenantName, if (app.branchCode.isNotEmpty) app.branchCode].join('  |  '),
-                      style: T.body(13, color: Pal.muted),
+              // 1. Luxury Obsidian Showroom Header
+              LuxuryHeroCard(
+                padding: const EdgeInsets.all(20),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    const GemMark(size: 30, darkSurface: true),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(
+                          (app.tenantName.isEmpty ? 'Jewellery ERP' : app.tenantName).toUpperCase(),
+                          style: T.caps(10.5, color: Pal.goldSoft),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          app.branchName.isEmpty ? 'Showroom Desk' : app.branchName,
+                          style: T.display(22, color: Colors.white),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ]),
+                    ),
+                    if (app.branchCount > 1)
+                      IconButton(
+                        tooltip: 'Switch Showroom',
+                        onPressed: app.switchShowroom,
+                        icon: const Icon(Icons.swap_horiz_rounded, color: Pal.goldSoft),
+                      ),
+                    IconButton(
+                      tooltip: 'Quick Scan to Bill',
+                      onPressed: _quickScanToBill,
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withValues(alpha: 0.1),
+                      ),
+                      icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 20),
                     ),
                   ]),
+                  const SizedBox(height: 14),
+                  Wrap(spacing: 8, runSpacing: 6, children: [
+                    if (app.branchCode.isNotEmpty)
+                      EnterpriseBadge(app.branchCode, icon: Icons.storefront_outlined),
+                    EnterpriseBadge('${app.currency} · Fine 999 Ledger', icon: Icons.verified_outlined),
+                  ]),
+                ]),
+              ),
+
+              // 2. Live Bullion Spot Board
+              const SizedBox(height: 18),
+              Row(children: [
+                Text('LIVE BULLION BOARD', style: T.caps(11)),
+                const Spacer(),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('1g')),
+                    ButtonSegment(value: true, label: Text('10g')),
+                  ],
+                  selected: {_perTenGram},
+                  showSelectedIcon: false,
+                  style: SegmentedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    selectedBackgroundColor: Pal.goldWash,
+                    selectedForegroundColor: Pal.goldDeep,
+                    side: const BorderSide(color: Pal.line),
+                    textStyle: T.mono(11.5, w: FontWeight.w700),
+                  ),
+                  onSelectionChanged: (s) => setState(() => _perTenGram = s.first),
                 ),
-                IconButton.outlined(
-                  onPressed: app.branchCount > 1 ? app.switchShowroom : null,
-                  tooltip: 'Switch showroom',
-                  icon: const Icon(Icons.swap_horiz_rounded),
-                  style: IconButton.styleFrom(side: const BorderSide(color: Pal.line)),
+                const SizedBox(width: 6),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: _openCalculator,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Pal.tealWash,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Pal.teal.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.calculate_outlined, size: 15, color: Pal.teal),
+                      const SizedBox(width: 4),
+                      Text('Quote', style: T.body(11.5, color: Pal.teal, w: FontWeight.w700)),
+                    ]),
+                  ),
                 ),
               ]),
-              const SizedBox(height: 18),
-              const RatePlate(),
-              _todayStrip(),
-              const SectionLabel('Start something'),
-              Panel(
-                padding: EdgeInsets.zero,
-                child: Column(children: [
-                  _action(Icons.qr_code_scanner_rounded, 'Look up a piece', 'Scan a barcode for weights and status', () => widget.onNavigate(1)),
-                  const Divider(indent: 66),
-                  _action(Icons.receipt_long_rounded, 'New bill', 'Scan pieces, take payment, issue the invoice', () => widget.onNavigate(2)),
-                  const Divider(indent: 66),
-                  _action(Icons.recycling_rounded, 'Buy old gold', 'Value a customer\'s old metal for exchange', () {
-                    Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const OldGoldScreen()));
-                  }),
-                  const Divider(indent: 66),
-                  _action(Icons.person_search_rounded, 'Find a customer', 'Search by name or phone', () => widget.onNavigate(3)),
-                ]),
+              const SizedBox(height: 10),
+              _BullionBoard(rates: rates, perTenGram: _perTenGram),
+
+              // 3. Live Showroom Custody & Revenue KPIs
+              const SectionLabel('Showroom Pulse'),
+              if (_kpiLoading)
+                const Row(children: [
+                  Expanded(child: Panel(child: Skeleton(height: 68))),
+                  SizedBox(width: 10),
+                  Expanded(child: Panel(child: Skeleton(height: 68))),
+                ])
+              else
+                GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 1.58,
+                  children: [
+                    MetricTile(
+                      label: 'Pure 999 Vault',
+                      value: _stockSummary != null
+                          ? fineGrams(_stockSummary!['grandPureFineGrams'] ?? '0').replaceAll(' Fine', '')
+                          : '0.000 g',
+                      subtitle: '${_stockSummary?['totalTaggedPieces'] ?? 0} tagged pieces',
+                      icon: Icons.diamond_outlined,
+                      accent: Pal.goldDeep,
+                      accentWash: Pal.goldWash,
+                      onTap: () => widget.onJump(1),
+                    ),
+                    MetricTile(
+                      label: 'Vault Carrying Cost',
+                      value: inrCompact(_stockSummary?['grandTotalInventoryCost'] ?? '0'),
+                      subtitle: 'FIFO cost valuation',
+                      icon: Icons.account_balance_outlined,
+                      onTap: () => _push(const ReportsScreen(initialTab: 'STOCK')),
+                    ),
+                    MetricTile(
+                      label: 'Sales Register',
+                      value: inrCompact(_salesTotal.toStringAsFixed(2)),
+                      subtitle: '$_invoiceCount invoice(s) recorded',
+                      icon: Icons.receipt_long_outlined,
+                      accent: Pal.ok,
+                      accentWash: Pal.okWash,
+                      onTap: () => widget.onJump(2),
+                    ),
+                    MetricTile(
+                      label: 'POS Counter',
+                      value: 'Ready',
+                      subtitle: 'Tap to open / reconcile shift',
+                      icon: Icons.point_of_sale_rounded,
+                      onTap: () => _push(const ShiftScreen()),
+                    ),
+                  ],
+                ),
+
+              // 4. Counter & Vault Quick Actions Grid
+              const SectionLabel('Showroom Desk'),
+              GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1.72,
+                children: [
+                  _QuickCard(
+                    icon: Icons.point_of_sale_rounded,
+                    title: 'New POS Bill',
+                    sub: 'GST invoice & split pay',
+                    primary: true,
+                    onTap: () => widget.onJump(2),
+                  ),
+                  _QuickCard(
+                    icon: Icons.qr_code_scanner_rounded,
+                    title: 'Scan Tag',
+                    sub: 'Camera lookup & bill',
+                    onTap: _quickScanToBill,
+                  ),
+                  _QuickCard(
+                    icon: Icons.recycling_rounded,
+                    title: 'Old Gold Assay',
+                    sub: 'Melt loss & credit voucher',
+                    onTap: () => _push(const OldGoldScreen()),
+                  ),
+                  _QuickCard(
+                    icon: Icons.handshake_outlined,
+                    title: 'Jangad Memo',
+                    sub: 'VIP approval custody',
+                    onTap: () => _push(const ApprovalMemosScreen()),
+                  ),
+                  _QuickCard(
+                    icon: Icons.lock_clock_rounded,
+                    title: 'Lock Gold Rate',
+                    sub: 'Customer advance hedge',
+                    onTap: () => _push(const RateFixingScreen()),
+                  ),
+                  _QuickCard(
+                    icon: Icons.insights_rounded,
+                    title: 'Ledger Reports',
+                    sub: 'Margin, TB & AR ageing',
+                    onTap: () => _push(const ReportsScreen()),
+                  ),
+                ],
               ),
             ],
           ),
@@ -93,168 +314,313 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
 
-  Widget _action(IconData icon, String title, String sub, VoidCallback onTap) => InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(color: Pal.ink, borderRadius: BorderRadius.circular(12)),
-              child: Icon(icon, size: 20, color: Pal.goldSoft),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: T.body(15.5, w: FontWeight.w800)),
-                Text(sub, style: T.body(13, color: Pal.muted)),
-              ]),
-            ),
-            const Icon(Icons.chevron_right_rounded, color: Pal.muted),
-          ]),
+class _BullionBoard extends StatelessWidget {
+  const _BullionBoard({required this.rates, required this.perTenGram});
+  final RatesController rates;
+  final bool perTenGram;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rates.loading && rates.rates.isEmpty) {
+      return const Panel(
+        child: Column(children: [
+          Skeleton(height: 22),
+          SizedBox(height: 12),
+          Skeleton(height: 22),
+          SizedBox(height: 12),
+          Skeleton(height: 22),
+        ]),
+      );
+    }
+    if (rates.error != null && rates.rates.isEmpty) {
+      return ErrorBlock(rates.error!, onRetry: rates.refresh);
+    }
+    if (rates.rates.isEmpty) {
+      return const Panel(
+        child: EmptyBlock(
+          icon: Icons.currency_rupee_rounded,
+          title: 'Showroom rate board awaiting publish',
+          body: 'Publish today\'s bullion rate book on the web portal to activate live counter pricing.',
         ),
       );
-
-  Widget _todayStrip() {
-    final t = _today;
-    if (t == null) return const SizedBox.shrink();
-    String? pick(List<String> keys) {
-      for (final k in keys) {
-        if (t[k] != null && '${t[k]}'.isNotEmpty) return '${t[k]}';
-      }
-      return null;
     }
 
-    final sales = pick(['grossAmount', 'totalAmount', 'totalSales', 'netAmount']);
-    final count = pick(['invoiceCount', 'count', 'totalInvoices']);
-    if (sales == null && count == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 22),
-      child: Panel(
-        child: Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Sales today', style: T.body(13, color: Pal.muted, w: FontWeight.w700)),
-              const SizedBox(height: 6),
-              Text(sales == null ? '-' : inr(sales, paise: false), style: T.display(28)),
+    return Panel(
+      padding: EdgeInsets.zero,
+      child: Column(children: [
+        for (var i = 0; i < rates.rates.length; i++) ...[
+          if (i > 0) const Divider(),
+          _BullionRow(rateItem: rates.rates[i], perTenGram: perTenGram),
+        ],
+        if (rates.activeRateBookName != null || rates.updatedAt != null) ...[
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            child: Row(children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(color: Pal.ok, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  rates.activeRateBookName ?? 'Live Showroom Rate Book',
+                  style: T.body(11.5, color: Pal.muted, w: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (rates.updatedAt != null)
+                Text('Synced ${_ago(rates.updatedAt!)}', style: T.mono(11, color: Pal.muted)),
             ]),
           ),
-          if (count != null)
-            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text('Invoices', style: T.body(13, color: Pal.muted, w: FontWeight.w700)),
-              const SizedBox(height: 6),
-              Text(count, style: T.display(28)),
-            ]),
-        ]),
-      ),
-    );
-  }
-}
-
-/// The one memorable thing in the app: a vault-green plate with the day's
-/// bullion rates set in large tabular numerals.
-class RatePlate extends StatelessWidget {
-  const RatePlate({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final r = context.watch<RatesController>();
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(30),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Pal.inkSoft, Pal.ink],
-        ),
-        boxShadow: [BoxShadow(color: Pal.ink.withValues(alpha: 0.28), blurRadius: 30, offset: const Offset(0, 14))],
-      ),
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 10),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Text("Today's rates", style: T.display(21, color: Colors.white)),
-          const Spacer(),
-          _Live(updated: r.updatedAt, failing: r.error != null && r.rates.isNotEmpty),
-        ]),
-        const SizedBox(height: 4),
-        Text('Per gram', style: T.body(12.5, color: Colors.white.withValues(alpha: 0.55))),
-        const SizedBox(height: 14),
-        if (r.loading && r.rates.isEmpty)
-          ...[
-            for (var i = 0; i < 3; i++)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                child: Opacity(opacity: 0.35, child: Skeleton(height: 28, radius: 8)),
-              ),
-          ]
-        else if (r.rates.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 14),
-            child: Row(children: [
-              Expanded(child: Text(r.error ?? 'No rates published for today yet.', style: T.body(14, color: Colors.white70))),
-              TextButton(onPressed: r.load, child: Text('Retry', style: T.body(14, color: Pal.goldSoft, w: FontWeight.w800))),
-            ]),
-          )
-        else ...[
-          _headerRow(),
-          for (var i = 0; i < r.rates.length; i++) ...[
-            if (i > 0) Divider(color: Pal.inkLine.withValues(alpha: 0.7)),
-            _row(r.rates[i]),
-          ],
         ],
-        const SizedBox(height: 4),
       ]),
     );
   }
 
-  Widget _headerRow() => Padding(
-        padding: const EdgeInsets.only(bottom: 4),
-        child: Row(children: [
-          const Expanded(flex: 4, child: SizedBox()),
-          Expanded(flex: 5, child: Text('Sell', textAlign: TextAlign.right, style: T.body(12.5, color: Colors.white.withValues(alpha: 0.55), w: FontWeight.w700))),
-          Expanded(flex: 4, child: Text('Buy', textAlign: TextAlign.right, style: T.body(12.5, color: Colors.white.withValues(alpha: 0.55), w: FontWeight.w700))),
-        ]),
-      );
+  String _ago(DateTime t) {
+    final s = DateTime.now().difference(t).inSeconds;
+    if (s < 60) return 'just now';
+    if (s < 3600) return '${s ~/ 60}m ago';
+    return '${s ~/ 3600}h ago';
+  }
+}
 
-  Widget _row(MetalRate m) {
-    final silver = m.metal.toUpperCase() == 'SILVER';
+class _BullionRow extends StatelessWidget {
+  const _BullionRow({required this.rateItem, required this.perTenGram});
+  final MetalRate rateItem;
+  final bool perTenGram;
+
+  @override
+  Widget build(BuildContext context) {
+    final isGold = rateItem.metal.toUpperCase().contains('GOLD');
+    final sellVal = perTenGram ? rateItem.sellPerTenGram : rateItem.sell;
+    final buyVal = perTenGram ? rateItem.buyPerTenGram : rateItem.buy;
+    final unitSuffix = perTenGram ? '/10g' : '/g';
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 13),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      child: Row(children: [
+        Container(
+          width: 38,
+          height: 38,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isGold ? Pal.goldWash : Pal.surfaceAlt,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isGold ? Pal.gold.withValues(alpha: 0.45) : Pal.line,
+            ),
+          ),
+          child: Text(
+            isGold ? rateItem.karatLabel.split(' ').first : 'Ag',
+            style: T.mono(12, w: FontWeight.w700, color: isGold ? Pal.goldDeep : Pal.inkSoft),
+          ),
+        ),
+        const SizedBox(width: 12),
         Expanded(
-          flex: 4,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(m.carat, style: T.body(16, color: Colors.white, w: FontWeight.w800)),
-            Text(silver ? 'Silver ${m.purity}' : 'Gold ${m.purity}', style: T.body(12, color: Colors.white.withValues(alpha: 0.55))),
+            Text(
+              '${humanize(rateItem.metal)} · ${rateItem.karatLabel}',
+              style: T.body(14.2, w: FontWeight.w800),
+            ),
+            if (decOrZero(buyVal) > Decimal.zero)
+              Text(
+                'Buyback ${inr(buyVal, paise: false)}$unitSuffix',
+                style: T.mono(11.5, color: Pal.muted),
+              ),
           ]),
         ),
-        Expanded(
-          flex: 5,
-          child: Text(rate(m.sell), textAlign: TextAlign.right, style: T.display(27, color: Pal.goldSoft, w: FontWeight.w600)),
-        ),
-        Expanded(
-          flex: 4,
-          child: Text(rate(m.buy), textAlign: TextAlign.right, style: T.display(18, color: Colors.white.withValues(alpha: 0.78))),
-        ),
+        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text(inr(sellVal, paise: false), style: T.display(18.5)),
+          Text('Sell $unitSuffix', style: T.caps(9, color: Pal.teal)),
+        ]),
       ]),
     );
   }
 }
 
-class _Live extends StatelessWidget {
-  const _Live({required this.updated, required this.failing});
-  final DateTime? updated;
-  final bool failing;
+class _QuickCard extends StatelessWidget {
+  const _QuickCard({
+    required this.icon,
+    required this.title,
+    required this.sub,
+    required this.onTap,
+    this.primary = false,
+  });
+  final IconData icon;
+  final String title;
+  final String sub;
+  final VoidCallback onTap;
+  final bool primary;
+
   @override
   Widget build(BuildContext context) {
-    final color = failing ? const Color(0xFFE9A24A) : const Color(0xFF6FD3A0);
-    final label = updated == null ? 'Loading' : (failing ? 'Offline, ${clock(updated!)}' : 'Updated ${clock(updated!)}');
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-      const SizedBox(width: 7),
-      Text(label, style: T.body(12.5, color: Colors.white.withValues(alpha: 0.75), w: FontWeight.w700)),
-    ]);
+    return Panel(
+      onTap: onTap,
+      color: primary ? Pal.obsidian : Pal.card,
+      borderColor: primary ? Pal.goldBright.withValues(alpha: 0.35) : Pal.line,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(children: [
+            Icon(icon, size: 21, color: primary ? Pal.goldSoft : Pal.teal),
+            const Spacer(),
+            Icon(Icons.north_east_rounded, size: 15, color: primary ? Colors.white54 : Pal.muted),
+          ]),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(
+              title,
+              style: T.body(14.2, w: FontWeight.w800, color: primary ? Colors.white : Pal.text),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              sub,
+              style: T.body(11.5, color: primary ? Colors.white70 : Pal.muted),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+}
+
+/// Interactive Counter Price Estimator calling `POST /pricing/calculate-metal` with exact `Decimal` fallback.
+class _MetalPriceCalculatorSheet extends StatefulWidget {
+  const _MetalPriceCalculatorSheet();
+  @override
+  State<_MetalPriceCalculatorSheet> createState() => _MetalPriceCalculatorSheetState();
+}
+
+class _MetalPriceCalculatorSheetState extends State<_MetalPriceCalculatorSheet> {
+  String _metal = 'GOLD';
+  String _purity = '916';
+  final _weight = TextEditingController(text: '10.000');
+  double _makingPct = 12;
+  Map<String, String>? _quote;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recalc());
+  }
+
+  @override
+  void dispose() {
+    _weight.dispose();
+    super.dispose();
+  }
+
+  Future<void> _recalc() async {
+    if (!isValidWeight(_weight.text)) return;
+    setState(() => _busy = true);
+    final q = await context.read<RatesController>().calculateMetalValue(
+          metal: _metal,
+          purity: _purity,
+          netWeightGrams: _weight.text,
+        );
+    if (mounted) {
+      setState(() {
+        _quote = q;
+        _busy = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final metalVal = decOrZero(_quote?['metalValue']);
+    final makingVal = (metalVal * Decimal.parse((_makingPct / 100).toStringAsFixed(4))).round(scale: 2);
+    final taxable = metalVal + makingVal;
+    final gst = (taxable * Decimal.parse('0.03')).round(scale: 2);
+    final grand = taxable + gst;
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(20, 0, 20, 26 + MediaQuery.of(context).viewInsets.bottom),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Counter Jewellery Price Estimator', style: T.display(22)),
+        const SizedBox(height: 4),
+        Text('Instant patron estimate using live showroom bullion spot + making + 3% GST.', style: T.body(12.5, color: Pal.muted)),
+        const SizedBox(height: 14),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final opt in const [
+            ('GOLD', '999', 'Gold 24K'),
+            ('GOLD', '916', 'Gold 22K'),
+            ('GOLD', '750', 'Gold 18K'),
+            ('SILVER', '999', 'Silver 999'),
+          ])
+            ChoiceChip(
+              label: Text(opt.$3),
+              selected: _metal == opt.$1 && _purity == opt.$2,
+              showCheckmark: false,
+              selectedColor: Pal.goldWash,
+              onSelected: (_) {
+                setState(() {
+                  _metal = opt.$1;
+                  _purity = opt.$2;
+                });
+                _recalc();
+              },
+            ),
+        ]),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const FieldLabel('Net Metal Weight (g)'),
+              TextField(
+                controller: _weight,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: T.mono(16, w: FontWeight.w700),
+                decoration: const InputDecoration(suffixText: 'g'),
+                onChanged: (_) => _recalc(),
+              ),
+            ]),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              FieldLabel('Making (${_makingPct.toStringAsFixed(0)}%)'),
+              Slider(
+                value: _makingPct,
+                min: 0,
+                max: 30,
+                divisions: 30,
+                activeColor: Pal.teal,
+                onChanged: (v) => setState(() => _makingPct = v),
+              ),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 14),
+        LuxuryHeroCard(
+          child: _busy
+              ? const Center(child: Padding(padding: EdgeInsets.all(14), child: CircularProgressIndicator(color: Pal.goldSoft)))
+              : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  KeyValue('Applied Rate / g', rate(_quote?['ratePerGram'] ?? '0'), mono: true, valueColor: Colors.white),
+                  KeyValue('Pure Fine 999 Wt', fineGrams(_quote?['fineWeightGrams'] ?? '0'), mono: true, valueColor: Colors.white),
+                  KeyValue('Bullion Metal Value', inr(metalVal.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
+                  KeyValue('Making (${_makingPct.toStringAsFixed(0)}%)', inr(makingVal.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
+                  KeyValue('GST (3.00%)', inr(gst.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
+                  Divider(color: Colors.white.withValues(alpha: 0.16)),
+                  Row(children: [
+                    Text('ESTIMATED QUOTE', style: T.caps(10, color: Colors.white70)),
+                    const Spacer(),
+                    Text(inr(grand.toStringAsFixed(2)), style: T.display(25, color: Pal.goldSoft)),
+                  ]),
+                ]),
+        ),
+      ]),
+    );
   }
 }

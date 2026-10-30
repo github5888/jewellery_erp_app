@@ -2,157 +2,171 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/theme.dart';
+import '../../core/widgets.dart';
 
-/// Full-screen barcode scanner. Pops with the scanned value.
+/// Luxury Showroom Barcode / QR Tag Scanner with torch, camera toggle, and manual tag entry fallback.
 class ScannerPage extends StatefulWidget {
-  const ScannerPage({super.key, this.title = 'Scan barcode'});
+  const ScannerPage({super.key, this.title = 'Scan Jewellery Tag'});
   final String title;
   @override
   State<ScannerPage> createState() => _ScannerPageState();
 }
 
 class _ScannerPageState extends State<ScannerPage> {
-  final _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
-    formats: const [BarcodeFormat.code128, BarcodeFormat.code39, BarcodeFormat.ean13, BarcodeFormat.ean8, BarcodeFormat.qrCode],
-  );
+  final _ctrl = MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
   bool _done = false;
   bool _torch = false;
 
   @override
   void dispose() {
-    _controller.dispose();
+    _ctrl.dispose();
     super.dispose();
   }
 
-  void _onDetect(BarcodeCapture cap) {
-    if (_done) return;
-    for (final b in cap.barcodes) {
-      final v = b.rawValue;
-      if (v != null && v.trim().isNotEmpty) {
-        _done = true;
-        Navigator.of(context).pop(v.trim());
-        return;
-      }
-    }
+  void _emit(String raw) {
+    if (_done || raw.trim().isEmpty) return;
+    _done = true;
+    Navigator.pop(context, raw.trim().toUpperCase());
   }
 
   Future<void> _manual() async {
-    final c = TextEditingController();
-    final v = await showDialog<String>(
+    final tc = TextEditingController();
+    final v = await showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Pal.pearl,
-        title: Text('Type the barcode', style: T.display(20)),
-        content: TextField(controller: c, autofocus: true, textCapitalization: TextCapitalization.characters),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Use this')),
-        ],
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.of(ctx).viewInsets.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Enter Article Tag Manually', style: T.display(22)),
+          const SizedBox(height: 6),
+          Text('Type the printed jewellery tag or barcode code exactly as shown on the tray.', style: T.body(12.5, color: Pal.muted)),
+          const SizedBox(height: 14),
+          TextField(
+            controller: tc,
+            autofocus: true,
+            textCapitalization: TextCapitalization.characters,
+            style: T.mono(16, w: FontWeight.w700),
+            decoration: const InputDecoration(
+              hintText: 'JWL-2026-B001',
+              prefixIcon: Icon(Icons.sell_outlined),
+            ),
+            onSubmitted: (s) => Navigator.pop(ctx, s),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Pal.teal),
+            onPressed: () => Navigator.pop(ctx, tc.text),
+            child: const Text('Lookup Tag'),
+          ),
+        ]),
       ),
     );
-    if (v != null && v.isNotEmpty && mounted) {
-      _done = true;
-      Navigator.of(context).pop(v);
-    }
+    if (v != null && v.trim().isNotEmpty) _emit(v);
   }
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final box = size.width * 0.74;
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Pal.obsidian,
+      appBar: AppBar(
+        backgroundColor: Pal.obsidian,
+        foregroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(widget.title, style: T.display(18.5, color: Colors.white)),
+        actions: [
+          IconButton(
+            tooltip: 'Toggle Torch',
+            icon: Icon(_torch ? Icons.flash_on_rounded : Icons.flash_off_rounded, color: _torch ? Pal.goldSoft : Colors.white),
+            onPressed: () async {
+              await _ctrl.toggleTorch();
+              setState(() => _torch = !_torch);
+            },
+          ),
+          IconButton(
+            tooltip: 'Switch Camera',
+            icon: const Icon(Icons.cameraswitch_outlined, color: Colors.white),
+            onPressed: _ctrl.switchCamera,
+          ),
+          TextButton(
+            onPressed: _manual,
+            child: Text('Manual', style: T.body(13.5, color: Pal.goldSoft, w: FontWeight.w700)),
+          ),
+        ],
+      ),
       body: Stack(fit: StackFit.expand, children: [
         MobileScanner(
-          controller: _controller,
-          onDetect: _onDetect,
-          errorBuilder: (ctx, err, child) => Center(
+          controller: _ctrl,
+          onDetect: (cap) {
+            for (final b in cap.barcodes) {
+              final v = b.rawValue;
+              if (v != null && v.isNotEmpty) {
+                _emit(v);
+                break;
+              }
+            }
+          },
+          errorBuilder: (_, err, __) => Center(
             child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Text(
-                'Camera access is needed to scan. Allow it in your phone settings, or type the barcode instead.',
-                textAlign: TextAlign.center,
-                style: T.body(15, color: Colors.white70),
-              ),
-            ),
-          ),
-        ),
-        // Dimmed surround with a clear scan window.
-        CustomPaint(painter: _Mask(box: box)),
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(children: [
-              IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded, color: Colors.white),
-              ),
-              const Spacer(),
-              IconButton(
-                onPressed: () {
-                  _controller.toggleTorch();
-                  setState(() => _torch = !_torch);
-                },
-                icon: Icon(_torch ? Icons.flash_on_rounded : Icons.flash_off_rounded, color: Colors.white),
-              ),
-            ]),
-          ),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              padding: const EdgeInsets.all(28),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Text(widget.title, style: T.display(22, color: Colors.white)),
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.videocam_off_outlined, color: Pal.goldSoft, size: 28),
+                ),
+                const SizedBox(height: 14),
+                Text('Camera Feed Unavailable', style: T.display(20, color: Colors.white)),
                 const SizedBox(height: 6),
-                Text('Hold the tag steady inside the frame', style: T.body(14, color: Colors.white70)),
-                const SizedBox(height: 16),
-                TextButton(
+                Text(
+                  err.errorDetails?.message ?? 'Camera permission is disabled or unsupported in this browser.',
+                  textAlign: TextAlign.center,
+                  style: T.body(13, color: Colors.white70),
+                ),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: Pal.goldBright, foregroundColor: Pal.obsidian),
                   onPressed: _manual,
-                  child: Text('Type barcode instead', style: T.body(14.5, color: Pal.goldSoft, w: FontWeight.w800)),
+                  icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
+                  label: const Text('Enter Tag Code Manually'),
                 ),
               ]),
             ),
           ),
         ),
+        IgnorePointer(
+          child: Center(
+            child: Container(
+              width: 268,
+              height: 176,
+              decoration: BoxDecoration(
+                border: Border.all(color: Pal.goldBright, width: 2),
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(color: Pal.goldBright.withValues(alpha: 0.25), blurRadius: 24),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 24,
+          right: 24,
+          bottom: 42,
+          child: Column(children: [
+            const EnterpriseBadge('HUID / QR / Code-128 Ready', icon: Icons.qr_code_scanner_rounded),
+            const SizedBox(height: 10),
+            Text(
+              'Align the ornament string tag inside the gold frame',
+              textAlign: TextAlign.center,
+              style: T.body(13, color: Colors.white70),
+            ),
+          ]),
+        ),
       ]),
     );
   }
-}
-
-class _Mask extends CustomPainter {
-  _Mask({required this.box});
-  final double box;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromCenter(center: Offset(size.width / 2, size.height * 0.42), width: box, height: box * 0.62);
-    final rr = RRect.fromRectAndRadius(rect, const Radius.circular(22));
-    final dim = Path()
-      ..addRect(Offset.zero & size)
-      ..addRRect(rr)
-      ..fillType = PathFillType.evenOdd;
-    canvas.drawPath(dim, Paint()..color = Colors.black.withValues(alpha: 0.58));
-    final corner = Paint()
-      ..color = Pal.goldSoft
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
-    const l = 26.0;
-    void c(Offset o, double dx, double dy) {
-      canvas.drawLine(o, o + Offset(dx * l, 0), corner);
-      canvas.drawLine(o, o + Offset(0, dy * l), corner);
-    }
-
-    c(rect.topLeft, 1, 1);
-    c(rect.topRight, -1, 1);
-    c(rect.bottomLeft, 1, -1);
-    c(rect.bottomRight, -1, -1);
-  }
-
-  @override
-  bool shouldRepaint(covariant _Mask old) => old.box != box;
 }

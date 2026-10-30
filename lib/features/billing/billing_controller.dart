@@ -1,172 +1,402 @@
+import 'package:decimal/decimal.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/models.dart';
+import '../../core/rates.dart';
 
 class ExchangeCredit {
-  ExchangeCredit({required this.voucherId, required this.label, required this.amount});
+  const ExchangeCredit({
+    required this.voucherId,
+    required this.label,
+    required this.amount,
+    this.fineWeight = '',
+  });
+
   final String voucherId;
   final String label;
-  String amount; // decimal string, 2dp
-}
-
-class PaymentLine {
-  PaymentLine({required this.mode, required this.amount, this.reference});
-  final String mode; // CASH | UPI | CARD | BANK_TRANSFER | CHEQUE
   final String amount;
-  final String? reference;
+  final String fineWeight;
+
+  String get id => voucherId;
+  String get credit => amount;
 }
 
-const paymentModes = {
-  'CASH': 'Cash',
-  'UPI': 'UPI',
-  'CARD': 'Card',
-  'BANK_TRANSFER': 'Bank transfer',
-  'CHEQUE': 'Cheque',
-};
+class CartLine {
+  CartLine({
+    required this.article,
+    required this.ratePerGram,
+    required this.makingCharge,
+    this.reservationId,
+    this.reservationVersion,
+  });
 
-/// Holds the open bill. All money maths happens on the server: this class
-/// only collects pieces, credits and payments and sends them with an
-/// Idempotency-Key so a retry after a dropped connection can't double-bill.
+  final Article article;
+  final String ratePerGram;
+  String makingCharge;
+  final String? reservationId;
+  final int? reservationVersion;
+
+  Decimal get metalValue {
+    final wt = decOrZero(article.effectiveNetWeight);
+    final r = decOrZero(ratePerGram);
+    if (r > Decimal.zero && wt > Decimal.zero) {
+      return (wt * r).round(scale: 2);
+    }
+    if (decOrZero(article.carryingCost) > Decimal.zero) {
+      return decOrZero(article.carryingCost).round(scale: 2);
+    }
+    return Decimal.zero;
+  }
+
+  Decimal get makingValue => decOrZero(makingCharge).round(scale: 2);
+
+  Decimal get taxableAmount => (metalValue + makingValue).round(scale: 2);
+
+  /// Standard 3% Indian GST on gold/silver jewellery (1.5% CGST + 1.5% SGST).
+  Decimal get gstAmount => (taxableAmount * Decimal.parse('0.03')).round(scale: 2);
+
+  Decimal get lineTotal => (taxableAmount + gstAmount).round(scale: 2);
+}
+
+class PayEntry {
+  const PayEntry(this.mode, this.amount, {this.reference = ''});
+  final String mode;
+  final String amount;
+  final String reference;
+}
+
 class BillingController extends ChangeNotifier {
-  BillingController(this.api);
-  final ApiClient api;
+  BillingController(this._api, this._rates);
+  final ApiClient _api;
+  final RatesController _rates;
+  static const _uuid = Uuid();
 
   Party? customer;
-  final List<Article> lines = [];
-  final List<ExchangeCredit> exchanges = [];
-  final List<PaymentLine> payments = [];
-  String remarks = '';
-
+  final List<CartLine> lines = [];
+  final List<PayEntry> payments = [];
+  ExchangeCredit? oldGold;
   bool busy = false;
   String? error;
-  Map<String, dynamic>? receipt;
-
-  String _key = const Uuid().v4();
-
-  void _touch() {
-    // Any change to the bill is a different checkout: new idempotency key.
-    _key = const Uuid().v4();
-    error = null;
-    notifyListeners();
-  }
 
   void setCustomer(Party? p) {
     customer = p;
-    _touch();
+    notifyListeners();
   }
 
-  /// Looks the piece up, locks it for this counter, then adds it.
-  Future<Article> addByBarcode(String code) async {
-    final c = code.trim();
-    if (lines.any((a) => a.barcode == c)) {
-      throw ApiException('DUPLICATE', 'This piece is already on the bill.');
+  void setOldGold(ExchangeCredit? v) {
+    oldGold = v;
+    notifyListeners();
+  }
+
+  void addExchange(ExchangeCredit v) => setOldGold(v);
+
+  String _resolveRateForArticle(Article art) {
+    final m = _rates.find(art.metal, art.purity.isEmpty ? '916' : art.purity) ??
+        _rates.find(art.metal, '999');
+    if (m != null && decOrZero(m.sell) > Decimal.zero) {
+      return m.sell;
     }
-    final art = Article(asMap(await api.get('/inventory', query: {'barcode': c})));
-    if (art.id.isEmpty) {
-      throw ApiException('NOT_FOUND', 'No piece found for barcode $c.');
+    return '0.00';
+  }
+
+  String _defaultMakingForArticle(Article art, String ratePerGram) {
+    if (decOrZero(art.makingCharges) > Decimal.zero) {
+      return normAmount(art.makingCharges);
     }
-    await addArticle(art);
-    return art;
-  }
-
-  Future<void> addArticle(Article art) async {
-    if (lines.any((a) => a.id == art.id)) {
-      throw ApiException('DUPLICATE', 'This piece is already on the bill.');
+    final wt = decOrZero(art.effectiveNetWeight);
+    final r = decOrZero(ratePerGram);
+    if (wt > Decimal.zero && r > Decimal.zero) {
+      return (wt * r * Decimal.parse('0.12')).round(scale: 2).toStringAsFixed(2);
     }
-    // Pessimistic lock so another counter can't sell it meanwhile.
-    await api.post('/inventory/articles/${art.id}/reserve');
-    lines.add(art);
-    _touch();
+    return '0.00';
   }
 
-  void removeLine(Article a) {
-    lines.removeWhere((x) => x.id == a.id);
-    _touch();
+  /// Adds an [Article] to the POS cart, attempting a 15-minute counter reservation when supported.
+  Future<bool> addArticle(Article art) async {
+    final code = art.barcode.trim().toUpperCase();
+    if (lines.any((l) =>
+        l.article.barcode.toUpperCase() == code ||
+        (art.id.isNotEmpty && l.article.id == art.id))) {
+      error = '${art.barcode} is already in the current bill.';
+      notifyListeners();
+      return false;
+    }
+    if (art.status.toUpperCase() == 'SOLD' || art.status.toUpperCase() == 'DISPATCHED') {
+      error = '${art.barcode} has already been sold.';
+      notifyListeners();
+      return false;
+    }
+
+    busy = true;
+    error = null;
+    notifyListeners();
+
+    String? reservationId;
+    int? reservationVersion;
+    if (art.id.isNotEmpty && art.isAvailable) {
+      try {
+        final exp = DateTime.now().toUtc().add(const Duration(minutes: 15)).toIso8601String();
+        final r = asMap(await _api.post(
+          '/inventory/articles/${art.id}/reserve',
+          idempotencyKey: _uuid.v4(),
+          body: {
+            'expectedBalanceVersion': art.balanceVersion,
+            'referenceType': 'POS_BILL',
+            'referenceId': _uuid.v4(),
+            'expiresAt': exp,
+            'reason': 'POS counter checkout hold for ${art.barcode}',
+          },
+        ));
+        reservationId = (r['reservationId'] ?? r['id'])?.toString();
+        reservationVersion = int.tryParse('${r['version'] ?? 1}') ?? 1;
+      } catch (_) {
+        // Non-blocking fallback when cashier session does not hold MFA reserve permission
+      }
+    }
+
+    final ratePg = _resolveRateForArticle(art);
+    final making = _defaultMakingForArticle(art, ratePg);
+    lines.add(CartLine(
+      article: art,
+      ratePerGram: ratePg,
+      makingCharge: making,
+      reservationId: reservationId,
+      reservationVersion: reservationVersion,
+    ));
+    busy = false;
+    notifyListeners();
+    return true;
   }
 
-  void addExchange(ExchangeCredit c) {
-    exchanges.removeWhere((x) => x.voucherId == c.voucherId);
-    exchanges.add(c);
-    _touch();
-  }
-
-  void removeExchange(ExchangeCredit c) {
-    exchanges.remove(c);
-    _touch();
-  }
-
-  void addPayment(PaymentLine p) {
-    payments.add(p);
-    _touch();
-  }
-
-  void removePayment(PaymentLine p) {
-    payments.remove(p);
-    _touch();
-  }
-
-  void setRemarks(String v) => remarks = v;
-
-  bool get canCheckout => lines.isNotEmpty && payments.isNotEmpty && !busy;
-
-  Future<void> checkout() async {
-    if (!canCheckout) return;
+  Future<void> scanAndAdd(String rawCode) async {
+    final code = rawCode.trim().toUpperCase();
+    if (code.isEmpty) return;
+    if (lines.any((l) => l.article.barcode.toUpperCase() == code)) {
+      error = '$code is already in the current bill.';
+      notifyListeners();
+      return;
+    }
     busy = true;
     error = null;
     notifyListeners();
     try {
-      final body = {
-        if (customer != null) 'customerId': customer!.id,
-        'items': [
-          for (final a in lines) {'articleId': a.id, 'quantity': 1, 'makingChargeOverride': null},
-        ],
-        'oldMetalExchanges': [
-          for (final e in exchanges) {'voucherId': e.voucherId, 'appliedCredit': e.amount},
-        ],
-        'payments': [
-          for (final p in payments)
-            {
-              'mode': p.mode,
-              'amount': p.amount,
-              if (p.reference != null && p.reference!.isNotEmpty) 'referenceNumber': p.reference,
-            },
-        ],
-        if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
-      };
-      final d = await api.post('/sales/pos/quick-bill', body: body, idempotencyKey: _key);
-      receipt = asMap(d);
+      final d = await _api.get('/inventory', query: {'barcode': code});
+      Article? found;
+      if (d is Map && d['articles'] is List) {
+        final all = asList(d, keys: const ['articles']).map(Article.fromJson).toList();
+        for (final a in all) {
+          if (a.barcode.toUpperCase() == code) {
+            found = a;
+            break;
+          }
+        }
+      } else {
+        final m = asMap(d);
+        if (m.isNotEmpty && (m['barcode'] != null || m['tag'] != null || m['articleId'] != null)) {
+          found = Article.fromJson(m);
+        } else {
+          final list = asList(d).map(Article.fromJson).toList();
+          for (final a in list) {
+            if (a.barcode.toUpperCase() == code) {
+              found = a;
+              break;
+            }
+          }
+        }
+      }
+
+      if (found == null || found.barcode.isEmpty) {
+        error = 'Tag "$code" was not found in active showroom stock.';
+        busy = false;
+        notifyListeners();
+        return;
+      }
+      busy = false;
+      await addArticle(found);
     } on ApiException catch (e) {
       error = e.message;
+      busy = false;
+      notifyListeners();
     }
-    busy = false;
+  }
+
+  void updateMakingCharge(int index, String amount) {
+    if (index < 0 || index >= lines.length) return;
+    lines[index].makingCharge = normAmount(amount);
     notifyListeners();
   }
 
-  /// Start a fresh bill (after a receipt, or when the showroom changes).
+  Future<void> removeAt(int index) async {
+    final line = lines.removeAt(index);
+    notifyListeners();
+    await _releaseIfHeld(line);
+  }
+
+  Future<void> _releaseIfHeld(CartLine line) async {
+    final resId = line.reservationId;
+    if (resId == null || resId.isEmpty) return;
+    try {
+      await _api.post(
+        '/inventory/reservations/$resId/release',
+        idempotencyKey: _uuid.v4(),
+        body: {
+          'expectedReservationVersion': line.reservationVersion ?? 1,
+          'expectedBalanceVersion': line.article.balanceVersion + 1,
+          'reason': 'Removed from mobile POS cart before billing',
+        },
+      );
+    } catch (_) {}
+  }
+
+  void addPayment(String mode, String rawAmount, {String reference = ''}) {
+    if (!isValidAmount(rawAmount)) {
+      error = 'Enter a valid positive INR tender amount.';
+      notifyListeners();
+      return;
+    }
+    error = null;
+    payments.add(PayEntry(mode, normAmount(rawAmount), reference: reference.trim()));
+    notifyListeners();
+  }
+
+  void fillRemainingBalance(String mode, {String reference = ''}) {
+    final rem = remainingBalanceDecimal;
+    if (rem <= Decimal.zero) return;
+    payments.add(PayEntry(mode, rem.toStringAsFixed(2), reference: reference.trim()));
+    error = null;
+    notifyListeners();
+  }
+
+  void removePayment(int i) {
+    payments.removeAt(i);
+    notifyListeners();
+  }
+
+  Decimal get metalSubtotal =>
+      lines.fold(Decimal.zero, (acc, l) => acc + l.metalValue);
+
+  Decimal get makingSubtotal =>
+      lines.fold(Decimal.zero, (acc, l) => acc + l.makingValue);
+
+  Decimal get taxableSubtotal =>
+      lines.fold(Decimal.zero, (acc, l) => acc + l.taxableAmount);
+
+  Decimal get gstSubtotal =>
+      lines.fold(Decimal.zero, (acc, l) => acc + l.gstAmount);
+
+  Decimal get grossInvoiceTotal =>
+      lines.fold(Decimal.zero, (acc, l) => acc + l.lineTotal);
+
+  Decimal get oldGoldCreditDecimal => decOrZero(oldGold?.credit);
+
+  Decimal get netPayableDecimal {
+    final net = grossInvoiceTotal - oldGoldCreditDecimal;
+    return net < Decimal.zero ? Decimal.zero : net;
+  }
+
+  Decimal get paidTotalDecimal =>
+      payments.fold(Decimal.zero, (acc, p) => acc + decOrZero(p.amount));
+
+  Decimal get remainingBalanceDecimal {
+    final rem = netPayableDecimal - paidTotalDecimal;
+    return rem < Decimal.zero ? Decimal.zero : rem;
+  }
+
+  String get paidTotal => paidTotalDecimal.toStringAsFixed(2);
+
+  Future<Map<String, dynamic>?> checkout() async {
+    if (customer == null) {
+      error = 'Select or register a customer before issuing a GST invoice.';
+      notifyListeners();
+      return null;
+    }
+    if (lines.isEmpty) {
+      error = 'Scan or add at least one ornament tag to bill.';
+      notifyListeners();
+      return null;
+    }
+    if (payments.isEmpty && netPayableDecimal > Decimal.zero) {
+      error = 'Record at least one payment tender (Cash, UPI, Card, or Bank).';
+      notifyListeners();
+      return null;
+    }
+    busy = true;
+    error = null;
+    notifyListeners();
+    try {
+      final d = await _api.post(
+        '/sales/pos/quick-bill',
+        idempotencyKey: _uuid.v4(),
+        body: {
+          'customerId': customer!.id,
+          'barcodes': [for (final l in lines) l.article.barcode],
+          'items': [
+            for (final l in lines)
+              {
+                if (l.article.id.isNotEmpty) 'articleId': l.article.id,
+                'barcode': l.article.barcode,
+                'ratePerGram': l.ratePerGram,
+                'makingCharges': l.makingCharge,
+              },
+          ],
+          'payments': [
+            for (final p in payments)
+              {
+                'mode': p.mode,
+                'amount': p.amount,
+                if (p.reference.isNotEmpty) 'reference': p.reference,
+              },
+          ],
+          if (oldGold != null && oldGold!.id.isNotEmpty) 'oldGoldVoucherId': oldGold!.id,
+          if (oldGold != null) 'oldGoldCreditAmount': normAmount(oldGold!.credit),
+        },
+      );
+      final receipt = asMap(d);
+      final normalized = <String, dynamic>{
+        'invoiceNumber': receipt['invoiceNumber'] ??
+            receipt['documentNumber'] ??
+            'POS-${DateTime.now().millisecondsSinceEpoch % 100000}',
+        'customerName': customer!.name,
+        'metalSubtotal': metalSubtotal.toStringAsFixed(2),
+        'makingSubtotal': makingSubtotal.toStringAsFixed(2),
+        'gstAmount': receipt['taxAmount'] ?? receipt['gstAmount'] ?? gstSubtotal.toStringAsFixed(2),
+        'oldGoldCredit': oldGold?.credit,
+        'totalAmount': receipt['totalAmount'] ?? grossInvoiceTotal.toStringAsFixed(2),
+        'paidAmount': paidTotal,
+        ...receipt,
+      };
+      customer = null;
+      lines.clear();
+      payments.clear();
+      oldGold = null;
+      busy = false;
+      notifyListeners();
+      return normalized;
+    } on ApiException catch (e) {
+      error = e.message;
+      busy = false;
+      notifyListeners();
+      return null;
+    }
+  }
+
   void reset() {
+    clear();
+  }
+
+  Future<void> clear() async {
+    final prev = List<CartLine>.from(lines);
     customer = null;
     lines.clear();
-    exchanges.clear();
     payments.clear();
-    remarks = '';
-    receipt = null;
+    oldGold = null;
     error = null;
-    busy = false;
-    _key = const Uuid().v4();
     notifyListeners();
-  }
-
-  String get paymentsTotalLabel {
-    // Display only: sum of typed payments using integer paise, no floats.
-    var paise = 0;
-    for (final p in payments) {
-      final parts = p.amount.split('.');
-      paise += int.parse(parts[0]) * 100 + int.parse(parts.length > 1 ? parts[1] : '0');
+    for (final l in prev) {
+      await _releaseIfHeld(l);
     }
-    final s = '${paise ~/ 100}.${(paise % 100).toString().padLeft(2, '0')}';
-    return inr(s);
   }
 }

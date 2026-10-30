@@ -9,37 +9,355 @@ void toast(BuildContext context, String message, {bool error = false}) {
   final m = ScaffoldMessenger.of(context);
   m.hideCurrentSnackBar();
   m.showSnackBar(SnackBar(
-    content: Text(message),
+    content: Row(children: [
+      Icon(
+        error ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+        size: 18,
+        color: error ? Colors.white : Pal.goldSoft,
+      ),
+      const SizedBox(width: 10),
+      Expanded(child: Text(message)),
+    ]),
     backgroundColor: error ? Pal.danger : Pal.ink,
   ));
 }
 
-/// Hairline-bordered surface. Flat on purpose: depth is reserved for the rate plate.
+/// Crisp enterprise white card matching the web portal's `rounded-xl border border-slate-200 bg-white shadow-xs`.
 class Panel extends StatelessWidget {
   const Panel({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(18),
+    this.padding = const EdgeInsets.all(16),
     this.onTap,
     this.color,
+    this.borderColor,
+    this.radius = 16,
   });
   final Widget child;
   final EdgeInsets padding;
   final VoidCallback? onTap;
   final Color? color;
+  final Color? borderColor;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: color ?? Pal.card,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
-        side: const BorderSide(color: Pal.line),
+    return Container(
+      decoration: BoxDecoration(
+        color: color ?? Pal.card,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: borderColor ?? Pal.line),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x090F172A),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(radius),
+        clipBehavior: Clip.antiAlias,
+        child: onTap == null
+            ? Padding(padding: padding, child: child)
+            : InkWell(
+                onTap: onTap,
+                child: Padding(padding: padding, child: child),
+              ),
+      ),
+    );
+  }
+}
+
+/// Obsidian-Midnight Haute Joaillerie card with subtle champagne gold glow and hairline border.
+class LuxuryHeroCard extends StatelessWidget {
+  const LuxuryHeroCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(20),
+    this.radius = 22,
+  });
+  final Widget child;
+  final EdgeInsets padding;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF141F36), Pal.ink, Color(0xFF080D1A)],
+        ),
+        border: Border.all(color: Pal.goldBright.withValues(alpha: 0.28), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Pal.ink.withValues(alpha: 0.22),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: Stack(children: [
+          Positioned(
+            right: -40,
+            top: -40,
+            child: IgnorePointer(
+              child: Container(
+                width: 170,
+                height: 170,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      Pal.goldBright.withValues(alpha: 0.16),
+                      Pal.goldBright.withValues(alpha: 0.0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Padding(padding: padding, child: child),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Tracked uppercase micro-badge (`ENTERPRISE`, `FINE 999`, `MFA VERIFIED`).
+class EnterpriseBadge extends StatelessWidget {
+  const EnterpriseBadge(
+    this.text, {
+    super.key,
+    this.icon,
+    this.dark = true,
+  });
+  final String text;
+  final IconData? icon;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = dark ? Pal.goldBright.withValues(alpha: 0.14) : Pal.goldWash;
+    final border = dark ? Pal.goldBright.withValues(alpha: 0.35) : Pal.goldBorder;
+    final fg = dark ? Pal.goldSoft : Pal.goldDeep;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: border),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (icon != null) ...[
+          Icon(icon, size: 12, color: fg),
+          const SizedBox(width: 5),
+        ],
+        Text(text.toUpperCase(), style: T.caps(9.5, color: fg, letterSpacing: 1.1)),
+      ]),
+    );
+  }
+}
+
+/// Compact executive KPI card.
+class MetricTile extends StatelessWidget {
+  const MetricTile({
+    super.key,
+    required this.label,
+    required this.value,
+    this.subtitle,
+    this.icon,
+    this.accent = Pal.teal,
+    this.accentWash = Pal.tealWash,
+    this.onTap,
+  });
+  final String label;
+  final String value;
+  final String? subtitle;
+  final IconData? icon;
+  final Color accent;
+  final Color accentWash;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      onTap: onTap,
+      padding: const EdgeInsets.all(14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          if (icon != null) ...[
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: accentWash,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 15, color: accent),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text(
+              label.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: T.caps(10, color: Pal.muted, letterSpacing: 0.8),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 10),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: T.display(20, w: FontWeight.w600),
+        ),
+        if (subtitle != null && subtitle!.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(
+            subtitle!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: T.body(11.5, color: Pal.muted, w: FontWeight.w600),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+/// Structured 3-column jewellery weight breakdown (Gross / Stone / Net Metal + Fine 999).
+class WeightBreakdownBar extends StatelessWidget {
+  const WeightBreakdownBar({
+    super.key,
+    required this.grossGrams,
+    required this.stoneGrams,
+    required this.netGrams,
+    this.fineGramsValue,
+  });
+  final String grossGrams;
+  final String stoneGrams;
+  final String netGrams;
+  final String? fineGramsValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Pal.surfaceAlt,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Pal.line),
+      ),
+      child: Column(children: [
+        Row(children: [
+          _col('GROSS WT', grams(grossGrams)),
+          Container(width: 1, height: 28, color: Pal.line),
+          _col('LESS / STONE', grams(stoneGrams)),
+          Container(width: 1, height: 28, color: Pal.line),
+          _col('NET METAL', grams(netGrams), highlight: true),
+        ]),
+        if (fineGramsValue != null &&
+            fineGramsValue!.isNotEmpty &&
+            fineGramsValue != '0' &&
+            fineGramsValue != '0.000000') ...[
+          const SizedBox(height: 8),
+          const Divider(),
+          const SizedBox(height: 8),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Row(children: [
+              const Icon(Icons.verified_rounded, size: 14, color: Pal.gold),
+              const SizedBox(width: 6),
+              Text('Fine 999 Pure Equivalent', style: T.body(12, color: Pal.textSoft, w: FontWeight.w700)),
+            ]),
+            Text(fineGrams(fineGramsValue), style: T.mono(12.5, color: Pal.goldDeep, w: FontWeight.w700)),
+          ]),
+        ],
+      ]),
+    );
+  }
+
+  Widget _col(String title, String val, {bool highlight = false}) => Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: T.caps(9.5, color: Pal.muted, letterSpacing: 0.6)),
+            const SizedBox(height: 3),
+            Text(
+              val,
+              style: T.mono(
+                13,
+                w: highlight ? FontWeight.w700 : FontWeight.w600,
+                color: highlight ? Pal.ink : Pal.textSoft,
+              ),
+            ),
+          ]),
+        ),
+      );
+}
+
+/// Horizontal scrollable pill tabs matching the web portal's module navigation bar.
+class PillTabs<TValue> extends StatelessWidget {
+  const PillTabs({
+    super.key,
+    required this.items,
+    required this.selected,
+    required this.onChanged,
+  });
+  final List<(TValue, String, IconData?)> items;
+  final TValue selected;
+  final ValueChanged<TValue> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
+          _tab(items[i].$1, items[i].$2, items[i].$3),
+        ],
+      ]),
+    );
+  }
+
+  Widget _tab(TValue value, String label, IconData? icon) {
+    final active = value == selected;
+    return Material(
+      color: active ? Pal.ink : Colors.white,
+      borderRadius: BorderRadius.circular(10),
       child: InkWell(
-        onTap: onTap,
-        child: Padding(padding: padding, child: child),
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => onChanged(value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: active ? Pal.ink : Pal.line),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (icon != null) ...[
+              Icon(icon, size: 15, color: active ? Pal.goldSoft : Pal.muted),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: T.body(
+                12.5,
+                w: FontWeight.w700,
+                color: active ? Colors.white : Pal.textSoft,
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }
@@ -51,28 +369,74 @@ class SectionLabel extends StatelessWidget {
   final Widget? trailing;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
+        padding: const EdgeInsets.fromLTRB(2, 20, 2, 10),
         child: Row(children: [
-          Expanded(child: Text(text, style: T.body(14, w: FontWeight.w800, color: Pal.muted))),
+          Expanded(
+            child: Text(
+              text.toUpperCase(),
+              style: T.caps(11, color: Pal.muted, letterSpacing: 0.9),
+            ),
+          ),
           if (trailing != null) trailing!,
         ]),
       );
 }
 
-enum Tone { ok, warn, bad, neutral, gold }
+enum Tone { ok, warn, bad, danger, neutral, gold, violet }
 
 Tone toneFor(String status) {
   final s = status.toUpperCase();
-  if (['CONFIRMED', 'IN_VAULT', 'IN_STOCK', 'AVAILABLE', 'OPEN', 'ACTIVE', 'PAID', 'COMPLETED', 'RETURNED', 'POSTED', 'PUBLISHED', 'CONSUMED']
-      .contains(s)) {
+  if ([
+    'CONFIRMED',
+    'IN_VAULT',
+    'IN_STOCK',
+    'AVAILABLE',
+    'OPEN',
+    'ACTIVE',
+    'PAID',
+    'COMPLETED',
+    'RETURNED',
+    'POSTED',
+    'PUBLISHED',
+    'APPROVED',
+    'VERIFIED',
+    'GRANTED',
+    'PASSED',
+    'BALANCED',
+  ].contains(s)) {
     return Tone.ok;
   }
-  if (['RESERVED', 'PENDING', 'DRAFT', 'PARTIAL', 'ISSUED', 'ON_APPROVAL', 'READY_TO_POST', 'SUBMITTED', 'EXPIRED'].contains(s)) {
+  if ([
+    'RESERVED',
+    'PENDING',
+    'DRAFT',
+    'PARTIAL',
+    'ISSUED',
+    'ON_APPROVAL',
+    'READY_TO_POST',
+    'SUBMITTED',
+    'REQUESTED',
+    'CLOSING',
+    'VALID',
+  ].contains(s)) {
     return Tone.warn;
   }
-  if (['SOLD', 'CANCELLED', 'VOID', 'VOIDED', 'FAILED', 'REJECTED', 'BLOCKED', 'REVOKED', 'SUSPENDED', 'CLOSED', 'RELEASED'].contains(s)) {
-    return (s == 'CLOSED' || s == 'RELEASED') ? Tone.neutral : Tone.bad;
+  if ([
+    'SOLD',
+    'CANCELLED',
+    'VOID',
+    'VOIDED',
+    'FAILED',
+    'REJECTED',
+    'BLOCKED',
+    'REVOKED',
+    'SUSPENDED',
+    'EXPIRED',
+    'FAILED_QUARANTINE',
+  ].contains(s)) {
+    return Tone.bad;
   }
+  if (['PLATFORM_SUPPORT'].contains(s)) return Tone.violet;
   return Tone.neutral;
 }
 
@@ -86,56 +450,129 @@ class StatusPill extends StatelessWidget {
     final (bg, fg) = switch (t) {
       Tone.ok => (Pal.okWash, Pal.ok),
       Tone.warn => (Pal.warnWash, Pal.warn),
-      Tone.bad => (Pal.dangerWash, Pal.danger),
-      Tone.gold => (Pal.goldWash, Pal.gold),
-      Tone.neutral => (const Color(0xFFEDEBE5), Pal.muted),
+      Tone.bad || Tone.danger => (Pal.dangerWash, Pal.danger),
+      Tone.gold => (Pal.goldWash, Pal.goldDeep),
+      Tone.violet => (Pal.violetWash, Pal.violet),
+      Tone.neutral => (Pal.surfaceAlt, Pal.muted),
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(99)),
-      child: Text(statusLabel(text), style: T.body(12, w: FontWeight.w800, color: fg)),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: fg.withValues(alpha: 0.22)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 5.5, height: 5.5, decoration: BoxDecoration(color: fg, shape: BoxShape.circle)),
+        const SizedBox(width: 5),
+        Text(statusLabel(text), style: T.body(11.5, w: FontWeight.w700, color: fg)),
+      ]),
     );
   }
 }
 
 class Chip2 extends StatelessWidget {
-  const Chip2(this.text, {super.key, this.icon});
+  const Chip2(
+    this.text, {
+    super.key,
+    this.icon,
+    this.mono = false,
+    this.gold = true,
+  });
+  final String text;
+  final IconData? icon;
+  final bool mono;
+  final bool gold;
+  @override
+  Widget build(BuildContext context) {
+    final bg = gold ? Pal.goldWash : Pal.surfaceAlt;
+    final border = gold ? Pal.goldBorder : Pal.line;
+    final fg = gold ? Pal.goldDeep : Pal.textSoft;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (icon != null) ...[
+          Icon(icon, size: 13, color: fg),
+          const SizedBox(width: 5),
+        ],
+        Text(
+          text,
+          style: mono
+              ? T.mono(11.5, w: FontWeight.w700, color: fg)
+              : T.body(11.5, w: FontWeight.w700, color: fg),
+        ),
+      ]),
+    );
+  }
+}
+
+class MonoTag extends StatelessWidget {
+  const MonoTag(this.text, {super.key, this.icon});
   final String text;
   final IconData? icon;
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: Pal.goldWash,
-          borderRadius: BorderRadius.circular(99),
+          color: Pal.surfaceAlt,
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: Pal.line),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (icon != null) ...[Icon(icon, size: 13, color: Pal.gold), const SizedBox(width: 4)],
-          Text(text, style: T.body(12, w: FontWeight.w800, color: const Color(0xFF7A5A1E))),
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: Pal.muted),
+            const SizedBox(width: 4),
+          ],
+          Text(text, style: T.mono(11.5, color: Pal.textSoft, w: FontWeight.w600)),
         ]),
       );
 }
 
 class KeyValue extends StatelessWidget {
-  const KeyValue(this.k, this.v, {super.key, this.strong = false, this.valueColor});
+  const KeyValue(
+    this.k,
+    this.v, {
+    super.key,
+    this.strong = false,
+    this.mono = false,
+    this.valueColor,
+  });
   final String k;
   final String v;
   final bool strong;
+  final bool mono;
   final Color? valueColor;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 7),
+        padding: const EdgeInsets.symmetric(vertical: 6.5),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(
-            child: Text(k, style: T.body(14, color: Pal.muted, w: strong ? FontWeight.w700 : FontWeight.w500)),
+            child: Text(
+              k,
+              style: T.body(
+                13.5,
+                color: strong ? Pal.text : Pal.muted,
+                w: strong ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Flexible(
             child: Text(
               v,
               textAlign: TextAlign.right,
-              style: T.body(strong ? 16 : 14.5,
-                  w: strong ? FontWeight.w800 : FontWeight.w700, color: valueColor ?? Pal.text),
+              style: mono
+                  ? T.mono(strong ? 14 : 13, w: FontWeight.w700, color: valueColor ?? Pal.text)
+                  : T.body(
+                      strong ? 15 : 13.8,
+                      w: strong ? FontWeight.w800 : FontWeight.w700,
+                      color: valueColor ?? Pal.text,
+                    ),
             ),
           ),
         ]),
@@ -167,7 +604,7 @@ class _SkeletonState extends State<Skeleton> with SingleTickerProviderStateMixin
           height: widget.height,
           width: widget.width,
           decoration: BoxDecoration(
-            color: Color.lerp(const Color(0xFFE9E7E0), const Color(0xFFF1F0EB), _c.value),
+            color: Color.lerp(Pal.line, Pal.surfaceAlt, _c.value),
             borderRadius: BorderRadius.circular(widget.radius),
           ),
         ),
@@ -179,53 +616,115 @@ class ErrorBlock extends StatelessWidget {
   final String message;
   final VoidCallback? onRetry;
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.all(28),
+  Widget build(BuildContext context) => Panel(
+        color: Pal.dangerWash,
+        borderColor: Pal.danger.withValues(alpha: 0.22),
+        padding: const EdgeInsets.all(22),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(
-            width: 52,
-            height: 52,
-            decoration: const BoxDecoration(color: Pal.dangerWash, shape: BoxShape.circle),
-            child: const Icon(Icons.cloud_off_rounded, color: Pal.danger),
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: Pal.danger.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.cloud_off_rounded, color: Pal.danger, size: 22),
           ),
-          const SizedBox(height: 14),
-          Text(message, textAlign: TextAlign.center, style: T.body(14.5, color: Pal.muted)),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: T.body(13.5, color: Pal.danger, w: FontWeight.w600),
+          ),
           if (onRetry != null) ...[
-            const SizedBox(height: 14),
-            TextButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh_rounded), label: const Text('Try again')),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              style: OutlinedButton.styleFrom(minimumSize: const Size(140, 40)),
+              icon: const Icon(Icons.refresh_rounded, size: 17),
+              label: const Text('Retry'),
+            ),
           ],
         ]),
       );
 }
 
 class EmptyBlock extends StatelessWidget {
-  const EmptyBlock({super.key, required this.icon, required this.title, required this.body, this.action});
+  const EmptyBlock({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.body,
+    this.action,
+    this.actionLabel,
+    this.onAction,
+  });
   final IconData icon;
   final String title;
   final String body;
   final Widget? action;
+  final String? actionLabel;
+  final VoidCallback? onAction;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 36),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 34, color: Pal.gold),
-          const SizedBox(height: 12),
-          Text(title, style: T.display(20), textAlign: TextAlign.center),
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: Pal.goldWash,
+              shape: BoxShape.circle,
+              border: Border.all(color: Pal.goldBorder),
+            ),
+            child: Icon(icon, size: 26, color: Pal.goldDeep),
+          ),
+          const SizedBox(height: 14),
+          Text(title, style: T.display(19), textAlign: TextAlign.center),
           const SizedBox(height: 6),
-          Text(body, style: T.body(14, color: Pal.muted), textAlign: TextAlign.center),
-          if (action != null) ...[const SizedBox(height: 16), action!],
+          Text(body, style: T.body(13.5, color: Pal.muted), textAlign: TextAlign.center),
+          if (action != null) ...[
+            const SizedBox(height: 16),
+            action!,
+          ] else if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: onAction,
+              style: FilledButton.styleFrom(minimumSize: const Size(160, 44)),
+              child: Text(actionLabel!),
+            ),
+          ],
         ]),
       );
 }
 
-/// Brilliant-cut mark, drawn in code so the app ships with no image assets.
+/// Brilliant-cut Haute Joaillerie emblem drawn in vector code.
 class GemMark extends StatelessWidget {
-  const GemMark({super.key});
+  const GemMark({
+    super.key,
+    this.color,
+    this.size,
+    this.darkSurface = false,
+  });
+  final Color? color;
+  final double? size;
+  final bool darkSurface;
   @override
-  Widget build(BuildContext context) => CustomPaint(painter: _GemPainter());
+  Widget build(BuildContext context) {
+    final paint = CustomPaint(
+      painter: _GemPainter(color ?? (darkSurface ? Pal.goldSoft : Pal.goldSoft)),
+    );
+    if (size != null) {
+      return SizedBox(width: size, height: size, child: paint);
+    }
+    return paint;
+  }
 }
 
 class _GemPainter extends CustomPainter {
+  const _GemPainter(this.color);
+  final Color color;
+
   @override
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
@@ -239,10 +738,16 @@ class _GemPainter extends CustomPainter {
     final inner = List.generate(8, (i) => pt(r * 0.52, i, 0));
     final stroke = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4
+      ..strokeWidth = 1.5
       ..strokeJoin = StrokeJoin.round
-      ..color = Pal.goldSoft;
-    final fill = Paint()..color = Pal.goldSoft.withValues(alpha: 0.14);
+      ..color = color;
+    final fill = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: 0.28),
+          color.withValues(alpha: 0.06),
+        ],
+      ).createShader(Rect.fromCircle(center: c, radius: r));
 
     final op = Path()..addPolygon(outer, true);
     final ip = Path()..addPolygon(inner, true);
@@ -256,16 +761,19 @@ class _GemPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
+  bool shouldRepaint(covariant _GemPainter old) => old.color != color;
 }
 
-/// Label above an input, sentence case.
 class FieldLabel extends StatelessWidget {
-  const FieldLabel(this.text, {super.key});
+  const FieldLabel(this.text, {super.key, this.trailing});
   final String text;
+  final Widget? trailing;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(left: 2, bottom: 7),
-        child: Text(text, style: T.body(13, w: FontWeight.w700, color: Pal.muted)),
+        padding: const EdgeInsets.only(left: 2, bottom: 6),
+        child: Row(children: [
+          Expanded(child: Text(text, style: T.body(13, w: FontWeight.w700, color: Pal.textSoft))),
+          if (trailing != null) trailing!,
+        ]),
       );
 }

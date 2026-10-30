@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 
-/// Counter cash-drawer shift: open at start of day, close with counted cash.
+/// POS Counter Cash Drawer Shift Management.
+/// Queries `/pos-shifts` (live endpoint on pos.hrpocket.in) with fallback to `/pos-shifts/current`.
 class ShiftScreen extends StatefulWidget {
   const ShiftScreen({super.key});
   @override
@@ -14,11 +16,13 @@ class ShiftScreen extends StatefulWidget {
 }
 
 class _ShiftScreenState extends State<ShiftScreen> {
-  Map<String, dynamic>? _shift;
+  Map<String, dynamic>? _activeShift;
+  List<Map<String, dynamic>> _history = [];
   bool _loading = true;
   bool _busy = false;
   String? _error;
   final _cash = TextEditingController();
+  final _notes = TextEditingController();
 
   @override
   void initState() {
@@ -29,15 +33,11 @@ class _ShiftScreenState extends State<ShiftScreen> {
   @override
   void dispose() {
     _cash.dispose();
+    _notes.dispose();
     super.dispose();
   }
 
-  bool get _isOpen {
-    final s = _shift;
-    if (s == null || s.isEmpty) return false;
-    final st = '${s['status'] ?? 'OPEN'}'.toUpperCase();
-    return st == 'OPEN';
-  }
+  bool get _isOpen => _activeShift != null && _activeShift!.isNotEmpty;
 
   Future<void> _load() async {
     setState(() {
@@ -45,12 +45,25 @@ class _ShiftScreenState extends State<ShiftScreen> {
       _error = null;
     });
     try {
-      final d = await context.read<ApiClient>().get('/pos-shifts/current');
-      if (mounted) setState(() => _shift = d == null ? null : asMap(d));
+      dynamic d;
+      try {
+        d = await context.read<ApiClient>().get('/pos-shifts');
+      } on ApiException catch (e) {
+        if (e.status == 404 || e.code == 'HTTP_ERROR') {
+          d = await context.read<ApiClient>().get('/pos-shifts/current');
+        } else {
+          rethrow;
+        }
+      }
+      _parseShiftResponse(d);
     } on ApiException catch (e) {
-      // A 404 here simply means no shift is open.
-      if (e.status == 404) {
-        if (mounted) setState(() => _shift = null);
+      if (e.status == 404 || e.code == 'HTTP_ERROR') {
+        if (mounted) {
+          setState(() {
+            _activeShift = null;
+            _history = [];
+          });
+        }
       } else if (mounted) {
         setState(() => _error = e.message);
       }
@@ -58,86 +71,240 @@ class _ShiftScreenState extends State<ShiftScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  void _parseShiftResponse(dynamic d) {
+    Map<String, dynamic>? current;
+    var list = <Map<String, dynamic>>[];
+
+    if (d is Map) {
+      if (d['current'] is Map) {
+        current = Map<String, dynamic>.from(d['current'] as Map);
+      } else if (d['currentShift'] is Map) {
+        current = Map<String, dynamic>.from(d['currentShift'] as Map);
+      } else if (d['activeShift'] is Map) {
+        current = Map<String, dynamic>.from(d['activeShift'] as Map);
+      }
+      if (d['shifts'] is List || d['items'] is List || d['history'] is List) {
+        list = asList(d, keys: const ['shifts', 'items', 'history']);
+      } else if (current == null && (d['id'] != null || d['status'] != null || d['openingCash'] != null)) {
+        final single = Map<String, dynamic>.from(d);
+        list = [single];
+      }
+    } else if (d is List) {
+      list = asList(d);
+    }
+
+    if (current == null) {
+      for (final s in list) {
+        final st = '${s['status'] ?? s['state'] ?? ''}'.toUpperCase();
+        if (st == 'OPEN' || st == 'ACTIVE') {
+          current = s;
+          break;
+        }
+      }
+    } else {
+      final st = '${current['status'] ?? current['state'] ?? 'OPEN'}'.toUpperCase();
+      if (st != 'OPEN' && st != 'ACTIVE') current = null;
+    }
+
+    if (mounted) {
+      setState(() {
+        _activeShift = current;
+        _history = list;
+      });
+    }
+  }
+
   Future<void> _act(bool open) async {
     if (!isValidAmount(_cash.text)) {
-      setState(() => _error = 'Enter the cash in the drawer, in rupees.');
+      setState(() => _error = 'Enter a valid cash amount in INR (up to 2 decimal places).');
       return;
     }
+    FocusScope.of(context).unfocus();
     setState(() {
       _busy = true;
       _error = null;
     });
+    final amount = normAmount(_cash.text);
+    final key = const Uuid().v4();
     try {
       await context.read<ApiClient>().post(
             open ? '/pos-shifts/open' : '/pos-shifts/close',
-            body: {open ? 'openingCash' : 'closingCash': normAmount(_cash.text)},
+            idempotencyKey: key,
+            body: {
+              open ? 'openingCash' : 'closingCash': amount,
+              if (_activeShift?['id'] != null && !open) 'shiftId': _activeShift!['id'],
+              if (_notes.text.trim().isNotEmpty) 'remarks': _notes.text.trim(),
+            },
           );
       _cash.clear();
+      _notes.clear();
       await _load();
-      if (mounted) toast(context, open ? 'Shift opened.' : 'Shift closed.');
+      if (mounted) {
+        toast(context, open ? 'Counter shift opened.' : 'Counter shift reconciled & closed.');
+      }
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     }
     if (mounted) setState(() => _busy = false);
   }
 
+  String _pick(Map<String, dynamic> m, List<String> keys, [String fallback = '']) {
+    for (final k in keys) {
+      final v = m[k];
+      if (v != null && '$v'.isNotEmpty) return '$v';
+    }
+    return fallback;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Counter shift')),
-      body: ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 32), children: [
-        if (_loading)
-          const Panel(child: Skeleton(height: 70))
-        else ...[
-          Panel(
-            child: Row(children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(color: _isOpen ? Pal.okWash : const Color(0xFFEDEBE5), shape: BoxShape.circle),
-                child: Icon(_isOpen ? Icons.lock_open_rounded : Icons.lock_outline_rounded, color: _isOpen ? Pal.ok : Pal.muted),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
+      appBar: AppBar(
+        title: const Text('POS Counter Shifts'),
+        actions: [
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
+        ],
+      ),
+      body: RefreshIndicator(
+        color: Pal.teal,
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 32),
+          children: [
+            if (_loading) ...[
+              const Panel(child: Skeleton(height: 110)),
+              const SizedBox(height: 12),
+              const Panel(child: Skeleton(height: 90)),
+            ] else ...[
+              LuxuryHeroCard(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(_isOpen ? 'Shift is open' : 'No shift open', style: T.display(21)),
-                  Text(_isOpen ? 'Billing is active on this counter.' : 'Open a shift before the first sale.', style: T.body(13.5, color: Pal.muted)),
+                  Row(children: [
+                    EnterpriseBadge(
+                      _isOpen ? 'Drawer Active' : 'Drawer Closed',
+                      icon: _isOpen ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
+                    ),
+                    const Spacer(),
+                    StatusPill(_isOpen ? 'OPEN' : 'CLOSED'),
+                  ]),
+                  const SizedBox(height: 14),
+                  Text(
+                    _isOpen ? 'Counter Shift is Open' : 'No Active Counter Shift',
+                    style: T.display(23, color: Colors.white),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _isOpen
+                        ? 'Cash receipts and POS quick-bills are being recorded in the active drawer.'
+                        : 'Open a shift with your counted opening float before taking counter cash payments.',
+                    style: T.body(12.8, color: Colors.white.withValues(alpha: 0.74)),
+                  ),
+                  if (_isOpen && _activeShift != null) ...[
+                    const SizedBox(height: 14),
+                    Divider(color: Colors.white.withValues(alpha: 0.14)),
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('OPENING FLOAT', style: T.caps(9.5, color: Colors.white60)),
+                          const SizedBox(height: 3),
+                          Text(
+                            inr(_pick(_activeShift!, ['openingCash', 'openingBalance', 'floatAmount'], '0.00')),
+                            style: T.display(20, color: Pal.goldSoft),
+                          ),
+                        ]),
+                      ),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                          Text('OPENED AT', style: T.caps(9.5, color: Colors.white60)),
+                          const SizedBox(height: 3),
+                          Text(
+                            formatDateTime(_pick(_activeShift!, ['openedAt', 'createdAt', 'startTime'])),
+                            style: T.body(12, color: Colors.white, w: FontWeight.w600),
+                          ),
+                        ]),
+                      ),
+                    ]),
+                  ],
                 ]),
               ),
-            ]),
-          ),
-          if (_isOpen && _shift != null) ...[
-            const SizedBox(height: 12),
-            Panel(
-              child: Column(children: [
-                for (final e in _shift!.entries.where((e) => e.value is! Map && e.value is! List && e.value != null && !e.key.toLowerCase().endsWith('id')).take(6))
-                  KeyValue(humanize(e.key), _fmt(e.key, e.value)),
-              ]),
-            ),
+              SectionLabel(_isOpen ? 'Reconcile & Close Drawer' : 'Start New Counter Shift'),
+              Panel(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  FieldLabel(_isOpen ? 'Counted Closing Cash (INR)' : 'Opening Cash Float (INR)'),
+                  TextField(
+                    controller: _cash,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: T.display(22),
+                    decoration: InputDecoration(
+                      prefixText: '₹ ',
+                      hintText: '0.00',
+                      helperText: _isOpen
+                          ? 'Count physical notes and coins in the drawer before closing.'
+                          : 'Enter starting petty cash / float placed in the counter drawer.',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const FieldLabel('Reconciliation Notes (Optional)'),
+                  TextField(
+                    controller: _notes,
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. Counter 1 morning handover verified',
+                    ),
+                  ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(_error!, style: T.body(13, color: Pal.danger, w: FontWeight.w700)),
+                    ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: _busy ? null : () => _act(!_isOpen),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _isOpen ? Pal.ink : Pal.teal,
+                    ),
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
+                          )
+                        : Icon(_isOpen ? Icons.lock_outline_rounded : Icons.lock_open_rounded, size: 18),
+                    label: Text(_isOpen ? 'Close & Reconcile Shift' : 'Open Counter Shift'),
+                  ),
+                ]),
+              ),
+              if (_history.isNotEmpty) ...[
+                SectionLabel('Recent Shift Register', trailing: Text('${_history.length} records', style: T.body(12, color: Pal.muted))),
+                for (final s in _history)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Panel(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Row(children: [
+                          Expanded(
+                            child: Text(
+                              _pick(s, ['shiftNumber', 'code', 'counterName'], 'Counter Shift'),
+                              style: T.display(17),
+                            ),
+                          ),
+                          StatusPill(_pick(s, ['status', 'state'], 'CLOSED')),
+                        ]),
+                        const SizedBox(height: 10),
+                        KeyValue('Opening Float', inr(_pick(s, ['openingCash', 'openingBalance'], '0.00')), mono: true),
+                        if (_pick(s, ['closingCash', 'closingBalance']).isNotEmpty)
+                          KeyValue('Closing Cash', inr(_pick(s, ['closingCash', 'closingBalance'])), mono: true),
+                        if (_pick(s, ['openedAt', 'createdAt']).isNotEmpty)
+                          KeyValue('Opened', formatDateTime(_pick(s, ['openedAt', 'createdAt']))),
+                        if (_pick(s, ['closedAt']).isNotEmpty)
+                          KeyValue('Closed', formatDateTime(_pick(s, ['closedAt']))),
+                      ]),
+                    ),
+                  ),
+              ],
+            ],
           ],
-          const SectionLabel('Cash in drawer'),
-          TextField(
-            controller: _cash,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: T.display(24),
-            decoration: InputDecoration(prefixText: '₹ ', hintText: '0.00', helperText: _isOpen ? 'Count the drawer before you close.' : 'Opening float for today.'),
-          ),
-          if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: T.body(13.5, color: Pal.danger, w: FontWeight.w700))),
-          const SizedBox(height: 18),
-          FilledButton(
-            onPressed: _busy ? null : () => _act(!_isOpen),
-            child: _busy ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white)) : Text(_isOpen ? 'Close shift' : 'Open shift'),
-          ),
-        ],
-      ]),
+        ),
+      ),
     );
-  }
-
-  String _fmt(String key, dynamic v) {
-    final k = key.toLowerCase();
-    final s = '$v';
-    if (looksNumeric(s) && (k.contains('cash') || k.contains('amount') || k.contains('total'))) return inr(s);
-    if (RegExp(r'^\d{4}-\d{2}-\d{2}T').hasMatch(s)) return s.substring(0, 16).replaceFirst('T', '  ');
-    return s;
   }
 }
