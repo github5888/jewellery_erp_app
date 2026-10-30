@@ -1941,16 +1941,19 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                             contentPadding: EdgeInsets.zero,
                             dense: true,
                             title: Text('${b['code']} · ${b['name']}', style: T.body(13.5, w: FontWeight.w700)),
-                            trailing: app.session?.selectedContext?.branchId == '${b['id']}'
+                            trailing: app.selectedBranchId == '${b['id']}'
                                 ? const StatusChip('ACTIVE')
                                 : OutlinedButton(
                                     onPressed: () {
-                                      final tId = app.session?.selectedContext?.tenantId ?? '';
+                                      final tId = app.selectedTenantId;
                                       if (tId.isNotEmpty) {
-                                        app.selectContext(
+                                        app.selectContextByIds(
                                           tenantId: tId,
                                           legalEntityId: '${e['id']}',
                                           branchId: '${b['id']}',
+                                          legalEntityName: '${e['legalName'] ?? e['name'] ?? ''}',
+                                          branchDisplayName: '${b['name'] ?? ''}',
+                                          branchDisplayCode: '${b['code'] ?? ''}',
                                         );
                                       }
                                     },

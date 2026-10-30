@@ -1085,18 +1085,24 @@ class GoldButton extends StatelessWidget {
 class SectionCard extends StatelessWidget {
   const SectionCard({
     super.key,
-    required this.title,
+    this.title,
     this.subtitle,
     this.trailing,
     required this.child,
   });
-  final String title;
+  final String? title;
   final String? subtitle;
   final Widget? trailing;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final hasHeader = (title != null && title!.isNotEmpty) ||
+        (subtitle != null && subtitle!.isNotEmpty) ||
+        trailing != null;
+    if (!hasHeader) {
+      return Panel(child: child);
+    }
     return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1107,9 +1113,10 @@ class SectionCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: T.display(17, w: FontWeight.w700)),
+                    if (title != null && title!.isNotEmpty)
+                      Text(title!, style: T.display(17, w: FontWeight.w700)),
                     if (subtitle != null && subtitle!.isNotEmpty) ...[
-                      const SizedBox(height: 2),
+                      if (title != null && title!.isNotEmpty) const SizedBox(height: 2),
                       Text(subtitle!, style: T.body(12, color: Pal.muted)),
                     ],
                   ],

@@ -448,7 +448,7 @@ class WorkspaceLookup {
 }
 
 /// SDK-agnostic, overflow-proof luxury dropdown using `InputDecorator` + `DropdownButton`.
-class GoldDropdown<T> extends StatelessWidget {
+class GoldDropdown<TValue> extends StatelessWidget {
   const GoldDropdown({
     super.key,
     required this.value,
@@ -460,9 +460,9 @@ class GoldDropdown<T> extends StatelessWidget {
     this.isDense = false,
   });
 
-  final T? value;
-  final List<DropdownMenuItem<T>> items;
-  final ValueChanged<T?> onChanged;
+  final TValue? value;
+  final List<DropdownMenuItem<TValue>> items;
+  final ValueChanged<TValue?> onChanged;
   final String? hint;
   final String? hintText;
   final String? labelText;
@@ -478,7 +478,7 @@ class GoldDropdown<T> extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 3),
       ),
       child: DropdownButtonHideUnderline(
-        child: DropdownButton<T>(
+        child: DropdownButton<TValue>(
           value: validValue,
           isExpanded: true,
           isDense: isDense,

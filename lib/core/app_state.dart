@@ -190,6 +190,36 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> selectContextByIds({
+    required String tenantId,
+    required String legalEntityId,
+    required String branchId,
+    String? legalEntityName,
+    String? branchDisplayName,
+    String? branchDisplayCode,
+  }) async {
+    await api.post('/session/context', body: {
+      'tenantId': tenantId,
+      'legalEntityId': legalEntityId,
+      'branchId': branchId,
+    });
+    selectedTenantId = tenantId;
+    selectedEntityId = legalEntityId;
+    selectedBranchId = branchId;
+    if (legalEntityName != null && legalEntityName.isNotEmpty) {
+      entityName = legalEntityName;
+    }
+    if (branchDisplayName != null && branchDisplayName.isNotEmpty) {
+      branchName = branchDisplayName;
+    }
+    if (branchDisplayCode != null && branchDisplayCode.isNotEmpty) {
+      branchCode = branchDisplayCode;
+    }
+    stage = AuthStage.ready;
+    notifyListeners();
+    await refreshSession();
+  }
+
   void switchShowroom() {
     stage = AuthStage.context;
     notifyListeners();

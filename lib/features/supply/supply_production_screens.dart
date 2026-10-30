@@ -617,7 +617,7 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
         api.get('/rates'),
       ]);
       if (!mounted) return;
-      context.read<RatesStore>().refresh(api);
+      context.read<RatesStore>().refresh();
       setState(() {
         _materials = asMap(res[0]);
         _rateBooks = asList(res[1], keys: const ['rateBooks', 'books', 'items']);
