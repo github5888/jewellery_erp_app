@@ -5,6 +5,7 @@ import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/workspace_lookup.dart';
 
 /// Enterprise Financial & Bullion Reports Suite matching `ReportsPanel.tsx` & `PaymentsPanel.tsx` on pos.hrpocket.in:
 /// - Stock Valuation (`GET /reports/stock-valuation`)
@@ -81,29 +82,32 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Reports & Financial Ledgers'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    return LuxuryModuleScaffold(
+      title: 'Reports & Financial Ledgers',
+      icon: Icons.insights_rounded,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        selected: _tab,
+        onChanged: _switchTab,
+        items: const [
+          ('STOCK', 'Vault Valuation', Icons.diamond_outlined),
+          ('MARGIN', 'Sales & Margin', Icons.trending_up_rounded),
+          ('TRIAL', 'Trial Balance', Icons.balance_rounded),
+          ('AGEING', 'AR / AP Ageing', Icons.schedule_rounded),
+          ('PAYMENTS', 'Settlements', Icons.account_balance_wallet_outlined),
+        ],
       ),
       body: RefreshIndicator(
-        color: Pal.teal,
+        color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: [
-            PillTabs<String>(
-              selected: _tab,
-              onChanged: _switchTab,
-              items: const [
-                ('STOCK', 'Vault Valuation', Icons.diamond_outlined),
-                ('MARGIN', 'Sales & Margin', Icons.trending_up_rounded),
-                ('TRIAL', 'Trial Balance', Icons.balance_rounded),
-                ('AGEING', 'AR / AP Ageing', Icons.schedule_rounded),
-                ('PAYMENTS', 'Settlements', Icons.account_balance_wallet_outlined),
-              ],
-            ),
-            const SizedBox(height: 16),
             if (_loading) ...[
               const Panel(child: Skeleton(height: 110)),
               const SizedBox(height: 12),

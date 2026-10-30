@@ -193,24 +193,21 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
         .where((o) => o.id.isNotEmpty)
         .toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Provider Integrations'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: 'Provider Integrations',
+      icon: Icons.cloud_sync_outlined,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.hub_outlined,
-              title: 'Provider Integrations',
-              subtitle:
-                  'Tenant-scoped adapters, secret references, outbound retries, and verified webhooks.',
-            ),
-            const SizedBox(height: 14),
             SaasKpiGrid(
               items: [
                 (label: 'CONNECTIONS', value: '${conns.length}'),
@@ -630,27 +627,22 @@ class _GstRegistrationTransportScreenState
     final profiles = asList(_ws['profiles'] ?? _ws['gstProfiles']);
     final submissions = asList(_ws['submissions'] ?? _ws['gstSubmissions']);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.submissionsFocus ? 'GST E-Invoices & Bills' : 'GST Registration & Transport'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: widget.submissionsFocus ? 'GST E-Invoices & Bills' : 'GST Registration & Transport',
+      icon: Icons.verified_user_outlined,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            SaasModuleHeader(
-              icon: Icons.verified_user_outlined,
-              title: widget.submissionsFocus
-                  ? 'GST E-Invoices & E-Way Bills'
-                  : 'GST Registration & Transport',
-              subtitle:
-                  'Prepare registered-customer invoices, review provider evidence and track registration before posting or dispatch.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
             SaasField(
               label: 'Audit reason (required for commands)',
               controller: _auditReason,
@@ -1007,24 +999,21 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
         .map((p) => LookupOption(id: '${p['id']}', label: 'Rev ${p['revisionNumber'] ?? 1} · ${p['state'] ?? ''}', raw: p))
         .toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('GST Returns & ITC Review'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: 'GST Returns & ITC Review',
+      icon: Icons.description_outlined,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.description_outlined,
-              title: 'GST Returns & ITC Review',
-              subtitle:
-                  'Entity-wide GSTR-1 and GSTR-3B working papers, authorized GSTR-2B imports, and evidence-backed eligibility review.',
-            ),
-            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -1310,25 +1299,22 @@ class _CustomerMessagingScreenState extends State<CustomerMessagingScreen> {
   @override
   Widget build(BuildContext context) {
     final dispatches = asList(_ws['dispatches'] ?? _ws['messages'] ?? _ws['items']);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Customer Messaging'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: 'Customer Messaging',
+      icon: Icons.chat_bubble_outline_rounded,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.chat_bubble_outline_rounded,
-              title: 'Customer Messaging & Notifications',
-              subtitle:
-                  'Consent-verified WhatsApp, SMS, and Email dispatch for invoices, repair ready alerts, and custom order updates.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
             SaasFormCard(
               title: 'Queue transactional notification',
               child: Column(
@@ -1558,29 +1544,27 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Company & Invoice Print'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    return LuxuryModuleScaffold(
+      title: 'Company & Invoice Print',
+      icon: Icons.print_outlined,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      floatingActionButton: GoldAddFab(
+        icon: _showCreate ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New Document Template',
+        onPressed: () => setState(() => _showCreate = !_showCreate),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
           children: [
-            SaasModuleHeader(
-              icon: Icons.print_outlined,
-              title: 'Document Templates and Print Rendering',
-              subtitle:
-                  'Immutable document versioning, legal print snapshots, A4 and Thermal roll print layouts.',
-              trailing: OutlinedButton.icon(
-                onPressed: () => setState(() => _showCreate = !_showCreate),
-                icon: const Icon(Icons.add_rounded, size: 15),
-                label: Text(_showCreate ? 'Close' : 'New template'),
-              ),
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
 
             if (_showCreate) ...[
               const SizedBox(height: 14),
@@ -1854,25 +1838,22 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
         .map((e) => LookupOption(id: '${e['id']}', label: '${e['legalName'] ?? e['name']}', raw: e))
         .toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Showroom Hierarchy'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: 'Showroom Hierarchy',
+      icon: Icons.apartment_rounded,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.apartment_rounded,
-              title: 'Showroom Hierarchy & Legal Entities',
-              subtitle:
-                  'Multi-entity and multi-branch showroom structure with isolated GST, document numbering, and vault custody.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
             SaasFormCard(
               title: 'New legal entity',
               child: Column(
@@ -2063,28 +2044,27 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
     final roles = asList(_access['roles']);
     final memberships = asList(_access['memberships']);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Access Control & Roles'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    return LuxuryModuleScaffold(
+      title: 'Access Control & Roles',
+      icon: Icons.admin_panel_settings_outlined,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      floatingActionButton: GoldAddFab(
+        icon: _showRoleForm ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New Role',
+        onPressed: () => setState(() => _showRoleForm = !_showRoleForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
           children: [
-            SaasModuleHeader(
-              icon: Icons.admin_panel_settings_outlined,
-              title: 'Access and roles',
-              subtitle: 'Tenant-scoped roles, permissions and member assignments.',
-              trailing: OutlinedButton.icon(
-                onPressed: () => setState(() => _showRoleForm = !_showRoleForm),
-                icon: const Icon(Icons.add_rounded, size: 15),
-                label: Text(_showRoleForm ? 'Close' : 'New role'),
-              ),
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
 
             if (_showRoleForm) ...[
               const SizedBox(height: 14),
@@ -2291,25 +2271,22 @@ class _AuditComplianceScreenState extends State<AuditComplianceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Audit & Compliance'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: 'Audit & Compliance',
+      icon: Icons.policy_outlined,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.policy_outlined,
-              title: 'Support Governance & Audit Controls',
-              subtitle:
-                  'Time-boxed support access grants, explicit tenant approval/revocation, and immutable audit reason enforcement.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
             SaasField(
               label: 'Decision reason (minimum 10 characters)',
               controller: _decisionReason,

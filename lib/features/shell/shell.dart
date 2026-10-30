@@ -70,16 +70,17 @@ class _ShellState extends State<Shell> {
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: Pal.line)),
+          color: Pal.ink,
+          border: Border(top: BorderSide(color: Color(0xFF3A2B17), width: 1)),
         ),
         child: NavigationBar(
           selectedIndex: _index,
           onDestinationSelected: (i) => setState(() => _index = i),
           destinations: [
             const NavigationDestination(
-              icon: Icon(Icons.space_dashboard_outlined),
-              selectedIcon: Icon(Icons.space_dashboard_rounded),
-              label: 'Showroom',
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home_rounded),
+              label: 'Home',
             ),
             const NavigationDestination(
               icon: Icon(Icons.diamond_outlined),
@@ -109,9 +110,9 @@ class _ShellState extends State<Shell> {
               label: 'Parties',
             ),
             const NavigationDestination(
-              icon: Icon(Icons.apps_outlined),
+              icon: Icon(Icons.more_horiz_rounded),
               selectedIcon: Icon(Icons.apps_rounded),
-              label: 'SaaS Suite',
+              label: 'More',
             ),
           ],
         ),

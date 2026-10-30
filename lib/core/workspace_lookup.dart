@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'api.dart';
 import 'format.dart';
@@ -1059,4 +1060,551 @@ class SaasCheckRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Circular Burnished 24K Gold `+` Floating Action Button matching `image-1.png`.
+class GoldAddFab extends StatelessWidget {
+  const GoldAddFab({
+    super.key,
+    required this.onPressed,
+    this.tooltip,
+    this.icon = Icons.add_rounded,
+  });
+
+  final VoidCallback onPressed;
+  final String? tooltip;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final btn = DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFCF9D3E), Color(0xFF966416)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF966416).withValues(alpha: 0.38),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(
+            width: 56,
+            height: 56,
+            child: Icon(icon, color: Colors.white, size: 28),
+          ),
+        ),
+      ),
+    );
+    if (tooltip != null && tooltip!.isNotEmpty) {
+      return Tooltip(message: tooltip!, child: btn);
+    }
+    return btn;
+  }
+}
+
+/// Luxury Dark Espresso-Gold Header + Pill Search Bar + Curved Cream-Ivory Canvas
+/// matching the exact design aesthetic of `image-1.png`.
+class LuxuryModuleScaffold extends StatelessWidget {
+  const LuxuryModuleScaffold({
+    super.key,
+    required this.title,
+    this.icon,
+    this.searchController,
+    this.searchHint,
+    this.onSearchChanged,
+    this.actions,
+    this.topFilterBar,
+    required this.body,
+    this.onAddPressed,
+    this.addTooltip,
+    this.floatingActionButton,
+  });
+
+  final String title;
+  final IconData? icon;
+  final TextEditingController? searchController;
+  final String? searchHint;
+  final ValueChanged<String>? onSearchChanged;
+  final List<Widget>? actions;
+  final Widget? topFilterBar;
+  final Widget body;
+  final VoidCallback? onAddPressed;
+  final String? addTooltip;
+  final Widget? floatingActionButton;
+
+  @override
+  Widget build(BuildContext context) {
+    final canPop = Navigator.of(context).canPop();
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: Pal.ink,
+        floatingActionButton: floatingActionButton ??
+            (onAddPressed != null
+                ? GoldAddFab(onPressed: onAddPressed!, tooltip: addTooltip)
+                : null),
+        body: Column(
+          children: [
+            // Dark Espresso-Bronze Header with 24K Gold ambient glow & Pill Search Bar
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF150F09), Color(0xFF281C0E), Color(0xFF3A2812)],
+                ),
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    right: -35,
+                    bottom: -45,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 170,
+                        height: 170,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              Pal.goldBright.withValues(alpha: 0.28),
+                              Pal.goldBright.withValues(alpha: 0.0),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        8,
+                        16,
+                        searchController != null ? 18 : 14,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              if (canPop) ...[
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(99),
+                                  onTap: () => Navigator.of(context).maybePop(),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(6),
+                                    child: Icon(
+                                      Icons.arrow_back_rounded,
+                                      color: Pal.goldSoft,
+                                      size: 22,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                              ] else if (icon != null) ...[
+                                Container(
+                                  width: 34,
+                                  height: 34,
+                                  decoration: BoxDecoration(
+                                    color: Pal.goldBright.withValues(alpha: 0.14),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: Pal.goldBright.withValues(alpha: 0.35),
+                                    ),
+                                  ),
+                                  child: Icon(icon, color: Pal.goldSoft, size: 18),
+                                ),
+                                const SizedBox(width: 10),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: T.body(18.5, color: Colors.white, w: FontWeight.w700),
+                                ),
+                              ),
+                              if (actions != null) ...actions!,
+                            ],
+                          ),
+                          if (searchController != null) ...[
+                            const SizedBox(height: 14),
+                            Container(
+                              height: 46,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFAF6EE),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: Pal.goldBright.withValues(alpha: 0.45),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.22),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: TextField(
+                                controller: searchController,
+                                onChanged: onSearchChanged,
+                                style: T.body(13.5, color: Pal.text, w: FontWeight.w600),
+                                decoration: InputDecoration(
+                                  filled: false,
+                                  hintText: searchHint ?? 'Search records...',
+                                  hintStyle: T.body(13.2, color: Pal.muted),
+                                  prefixIcon: const Icon(
+                                    Icons.search_rounded,
+                                    color: Pal.muted,
+                                    size: 20,
+                                  ),
+                                  suffixIcon: searchController!.text.isEmpty
+                                      ? null
+                                      : IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          icon: const Icon(
+                                            Icons.close_rounded,
+                                            size: 18,
+                                            color: Pal.muted,
+                                          ),
+                                          onPressed: () {
+                                            searchController!.clear();
+                                            onSearchChanged?.call('');
+                                          },
+                                        ),
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Curved Warm Cream-Ivory Canvas
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: Pal.pearl,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (topFilterBar != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                          child: topFilterBar!,
+                        ),
+                      Expanded(child: body),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Clean mobile record card matching `image-1.png`:
+/// Soft gold icon circle + bold reference code + status badge + structured metadata + bold total + actions.
+class LuxuryRecordCard extends StatelessWidget {
+  const LuxuryRecordCard({
+    super.key,
+    required this.code,
+    this.status,
+    this.icon = Icons.description_outlined,
+    this.lines = const [],
+    this.amountLabel,
+    this.amountValue,
+    this.actions = const [],
+    this.onTap,
+  });
+
+  final String code;
+  final String? status;
+  final IconData icon;
+  final List<(String, String)> lines;
+  final String? amountLabel;
+  final String? amountValue;
+  final List<Widget> actions;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 11),
+      decoration: BoxDecoration(
+        color: Pal.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Pal.line),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0B1A140B),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: Pal.goldWash,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Pal.goldBorder.withValues(alpha: 0.7)),
+                      ),
+                      child: Icon(icon, size: 18, color: Pal.goldDeep),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  code,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: T.body(14.8, w: FontWeight.w800, color: Pal.ink),
+                                ),
+                              ),
+                              if (status != null && status!.isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                StatusChip(status!),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          for (final l in lines)
+                            if (l.$2.trim().isNotEmpty && l.$2.trim() != '-')
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: RichText(
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  text: TextSpan(
+                                    style: T.body(12.5, color: Pal.muted),
+                                    children: [
+                                      if (l.$1.isNotEmpty)
+                                        TextSpan(
+                                          text: '${l.$1}: ',
+                                          style: T.body(12.5, color: Pal.muted, w: FontWeight.w500),
+                                        ),
+                                      TextSpan(
+                                        text: l.$2,
+                                        style: T.body(12.5, color: Pal.textSoft, w: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          if (amountValue != null && amountValue!.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: RichText(
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    text: TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: '${amountLabel ?? 'Amount'}: ',
+                                          style: T.body(12.8, color: Pal.muted, w: FontWeight.w600),
+                                        ),
+                                        TextSpan(
+                                          text: amountValue!,
+                                          style: T.mono(13.8, color: Pal.ink, w: FontWeight.w800),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.chevron_right_rounded,
+                                  size: 20,
+                                  color: Pal.muted,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (amountValue == null || amountValue!.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Icon(Icons.chevron_right_rounded, size: 20, color: Pal.muted),
+                      ),
+                  ],
+                ),
+                if (actions.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: actions,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Opens a spacious, keyboard-safe luxury bottom sheet with Dark Espresso-Gold header
+/// for any `pos.hrpocket.in` creation or workflow form.
+Future<TResult?> showLuxuryFormSheet<TResult>({
+  required BuildContext context,
+  required String title,
+  String? subtitle,
+  IconData icon = Icons.auto_awesome_outlined,
+  required Widget Function(BuildContext sheetContext) builder,
+}) {
+  return showModalBottomSheet<TResult>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(ctx).size.height * 0.92,
+      ),
+      decoration: const BoxDecoration(
+        color: Pal.pearl,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Dark Espresso-Gold Sheet Header
+          Container(
+            padding: const EdgeInsets.fromLTRB(18, 12, 12, 14),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF17110A), Color(0xFF2D2010)],
+              ),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 38,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Pal.goldSoft.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: Pal.goldBright.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Pal.goldBright.withValues(alpha: 0.38)),
+                      ),
+                      child: Icon(icon, size: 17, color: Pal.goldSoft),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(16, color: Colors.white, w: FontWeight.w800),
+                          ),
+                          if (subtitle != null && subtitle!.isNotEmpty)
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: T.body(11.5, color: Pal.goldSoft.withValues(alpha: 0.82)),
+                            ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close_rounded, color: Pal.goldSoft, size: 21),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                24 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: builder(ctx),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }

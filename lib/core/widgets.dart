@@ -459,46 +459,71 @@ class PillTabs<TValue> extends StatelessWidget {
       if (items == null && tabs != null)
         for (final t in tabs!) (t.$1, t.$2, null),
     ];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(children: [
-        for (var i = 0; i < resolved.length; i++) ...[
-          if (i > 0) const SizedBox(width: 8),
-          _tab(resolved[i].$1, resolved[i].$2, resolved[i].$3),
-        ],
-      ]),
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Pal.surfaceAlt,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Pal.line),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          for (var i = 0; i < resolved.length; i++) ...[
+            if (i > 0) const SizedBox(width: 4),
+            _tab(resolved[i].$1, resolved[i].$2, resolved[i].$3),
+          ],
+        ]),
+      ),
     );
   }
 
   Widget _tab(TValue itemVal, String label, IconData? icon) {
     final activeVal = selected ?? value;
     final active = itemVal == activeVal;
-    return Material(
-      color: active ? Pal.ink : Colors.white,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () => onChanged(itemVal),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: active ? Pal.goldBright.withValues(alpha: 0.5) : Pal.line),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (icon != null) ...[
-              Icon(icon, size: 15, color: active ? Pal.goldSoft : Pal.goldDeep),
-              const SizedBox(width: 6),
-            ],
-            Text(
-              label,
-              style: T.body(
-                12.5,
-                w: FontWeight.w700,
-                color: active ? Pal.goldSoft : Pal.textSoft,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        gradient: active
+            ? const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFC59436), Color(0xFF96661A)],
+              )
+            : null,
+        boxShadow: active
+            ? [
+                BoxShadow(
+                  color: Pal.gold.withValues(alpha: 0.25),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ]
+            : const [],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(999),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => onChanged(itemVal),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (icon != null) ...[
+                Icon(icon, size: 14, color: active ? Colors.white : Pal.goldDeep),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: T.body(
+                  12.3,
+                  w: active ? FontWeight.w800 : FontWeight.w600,
+                  color: active ? Colors.white : Pal.textSoft,
+                ),
               ),
-            ),
-          ]),
+            ]),
+          ),
         ),
       ),
     );

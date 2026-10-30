@@ -19,6 +19,9 @@ class CustomOrdersScreen extends StatefulWidget {
 }
 
 class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
+  final _search = TextEditingController();
+  String _filter = 'ALL';
+  bool _showForm = false;
   List<Map<String, dynamic>> _orders = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
@@ -45,7 +48,7 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
   @override
   void dispose() {
     for (final c in [
-      _partyId, _seriesId, _orderDate, _promisedDate,
+      _search, _partyId, _seriesId, _orderDate, _promisedDate,
       _metalId, _purityId, _estGrams, _quotedMaking, _advanceAmt, _spec,
     ]) {
       c.dispose();
@@ -115,6 +118,7 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
       if (!mounted) return;
       _estGrams.clear();
       _spec.clear();
+      setState(() => _showForm = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Custom order created.')),
       );
@@ -128,148 +132,169 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Custom Orders'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    final q = _search.text.trim().toLowerCase();
+    bool isDone(Map<String, dynamic> o) {
+      final s = '${o['state'] ?? o['status'] ?? ''}'.toUpperCase();
+      return s == 'DELIVERED' || s == 'COMPLETED' || s == 'CLOSED';
+    }
+
+    final openCnt = _orders.where((o) => !isDone(o)).length;
+    final doneCnt = _orders.where(isDone).length;
+    final filtered = _orders.where((o) {
+      if (_filter == 'OPEN' && isDone(o)) return false;
+      if (_filter == 'DELIVERED' && !isDone(o)) return false;
+      if (q.isEmpty) return true;
+      final hay = '${o['documentNumber'] ?? ''} ${o['orderNumber'] ?? ''} ${asMap(o['customer'])['displayName'] ?? ''} ${o['description'] ?? ''}'.toLowerCase();
+      return hay.contains(q);
+    }).toList();
+
+    return LuxuryModuleScaffold(
+      title: 'Custom Orders',
+      icon: Icons.auto_awesome_outlined,
+      searchController: _search,
+      searchHint: 'Search by Order No. / Customer...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _filter,
+        onChanged: (v) => setState(() => _filter = v),
+        tabs: [
+          ('ALL', 'All (${_orders.length})'),
+          ('OPEN', 'In Progress ($openCnt)'),
+          ('DELIVERED', 'Completed ($doneCnt)'),
+        ],
+      ),
+      floatingActionButton: GoldAddFab(
+        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New Custom Order',
+        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.auto_awesome_outlined,
-              title: 'Custom Orders & Made-to-Order',
-              subtitle:
-                  'Bespoke customer design specifications, metal/purity targets, advance booking, and Karigar linkage.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'New custom order',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LookupField(
-                    label: 'Customer',
-                    controller: _partyId,
-                    options: _lk.partiesByRole('CUSTOMER'),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Order series',
-                    controller: _seriesId,
-                    options: _lk.seriesFor(const ['CUSTOM', 'ORDER']),
-                    optional: true,
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: DatePickField(label: 'Order date', controller: _orderDate)),
-                      const SizedBox(width: 10),
-                      Expanded(child: DatePickField(label: 'Promised delivery', controller: _promisedDate)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Metal',
-                    controller: _metalId,
-                    options: _lk.metals,
-                    hint: 'Select',
-                    onSelected: (_) => setState(() => _purityId.clear()),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Purity grade',
-                    controller: _purityId,
-                    options: _lk.puritiesForMetal(_metalId.text.trim()),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SaasField(
-                          label: 'Estimated weight g',
-                          controller: _estGrams,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasField(
-                          label: 'Quoted making (INR)',
-                          controller: _quotedMaking,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  SaasField(
-                    label: 'Advance receipt (INR)',
-                    controller: _advanceAmt,
-                    mono: true,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  const SizedBox(height: 10),
-                  SaasField(
-                    label: 'Design & size specification',
-                    controller: _spec,
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 14),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : _createOrder,
-                      child: Text(_busy ? 'Saving…' : 'Create custom order'),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_showForm) ...[
+              SaasFormCard(
+                title: 'New custom order',
+                trailing: TextButton(
+                  onPressed: () => setState(() => _showForm = false),
+                  child: const Text('Close'),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LookupField(
+                      label: 'Customer',
+                      controller: _partyId,
+                      options: _lk.partiesByRole('CUSTOMER'),
+                      hint: 'Select',
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Order series',
+                      controller: _seriesId,
+                      options: _lk.seriesFor(const ['CUSTOM', 'ORDER']),
+                      optional: true,
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: DatePickField(label: 'Order date', controller: _orderDate)),
+                        const SizedBox(width: 10),
+                        Expanded(child: DatePickField(label: 'Promised delivery', controller: _promisedDate)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Metal',
+                      controller: _metalId,
+                      options: _lk.metals,
+                      hint: 'Select',
+                      onSelected: (_) => setState(() => _purityId.clear()),
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Purity grade',
+                      controller: _purityId,
+                      options: _lk.puritiesForMetal(_metalId.text.trim()),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Estimated weight g',
+                            controller: _estGrams,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Quoted making (INR)',
+                            controller: _quotedMaking,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Advance receipt (INR)',
+                      controller: _advanceAmt,
+                      mono: true,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Design & size specification',
+                      controller: _spec,
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 14),
+                    GoldButton(
+                      label: _busy ? 'Saving…' : 'Create Custom Order',
+                      busy: _busy,
+                      onPressed: _createOrder,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_orders.isEmpty)
-              const SaasEmptyBox('No custom orders yet.')
+            else if (filtered.isEmpty)
+              const SaasEmptyBox('No custom orders found. Tap + to book a custom order.')
             else
-              for (final o in _orders)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${o['documentNumber'] ?? o['orderNumber'] ?? shortId('${o['id']}')} · ${asMap(o['customer'])['displayName'] ?? 'Customer'}',
-                                style: T.body(14, w: FontWeight.w700),
-                              ),
-                            ),
-                            StatusChip('${o['state'] ?? o['status'] ?? 'OPEN'}'),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        KVRow('Promised Delivery', fmtDate('${o['promisedDate'] ?? ''}')),
-                        KVRow('Est. Weight / Advance', '${grams(o['estimatedWeightGrams'])} · ${inr(o['advanceAmount'])}', bold: true),
-                        if ('${o['description'] ?? ''}'.isNotEmpty)
-                          KVRow('Design', '${o['description']}'),
-                      ],
-                    ),
-                  ),
+              for (final o in filtered)
+                LuxuryRecordCard(
+                  icon: Icons.auto_awesome_outlined,
+                  code: '${o['documentNumber'] ?? o['orderNumber'] ?? shortId('${o['id']}')}',
+                  status: '${o['state'] ?? o['status'] ?? 'OPEN'}',
+                  lines: [
+                    ('Customer', '${asMap(o['customer'])['displayName'] ?? 'Customer'}'),
+                    ('Promised', fmtDate('${o['promisedDate'] ?? ''}')),
+                    ('Est. Weight', grams(o['estimatedWeightGrams'])),
+                    if ('${o['description'] ?? ''}'.isNotEmpty) ('Design', '${o['description']}'),
+                  ],
+                  amountLabel: 'Advance',
+                  amountValue: inr(o['advanceAmount']),
                 ),
           ],
         ),
@@ -289,6 +314,9 @@ class RepairsCustodyScreen extends StatefulWidget {
 }
 
 class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
+  final _search = TextEditingController();
+  String _filter = 'ALL';
+  bool _showForm = false;
   List<Map<String, dynamic>> _repairs = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
@@ -314,7 +342,7 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
   @override
   void dispose() {
     for (final c in [
-      _partyId, _custodyLocId, _seriesId, _intakeDate, _promisedDate,
+      _search, _partyId, _custodyLocId, _seriesId, _intakeDate, _promisedDate,
       _articleDesc, _grossGrams, _estCharge, _conditionNotes,
     ]) {
       c.dispose();
@@ -383,6 +411,7 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
       _articleDesc.clear();
       _grossGrams.clear();
       _conditionNotes.clear();
+      setState(() => _showForm = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Repair custody receipt recorded.')),
       );
@@ -396,133 +425,155 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Repairs & Custody'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    final q = _search.text.trim().toLowerCase();
+    bool isDone(Map<String, dynamic> r) {
+      final s = '${r['state'] ?? r['status'] ?? ''}'.toUpperCase();
+      return s == 'DELIVERED' || s == 'COMPLETED' || s == 'CLOSED';
+    }
+
+    final activeCnt = _repairs.where((r) => !isDone(r)).length;
+    final doneCnt = _repairs.where(isDone).length;
+    final filtered = _repairs.where((r) {
+      if (_filter == 'ACTIVE' && isDone(r)) return false;
+      if (_filter == 'DONE' && !isDone(r)) return false;
+      if (q.isEmpty) return true;
+      final hay = '${r['documentNumber'] ?? ''} ${r['jobNumber'] ?? ''} ${asMap(r['customer'])['displayName'] ?? ''} ${r['articleDescription'] ?? ''}'.toLowerCase();
+      return hay.contains(q);
+    }).toList();
+
+    return LuxuryModuleScaffold(
+      title: 'Repairs & Custody',
+      icon: Icons.build_outlined,
+      searchController: _search,
+      searchHint: 'Search by Repair No. / Customer...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _filter,
+        onChanged: (v) => setState(() => _filter = v),
+        tabs: [
+          ('ALL', 'All (${_repairs.length})'),
+          ('ACTIVE', 'In Custody ($activeCnt)'),
+          ('DONE', 'Returned ($doneCnt)'),
+        ],
+      ),
+      floatingActionButton: GoldAddFab(
+        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'Receive Repair Article',
+        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.build_outlined,
-              title: 'Repairs & Customer Custody',
-              subtitle:
-                  'Segregated customer-owned jewellery intake, stone/condition notes, workshop custody, and delivery sign-off.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'New customer repair intake',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LookupField(
-                    label: 'Customer',
-                    controller: _partyId,
-                    options: _lk.partiesByRole('CUSTOMER'),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Customer custody location',
-                    controller: _custodyLocId,
-                    options: _lk.locationsByType(const ['CUSTOMER_CUSTODY', 'QUARANTINE', 'VAULT']),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Repair series',
-                    controller: _seriesId,
-                    options: _lk.seriesFor(const ['REPAIR', 'CUSTODY']),
-                    optional: true,
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: DatePickField(label: 'Intake date', controller: _intakeDate)),
-                      const SizedBox(width: 10),
-                      Expanded(child: DatePickField(label: 'Promised date', controller: _promisedDate)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  SaasField(label: 'Article description', controller: _articleDesc),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SaasField(
-                          label: 'Received gross weight g',
-                          controller: _grossGrams,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasField(
-                          label: 'Estimated charge (INR)',
-                          controller: _estCharge,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  SaasField(
-                    label: 'Condition & stone remarks',
-                    controller: _conditionNotes,
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 14),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : _createRepair,
-                      child: Text(_busy ? 'Saving…' : 'Receive customer article'),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_showForm) ...[
+              SaasFormCard(
+                title: 'New customer repair intake',
+                trailing: TextButton(
+                  onPressed: () => setState(() => _showForm = false),
+                  child: const Text('Close'),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LookupField(
+                      label: 'Customer',
+                      controller: _partyId,
+                      options: _lk.partiesByRole('CUSTOMER'),
+                      hint: 'Select',
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Customer custody location',
+                      controller: _custodyLocId,
+                      options: _lk.locationsByType(const ['CUSTOMER_CUSTODY', 'QUARANTINE', 'VAULT']),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Repair series',
+                      controller: _seriesId,
+                      options: _lk.seriesFor(const ['REPAIR', 'CUSTODY']),
+                      optional: true,
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: DatePickField(label: 'Intake date', controller: _intakeDate)),
+                        const SizedBox(width: 10),
+                        Expanded(child: DatePickField(label: 'Promised date', controller: _promisedDate)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(label: 'Article description', controller: _articleDesc),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Received gross weight g',
+                            controller: _grossGrams,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Estimated charge (INR)',
+                            controller: _estCharge,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Condition & stone remarks',
+                      controller: _conditionNotes,
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 14),
+                    GoldButton(
+                      label: _busy ? 'Saving…' : 'Receive Customer Article',
+                      busy: _busy,
+                      onPressed: _createRepair,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_repairs.isEmpty)
-              const SaasEmptyBox('No repair or customer custody jobs yet.')
+            else if (filtered.isEmpty)
+              const SaasEmptyBox('No repair or customer custody jobs found. Tap + to intake a repair.')
             else
-              for (final r in _repairs)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${r['documentNumber'] ?? r['jobNumber'] ?? shortId('${r['id']}')} · ${asMap(r['customer'])['displayName'] ?? r['articleDescription'] ?? ''}',
-                                style: T.body(14, w: FontWeight.w700),
-                              ),
-                            ),
-                            StatusChip('${r['state'] ?? r['status'] ?? 'RECEIVED'}'),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        KVRow('Received Gross Wt', grams(r['receivedGrossWeightGrams']), bold: true),
-                        KVRow('Promised Date', fmtDate('${r['promisedDate'] ?? ''}')),
-                      ],
-                    ),
-                  ),
+              for (final r in filtered)
+                LuxuryRecordCard(
+                  icon: Icons.build_outlined,
+                  code: '${r['documentNumber'] ?? r['jobNumber'] ?? shortId('${r['id']}')}',
+                  status: '${r['state'] ?? r['status'] ?? 'RECEIVED'}',
+                  lines: [
+                    ('Customer', '${asMap(r['customer'])['displayName'] ?? 'Customer'}'),
+                    if ('${r['articleDescription'] ?? ''}'.isNotEmpty) ('Article', '${r['articleDescription']}'),
+                    ('Promised', fmtDate('${r['promisedDate'] ?? ''}')),
+                  ],
+                  amountLabel: 'Gross Wt',
+                  amountValue: grams(r['receivedGrossWeightGrams']),
                 ),
           ],
         ),
@@ -856,42 +907,46 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
   Widget build(BuildContext context) {
     final metals = asList(_materials['metals']);
     final units = asList(_materials['units']);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Materials & Bullion Rates'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    return LuxuryModuleScaffold(
+      title: 'Materials & Bullion Rates',
+      icon: Icons.toll_rounded,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _openPanel = _openPanel == 'METAL' ? null : 'METAL'),
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('Add Metal'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _openPanel = _openPanel == 'PURITY' ? null : 'PURITY'),
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('Add Purity'),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton.icon(
+              onPressed: () => setState(() => _openPanel = _openPanel == 'BOOK' ? null : 'BOOK'),
+              icon: const Icon(Icons.menu_book_rounded, size: 16),
+              label: const Text('New Rate Book'),
+            ),
+          ],
+        ),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.diamond_outlined,
-              title: 'Materials and rates',
-              subtitle: 'Exact purity masters and immutable, effective-dated metal rates.',
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton(
-                  onPressed: () => setState(() => _openPanel = _openPanel == 'METAL' ? null : 'METAL'),
-                  child: const Text('Add metal'),
-                ),
-                OutlinedButton(
-                  onPressed: () => setState(() => _openPanel = _openPanel == 'PURITY' ? null : 'PURITY'),
-                  child: const Text('Add purity'),
-                ),
-                ElevatedButton(
-                  onPressed: () => setState(() => _openPanel = _openPanel == 'BOOK' ? null : 'BOOK'),
-                  child: const Text('New rate book'),
-                ),
-              ],
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
 
             if (_openPanel != null) ...[
               const SizedBox(height: 14),
@@ -1262,6 +1317,9 @@ class RefiningMeltingScreen extends StatefulWidget {
 }
 
 class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
+  final _search = TextEditingController();
+  String _filter = 'ALL';
+  bool _showForm = false;
   List<Map<String, dynamic>> _batches = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
@@ -1287,7 +1345,7 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
   @override
   void dispose() {
     for (final c in [
-      _refinerPartyId, _meltSeriesId, _businessDate, _batchDesc,
+      _search, _refinerPartyId, _meltSeriesId, _businessDate, _batchDesc,
       _allowedLoss, _sourceBalanceId, _balanceVersion, _inputQty, _inputFine,
     ]) {
       c.dispose();
@@ -1363,6 +1421,7 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
       _batchDesc.clear();
       _inputQty.clear();
       _inputFine.clear();
+      setState(() => _showForm = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Controlled refining / melt batch created.')),
       );
@@ -1376,141 +1435,164 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Refining & Melting'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    final q = _search.text.trim().toLowerCase();
+    bool isDone(Map<String, dynamic> b) {
+      final s = '${b['state'] ?? b['status'] ?? ''}'.toUpperCase();
+      return s == 'SETTLED' || s == 'COMPLETED' || s == 'POSTED';
+    }
+
+    final inProcCnt = _batches.where((b) => !isDone(b)).length;
+    final doneCnt = _batches.where(isDone).length;
+    final filtered = _batches.where((b) {
+      if (_filter == 'IN_PROCESS' && isDone(b)) return false;
+      if (_filter == 'COMPLETED' && !isDone(b)) return false;
+      if (q.isEmpty) return true;
+      final hay = '${b['documentNumber'] ?? ''} ${b['batchNumber'] ?? ''} ${b['description'] ?? ''} ${asMap(b['refiner'])['displayName'] ?? ''}'.toLowerCase();
+      return hay.contains(q);
+    }).toList();
+
+    return LuxuryModuleScaffold(
+      title: 'Refining & Melting',
+      icon: Icons.local_fire_department_outlined,
+      searchController: _search,
+      searchHint: 'Search by Batch No. / Refiner...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _filter,
+        onChanged: (v) => setState(() => _filter = v),
+        tabs: [
+          ('ALL', 'All (${_batches.length})'),
+          ('IN_PROCESS', 'In Process ($inProcCnt)'),
+          ('COMPLETED', 'Completed ($doneCnt)'),
+        ],
+      ),
+      floatingActionButton: GoldAddFab(
+        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New Melt Batch',
+        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.precision_manufacturing_outlined,
-              title: 'Refining & Melting',
-              subtitle:
-                  'Controlled batch genealogy, versioned assay approval, recoveries, process loss and FIFO cost allocation.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'New melt batch',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LookupField(
-                    label: 'Refiner party UUID (optional)',
-                    controller: _refinerPartyId,
-                    options: _lk.partiesByRole('REFINER'),
-                    optional: true,
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Melt series UUID',
-                    controller: _meltSeriesId,
-                    options: _lk.seriesFor(const ['MELT', 'REFINING', 'BATCH']),
-                  ),
-                  const SizedBox(height: 10),
-                  DatePickField(label: 'Business date', controller: _businessDate),
-                  const SizedBox(height: 10),
-                  SaasField(label: 'Batch description', controller: _batchDesc),
-                  const SizedBox(height: 10),
-                  SaasField(
-                    label: 'Allowed fine loss g',
-                    controller: _allowedLoss,
-                    mono: true,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Source balance UUID',
-                    controller: _sourceBalanceId,
-                    options: _lk.lotBalances,
-                    onSelected: (opt) {
-                      if (opt != null) {
-                        setState(() {
-                          _balanceVersion.text = '${opt.raw['balanceVersion'] ?? opt.raw['version'] ?? 1}';
-                          _inputQty.text = '${opt.raw['quantityGrams'] ?? ''}';
-                          _inputFine.text = '${opt.raw['fineWeightGrams'] ?? ''}';
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SaasField(
-                          label: 'Balance version',
-                          controller: _balanceVersion,
-                          mono: true,
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasField(
-                          label: 'Input quantity g',
-                          controller: _inputQty,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  SaasField(
-                    label: 'Input fine g',
-                    controller: _inputFine,
-                    mono: true,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  const SizedBox(height: 14),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : _createBatch,
-                      child: Text(_busy ? 'Saving…' : 'Create controlled batch'),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_showForm) ...[
+              SaasFormCard(
+                title: 'New melt batch',
+                trailing: TextButton(
+                  onPressed: () => setState(() => _showForm = false),
+                  child: const Text('Close'),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LookupField(
+                      label: 'Refiner party UUID (optional)',
+                      controller: _refinerPartyId,
+                      options: _lk.partiesByRole('REFINER'),
+                      optional: true,
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Melt series UUID',
+                      controller: _meltSeriesId,
+                      options: _lk.seriesFor(const ['MELT', 'REFINING', 'BATCH']),
+                    ),
+                    const SizedBox(height: 10),
+                    DatePickField(label: 'Business date', controller: _businessDate),
+                    const SizedBox(height: 10),
+                    SaasField(label: 'Batch description', controller: _batchDesc),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Allowed fine loss g',
+                      controller: _allowedLoss,
+                      mono: true,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Source balance UUID',
+                      controller: _sourceBalanceId,
+                      options: _lk.lotBalances,
+                      onSelected: (opt) {
+                        if (opt != null) {
+                          setState(() {
+                            _balanceVersion.text = '${opt.raw['balanceVersion'] ?? opt.raw['version'] ?? 1}';
+                            _inputQty.text = '${opt.raw['quantityGrams'] ?? ''}';
+                            _inputFine.text = '${opt.raw['fineWeightGrams'] ?? ''}';
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Balance version',
+                            controller: _balanceVersion,
+                            mono: true,
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Input quantity g',
+                            controller: _inputQty,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Input fine g',
+                      controller: _inputFine,
+                      mono: true,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                    const SizedBox(height: 14),
+                    GoldButton(
+                      label: _busy ? 'Saving…' : 'Create Controlled Batch',
+                      busy: _busy,
+                      onPressed: _createBatch,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_batches.isEmpty)
-              const SaasEmptyBox('No refining batches yet.')
+            else if (filtered.isEmpty)
+              const SaasEmptyBox('No refining batches found. Tap + to create a melt batch.')
             else
-              for (final b in _batches)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${b['documentNumber'] ?? b['batchNumber'] ?? shortId('${b['id']}')} · ${b['description'] ?? 'Melt batch'}',
-                                style: T.body(14, w: FontWeight.w700),
-                              ),
-                            ),
-                            StatusChip('${b['state'] ?? b['status'] ?? 'OPEN'}'),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        KVRow('Business Date', fmtDate('${b['businessDate'] ?? ''}')),
-                        KVRow('Input / Output Fine', '${grams(b['inputFineGrams'])} → ${grams(b['outputFineGrams'])}', bold: true),
-                      ],
-                    ),
-                  ),
+              for (final b in filtered)
+                LuxuryRecordCard(
+                  icon: Icons.local_fire_department_outlined,
+                  code: '${b['documentNumber'] ?? b['batchNumber'] ?? shortId('${b['id']}')}',
+                  status: '${b['state'] ?? b['status'] ?? 'OPEN'}',
+                  lines: [
+                    if ('${asMap(b['refiner'])['displayName'] ?? ''}'.isNotEmpty)
+                      ('Refiner', '${asMap(b['refiner'])['displayName']}'),
+                    if ('${b['description'] ?? ''}'.isNotEmpty) ('Batch', '${b['description']}'),
+                    ('Date', fmtDate('${b['businessDate'] ?? ''}')),
+                  ],
+                  amountLabel: 'In / Out Fine',
+                  amountValue: '${grams(b['inputFineGrams'])} → ${grams(b['outputFineGrams'])}',
                 ),
           ],
         ),
@@ -1547,6 +1629,9 @@ class _TransferDraftLine {
 }
 
 class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen> {
+  final _search = TextEditingController();
+  String _filter = 'ALL';
+  bool _showForm = false;
   List<Map<String, dynamic>> _transfers = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
@@ -1575,7 +1660,7 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
   @override
   void dispose() {
     for (final c in [
-      _destBranchId, _sourceTransitId, _seriesId, _businessDate,
+      _search, _destBranchId, _sourceTransitId, _seriesId, _businessDate,
       _expectedReceipt, _description, _stockId, _destCustodyId, _qtyGrams,
     ]) {
       c.dispose();
@@ -1679,7 +1764,10 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
         },
       );
       if (!mounted) return;
-      setState(() => _lines.clear());
+      setState(() {
+        _lines.clear();
+        _showForm = false;
+      });
       _description.clear();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Inter-branch transfer created.')),
@@ -1694,174 +1782,197 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Inter-Branch Transfers'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    final q = _search.text.trim().toLowerCase();
+    bool isRecv(Map<String, dynamic> t) {
+      final s = '${t['state'] ?? t['status'] ?? ''}'.toUpperCase();
+      return s == 'RECEIVED' || s == 'COMPLETED' || s == 'CLOSED';
+    }
+
+    final transitCnt = _transfers.where((t) => !isRecv(t)).length;
+    final recvCnt = _transfers.where(isRecv).length;
+    final filtered = _transfers.where((t) {
+      if (_filter == 'TRANSIT' && isRecv(t)) return false;
+      if (_filter == 'RECEIVED' && !isRecv(t)) return false;
+      if (q.isEmpty) return true;
+      final hay = '${t['documentNumber'] ?? ''} ${t['transferNumber'] ?? ''} ${asMap(t['destinationBranch'])['name'] ?? ''} ${t['description'] ?? ''}'.toLowerCase();
+      return hay.contains(q);
+    }).toList();
+
+    return LuxuryModuleScaffold(
+      title: 'Inter-Branch Transfers',
+      icon: Icons.swap_horiz_rounded,
+      searchController: _search,
+      searchHint: 'Search by Transfer No. / Branch...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _filter,
+        onChanged: (v) => setState(() => _filter = v),
+        tabs: [
+          ('ALL', 'All (${_transfers.length})'),
+          ('TRANSIT', 'In Transit ($transitCnt)'),
+          ('RECEIVED', 'Received ($recvCnt)'),
+        ],
+      ),
+      floatingActionButton: GoldAddFab(
+        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New Transfer Request',
+        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.swap_horiz_rounded,
-              title: 'Inter-Branch Stock Transfers',
-              subtitle:
-                  'Dispatch through transit custody, receive without partial silent drops, and record discrepancy claims explicitly.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'New transfer request',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LookupField(
-                    label: 'Destination branch',
-                    controller: _destBranchId,
-                    options: _lk.branches,
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Source transit custody',
-                    controller: _sourceTransitId,
-                    options: _lk.locationsByType(const ['TRANSIT', 'VAULT']),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Transfer series',
-                    controller: _seriesId,
-                    options: _lk.seriesFor(const ['TRANSFER', 'STOCK_TRANSFER']),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: DatePickField(label: 'Business date', controller: _businessDate)),
-                      const SizedBox(width: 10),
-                      Expanded(child: DatePickField(label: 'Expected receipt', controller: _expectedReceipt)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  SaasField(label: 'Description', controller: _description),
-                  const SizedBox(height: 12),
-                  SaasSubBox(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_showForm) ...[
+              SaasFormCard(
+                title: 'New transfer request',
+                trailing: TextButton(
+                  onPressed: () => setState(() => _showForm = false),
+                  child: const Text('Close'),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LookupField(
+                      label: 'Destination branch',
+                      controller: _destBranchId,
+                      options: _lk.branches,
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Source transit custody',
+                      controller: _sourceTransitId,
+                      options: _lk.locationsByType(const ['TRANSIT', 'VAULT']),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Transfer series',
+                      controller: _seriesId,
+                      options: _lk.seriesFor(const ['TRANSFER', 'STOCK_TRANSFER']),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
                       children: [
-                        SaasDropdown(
-                          label: 'Stock kind',
-                          value: _stockKind,
-                          options: const {
-                            'TAGGED_ARTICLE': 'Tagged article',
-                            'MATERIAL_LOT': 'Material lot',
-                          },
-                          onChanged: (v) => setState(() {
-                            _stockKind = v;
-                            _stockId.clear();
-                          }),
-                        ),
-                        const SizedBox(height: 10),
-                        LookupField(
-                          label: 'Available stock',
-                          controller: _stockId,
-                          options: _stockKind == 'TAGGED_ARTICLE' ? _lk.articles : _lk.lotBalances,
-                          hint: 'Select',
-                        ),
-                        const SizedBox(height: 10),
-                        LookupField(
-                          label: 'Destination custody',
-                          controller: _destCustodyId,
-                          options: _lk.locations,
-                          hint: 'Select',
-                        ),
-                        if (_stockKind == 'MATERIAL_LOT') ...[
-                          const SizedBox(height: 10),
-                          SaasField(
-                            label: 'Quantity grams',
-                            controller: _qtyGrams,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ],
-                        const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton(
-                            onPressed: _addLine,
-                            child: const Text('Add transfer line'),
-                          ),
-                        ),
-                        for (var i = 0; i < _lines.length; i++) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${_lines[i].stockLabel} → ${_lines[i].destinationLabel}',
-                                  style: T.body(12.2, w: FontWeight.w600),
-                                ),
-                              ),
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
-                                onPressed: () => setState(() => _lines.removeAt(i)),
-                              ),
-                            ],
-                          ),
-                        ],
+                        Expanded(child: DatePickField(label: 'Business date', controller: _businessDate)),
+                        const SizedBox(width: 10),
+                        Expanded(child: DatePickField(label: 'Expected receipt', controller: _expectedReceipt)),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : _createTransfer,
-                      child: Text(_busy ? 'Saving…' : 'Create transfer'),
+                    const SizedBox(height: 10),
+                    SaasField(label: 'Description', controller: _description),
+                    const SizedBox(height: 12),
+                    SaasSubBox(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SaasDropdown(
+                            label: 'Stock kind',
+                            value: _stockKind,
+                            options: const {
+                              'TAGGED_ARTICLE': 'Tagged article',
+                              'MATERIAL_LOT': 'Material lot',
+                            },
+                            onChanged: (v) => setState(() {
+                              _stockKind = v;
+                              _stockId.clear();
+                            }),
+                          ),
+                          const SizedBox(height: 10),
+                          LookupField(
+                            label: 'Available stock',
+                            controller: _stockId,
+                            options: _stockKind == 'TAGGED_ARTICLE' ? _lk.articles : _lk.lotBalances,
+                            hint: 'Select',
+                          ),
+                          const SizedBox(height: 10),
+                          LookupField(
+                            label: 'Destination custody',
+                            controller: _destCustodyId,
+                            options: _lk.locations,
+                            hint: 'Select',
+                          ),
+                          if (_stockKind == 'MATERIAL_LOT') ...[
+                            const SizedBox(height: 10),
+                            SaasField(
+                              label: 'Quantity grams',
+                              controller: _qtyGrams,
+                              mono: true,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton(
+                              onPressed: _addLine,
+                              child: const Text('+ Add transfer line'),
+                            ),
+                          ),
+                          for (var i = 0; i < _lines.length; i++) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${_lines[i].stockLabel} → ${_lines[i].destinationLabel}',
+                                    style: T.body(12.2, w: FontWeight.w600),
+                                  ),
+                                ),
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
+                                  onPressed: () => setState(() => _lines.removeAt(i)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 14),
+                    GoldButton(
+                      label: _busy ? 'Saving…' : 'Create Transfer',
+                      busy: _busy,
+                      onPressed: _createTransfer,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_transfers.isEmpty)
-              const SaasEmptyBox('No inter-branch transfers yet.')
+            else if (filtered.isEmpty)
+              const SaasEmptyBox('No inter-branch transfers found. Tap + to create a transfer.')
             else
-              for (final t in _transfers)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${t['documentNumber'] ?? t['transferNumber'] ?? shortId('${t['id']}')} · ${asMap(t['destinationBranch'])['name'] ?? 'Branch Transfer'}',
-                                style: T.body(14, w: FontWeight.w700),
-                              ),
-                            ),
-                            StatusChip('${t['state'] ?? t['status'] ?? 'DRAFT'}'),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        KVRow('Business / Expected', '${fmtDate('${t['businessDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}'),
-                        if ('${t['description'] ?? ''}'.isNotEmpty)
-                          KVRow('Description', '${t['description']}'),
-                      ],
-                    ),
-                  ),
+              for (final t in filtered)
+                LuxuryRecordCard(
+                  icon: Icons.storefront_outlined,
+                  code: '${t['documentNumber'] ?? t['transferNumber'] ?? shortId('${t['id']}')}',
+                  status: '${t['state'] ?? t['status'] ?? 'DRAFT'}',
+                  lines: [
+                    if ('${asMap(t['sourceBranch'])['name'] ?? ''}'.isNotEmpty)
+                      ('From', '${asMap(t['sourceBranch'])['name']}'),
+                    ('To', '${asMap(t['destinationBranch'])['name'] ?? 'Destination Branch'}'),
+                    ('Date', '${fmtDate('${t['businessDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}'),
+                    if ('${t['description'] ?? ''}'.isNotEmpty) ('Notes', '${t['description']}'),
+                  ],
+                  amountLabel: 'Status',
+                  amountValue: statusLabel('${t['state'] ?? t['status'] ?? 'DRAFT'}'),
                 ),
           ],
         ),
@@ -1898,6 +2009,9 @@ class _TradeDraftLine {
 }
 
 class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
+  final _search = TextEditingController();
+  String _filter = 'ALL';
+  bool _showForm = false;
   List<Map<String, dynamic>> _trades = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
@@ -1930,7 +2044,7 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
   @override
   void dispose() {
     for (final c in [
-      _destEntityId, _destBranchId, _sourceTransitId, _seriesId,
+      _search, _destEntityId, _destBranchId, _sourceTransitId, _seriesId,
       _currency, _requestDate, _expectedReceipt, _terms,
       _sourceArticleId, _destLocationId, _newDestTag, _taxableVal, _igstAmt,
     ]) {
@@ -2041,7 +2155,10 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
         },
       );
       if (!mounted) return;
-      setState(() => _lines.clear());
+      setState(() {
+        _lines.clear();
+        _showForm = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Related-entity jewellery trade created.')),
       );
@@ -2061,208 +2178,229 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
             .where((b) => '${b.raw['legalEntityId'] ?? ''}' == _destEntityId.text.trim())
             .toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Inter-Entity Trading'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    final q = _search.text.trim().toLowerCase();
+    bool isDone(Map<String, dynamic> t) {
+      final s = '${t['state'] ?? t['status'] ?? ''}'.toUpperCase();
+      return s == 'SETTLED' || s == 'RECEIVED' || s == 'COMPLETED';
+    }
+
+    final pendCnt = _trades.where((t) => !isDone(t)).length;
+    final doneCnt = _trades.where(isDone).length;
+    final filtered = _trades.where((t) {
+      if (_filter == 'PENDING' && isDone(t)) return false;
+      if (_filter == 'COMPLETED' && !isDone(t)) return false;
+      if (q.isEmpty) return true;
+      final hay = '${t['documentNumber'] ?? ''} ${t['tradeNumber'] ?? ''} ${asMap(t['destinationLegalEntity'])['legalName'] ?? ''}'.toLowerCase();
+      return hay.contains(q);
+    }).toList();
+
+    return LuxuryModuleScaffold(
+      title: 'Inter-Entity Trading',
+      icon: Icons.domain_rounded,
+      searchController: _search,
+      searchHint: 'Search by Entity / Trade No...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _filter,
+        onChanged: (v) => setState(() => _filter = v),
+        tabs: [
+          ('ALL', 'All (${_trades.length})'),
+          ('PENDING', 'Pending ($pendCnt)'),
+          ('COMPLETED', 'Completed ($doneCnt)'),
+        ],
+      ),
+      floatingActionButton: GoldAddFab(
+        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New Inter-Entity Trade',
+        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.domain_add_rounded,
-              title: 'Related-Entity Jewellery Trading',
-              subtitle:
-                  'Symmetric sale and purchase arms, GST-ready line economics, transit custody, and elimination-ready references.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'New related-entity trade',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  LookupField(
-                    label: 'Destination entity',
-                    controller: _destEntityId,
-                    options: _lk.legalEntities,
-                    hint: 'Select',
-                    onSelected: (_) => setState(() => _destBranchId.clear()),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Destination branch',
-                    controller: _destBranchId,
-                    options: destBranches.isNotEmpty ? destBranches : _lk.branches,
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Source transit',
-                    controller: _sourceTransitId,
-                    options: _lk.locationsByType(const ['TRANSIT', 'VAULT']),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Trade series',
-                    controller: _seriesId,
-                    options: _lk.seriesFor(const ['TRADE', 'INTER_ENTITY']),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: SaasDropdown(
-                          label: 'Tax treatment',
-                          value: _taxTreatment,
-                          options: const {
-                            'INTER_STATE_IGST': 'Inter-state IGST',
-                            'INTRA_STATE_CGST_SGST': 'Intra-state CGST+SGST',
-                          },
-                          onChanged: (v) => setState(() => _taxTreatment = v),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasField(label: 'Currency', controller: _currency, mono: true),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: DatePickField(label: 'Request date', controller: _requestDate)),
-                      const SizedBox(width: 10),
-                      Expanded(child: DatePickField(label: 'Expected receipt', controller: _expectedReceipt)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  SaasField(label: 'Terms', controller: _terms),
-                  const SizedBox(height: 12),
-                  SaasSubBox(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_showForm) ...[
+              SaasFormCard(
+                title: 'New related-entity trade',
+                trailing: TextButton(
+                  onPressed: () => setState(() => _showForm = false),
+                  child: const Text('Close'),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LookupField(
+                      label: 'Destination entity',
+                      controller: _destEntityId,
+                      options: _lk.legalEntities,
+                      hint: 'Select',
+                      onSelected: (_) => setState(() => _destBranchId.clear()),
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Destination branch',
+                      controller: _destBranchId,
+                      options: destBranches.isNotEmpty ? destBranches : _lk.branches,
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Source transit',
+                      controller: _sourceTransitId,
+                      options: _lk.locationsByType(const ['TRANSIT', 'VAULT']),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Trade series',
+                      controller: _seriesId,
+                      options: _lk.seriesFor(const ['TRADE', 'INTER_ENTITY']),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
                       children: [
-                        LookupField(
-                          label: 'Source article',
-                          controller: _sourceArticleId,
-                          options: _lk.articles,
-                          hint: 'Select',
-                        ),
-                        const SizedBox(height: 10),
-                        LookupField(
-                          label: 'Destination location',
-                          controller: _destLocationId,
-                          options: _lk.locations,
-                          hint: 'Select',
-                        ),
-                        const SizedBox(height: 10),
-                        SaasField(
-                          label: 'New destination tag',
-                          controller: _newDestTag,
-                          mono: true,
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SaasField(
-                                label: 'Taxable value',
-                                controller: _taxableVal,
-                                mono: true,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: SaasField(
-                                label: 'IGST',
-                                controller: _igstAmt,
-                                mono: true,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton(
-                            onPressed: _addLine,
-                            child: const Text('Add line'),
+                        Expanded(
+                          flex: 2,
+                          child: SaasDropdown(
+                            label: 'Tax treatment',
+                            value: _taxTreatment,
+                            options: const {
+                              'INTER_STATE_IGST': 'Inter-state IGST',
+                              'INTRA_STATE_CGST_SGST': 'Intra-state CGST+SGST',
+                            },
+                            onChanged: (v) => setState(() => _taxTreatment = v),
                           ),
                         ),
-                        for (var i = 0; i < _lines.length; i++) ...[
-                          const SizedBox(height: 8),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(label: 'Currency', controller: _currency, mono: true),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: DatePickField(label: 'Request date', controller: _requestDate)),
+                        const SizedBox(width: 10),
+                        Expanded(child: DatePickField(label: 'Expected receipt', controller: _expectedReceipt)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(label: 'Terms', controller: _terms),
+                    const SizedBox(height: 12),
+                    SaasSubBox(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          LookupField(
+                            label: 'Source article',
+                            controller: _sourceArticleId,
+                            options: _lk.articles,
+                            hint: 'Select',
+                          ),
+                          const SizedBox(height: 10),
+                          LookupField(
+                            label: 'Destination location',
+                            controller: _destLocationId,
+                            options: _lk.locations,
+                            hint: 'Select',
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'New destination tag',
+                            controller: _newDestTag,
+                            mono: true,
+                          ),
+                          const SizedBox(height: 10),
                           Row(
                             children: [
                               Expanded(
-                                child: Text(
-                                  '${_lines[i].articleLabel} → ${_lines[i].newDestinationTag} · ₹${_lines[i].taxableValue}',
-                                  style: T.body(12.2, w: FontWeight.w600),
+                                child: SaasField(
+                                  label: 'Taxable value',
+                                  controller: _taxableVal,
+                                  mono: true,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                 ),
                               ),
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
-                                onPressed: () => setState(() => _lines.removeAt(i)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'IGST',
+                                  controller: _igstAmt,
+                                  mono: true,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                ),
                               ),
                             ],
                           ),
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton(
+                              onPressed: _addLine,
+                              child: const Text('+ Add line'),
+                            ),
+                          ),
+                          for (var i = 0; i < _lines.length; i++) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${_lines[i].articleLabel} → ${_lines[i].newDestinationTag} · ₹${_lines[i].taxableValue}',
+                                    style: T.body(12.2, w: FontWeight.w600),
+                                  ),
+                                ),
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
+                                  onPressed: () => setState(() => _lines.removeAt(i)),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : _createTrade,
-                      child: Text(_busy ? 'Saving…' : 'Create trade'),
+                    const SizedBox(height: 14),
+                    GoldButton(
+                      label: _busy ? 'Saving…' : 'Create Trade',
+                      busy: _busy,
+                      onPressed: _createTrade,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_trades.isEmpty)
-              const SaasEmptyBox('No related-entity jewellery trades yet.')
+            else if (filtered.isEmpty)
+              const SaasEmptyBox('No related-entity jewellery trades found. Tap + to create a trade.')
             else
-              for (final t in _trades)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${t['documentNumber'] ?? t['tradeNumber'] ?? shortId('${t['id']}')} · ${asMap(t['destinationLegalEntity'])['legalName'] ?? 'Inter-Entity Trade'}',
-                                style: T.body(14, w: FontWeight.w700),
-                              ),
-                            ),
-                            StatusChip('${t['state'] ?? t['status'] ?? 'DRAFT'}'),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        KVRow('Request / Expected', '${fmtDate('${t['requestDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}'),
-                        KVRow('Total Amount', inr(t['totalAmount'] ?? t['taxableAmount']), bold: true),
-                      ],
-                    ),
-                  ),
+              for (final t in filtered)
+                LuxuryRecordCard(
+                  icon: Icons.domain_rounded,
+                  code: '${asMap(t['destinationLegalEntity'])['legalName'] ?? t['documentNumber'] ?? shortId('${t['id']}')}',
+                  status: '${t['state'] ?? t['status'] ?? 'DRAFT'}',
+                  lines: [
+                    ('Ref', '${t['documentNumber'] ?? t['tradeNumber'] ?? shortId('${t['id']}')}'),
+                    ('Date', '${fmtDate('${t['requestDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}'),
+                  ],
+                  amountLabel: 'Amount',
+                  amountValue: inr(t['totalAmount'] ?? t['taxableAmount']),
                 ),
           ],
         ),

@@ -9,6 +9,7 @@ import '../../core/models.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/workspace_lookup.dart';
 import '../billing/billing_controller.dart';
 import '../customers/customers_screen.dart';
 
@@ -178,26 +179,27 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
   Widget build(BuildContext context) {
     if (_voucher != null) return _done();
     final calc = _calc();
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Old Metal Exchange'),
-        actions: [
-          if (_tab == 'HISTORY')
-            IconButton(onPressed: _loadVouchers, icon: const Icon(Icons.refresh_rounded)),
+    return LuxuryModuleScaffold(
+      title: 'Old Metal Exchange',
+      icon: Icons.recycling_rounded,
+      actions: [
+        if (_tab == 'HISTORY')
+          IconButton(
+            onPressed: _loadVouchers,
+            icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+          ),
+      ],
+      topFilterBar: PillTabs<String>(
+        selected: _tab,
+        onChanged: (v) => setState(() => _tab = v),
+        items: [
+          ('APPRAISE', 'New Appraisal', Icons.scale_rounded),
+          ('HISTORY', 'Voucher Register (${_vouchers.length})', Icons.receipt_long_outlined),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          PillTabs<String>(
-            selected: _tab,
-            onChanged: (v) => setState(() => _tab = v),
-            items: [
-              ('APPRAISE', 'New Appraisal', Icons.scale_rounded),
-              ('HISTORY', 'Voucher Register (${_vouchers.length})', Icons.receipt_long_outlined),
-            ],
-          ),
-          const SizedBox(height: 16),
           if (_tab == 'HISTORY') _buildHistory() else _buildAppraisal(calc),
         ],
       ),

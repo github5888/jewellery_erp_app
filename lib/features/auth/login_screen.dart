@@ -300,7 +300,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: 9),
                                   child: Text(
-                                    'BULLION & SHOWROOM SUITE',
+                                    'TRADITION  •  TRUST  •  GROWTH',
                                     style: T.caps(9.5, color: Pal.goldSoft, letterSpacing: 1.5),
                                   ),
                                 ),

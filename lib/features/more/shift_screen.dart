@@ -6,6 +6,7 @@ import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/workspace_lookup.dart';
 
 /// POS Counter Cash Drawer Shift Management.
 /// Queries `/pos-shifts` (live endpoint on pos.hrpocket.in) with fallback to `/pos-shifts/current`.
@@ -158,18 +159,20 @@ class _ShiftScreenState extends State<ShiftScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('POS Counter Shifts'),
-        actions: [
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
-        ],
-      ),
+    return LuxuryModuleScaffold(
+      title: 'POS Counter Shifts',
+      icon: Icons.point_of_sale_rounded,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
-        color: Pal.teal,
+        color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 32),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
             if (_loading) ...[
               const Panel(child: Skeleton(height: 110)),

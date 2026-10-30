@@ -163,34 +163,26 @@ class _BillingScreenState extends State<BillingScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.watch<BillingController>();
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('POS Counter & Sales'),
-        actions: [
-          if (_tab == 'POS' && (c.lines.isNotEmpty || c.customer != null || c.payments.isNotEmpty || c.oldGold != null))
-            TextButton.icon(
-              onPressed: c.busy ? null : c.clear,
-              icon: const Icon(Icons.restart_alt_rounded, size: 17, color: Pal.danger),
-              label: Text('Reset', style: T.body(13, color: Pal.danger, w: FontWeight.w700)),
-            ),
+    return LuxuryModuleScaffold(
+      title: 'POS Counter & Sales',
+      icon: Icons.point_of_sale_rounded,
+      actions: [
+        if (_tab == 'POS' && (c.lines.isNotEmpty || c.customer != null || c.payments.isNotEmpty || c.oldGold != null))
+          TextButton.icon(
+            onPressed: c.busy ? null : c.clear,
+            icon: const Icon(Icons.restart_alt_rounded, size: 17, color: Pal.goldSoft),
+            label: Text('Reset', style: T.body(12.5, color: Pal.goldSoft, w: FontWeight.w700)),
+          ),
+      ],
+      topFilterBar: PillTabs<String>(
+        selected: _tab,
+        onChanged: (v) => setState(() => _tab = v),
+        items: [
+          ('POS', c.lines.isEmpty ? 'Counter POS Bill' : 'Counter POS (${c.lines.length})', Icons.point_of_sale_rounded),
+          ('REGISTER', 'Sales Register', Icons.receipt_long_outlined),
         ],
       ),
-      body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 10),
-          child: PillTabs<String>(
-            selected: _tab,
-            onChanged: (v) => setState(() => _tab = v),
-            items: [
-              ('POS', c.lines.isEmpty ? 'Counter POS Bill' : 'Counter POS (${c.lines.length})', Icons.point_of_sale_rounded),
-              ('REGISTER', 'Sales Register', Icons.receipt_long_outlined),
-            ],
-          ),
-        ),
-        Expanded(
-          child: _tab == 'POS' ? _buildPosCart(c) : const _SalesRegisterView(),
-        ),
-      ]),
+      body: _tab == 'POS' ? _buildPosCart(c) : const _SalesRegisterView(),
     );
   }
 

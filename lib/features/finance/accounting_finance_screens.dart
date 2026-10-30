@@ -324,29 +324,30 @@ class _DoubleEntryAccountingScreenState extends State<DoubleEntryAccountingScree
         .expand((fy) => asList(fy['periods']))
         .toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Double-Entry Accounting'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: 'Double-Entry Accounting',
+      icon: Icons.menu_book_rounded,
+      actions: [
+        IconButton(
+          tooltip: 'Accounting Setup',
+          onPressed: () => setState(() => _showSetup = !_showSetup),
+          icon: Icon(
+            _showSetup ? Icons.close_rounded : Icons.settings_outlined,
+            color: Pal.goldSoft,
+          ),
+        ),
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            SaasModuleHeader(
-              icon: Icons.menu_book_rounded,
-              title: 'Accounting ledger',
-              subtitle:
-                  'Entity-scoped periods, controlled document numbers, balanced journals and linked reversals.',
-              trailing: OutlinedButton.icon(
-                onPressed: () => setState(() => _showSetup = !_showSetup),
-                icon: const Icon(Icons.add_rounded, size: 15),
-                label: Text(_showSetup ? 'Hide setup' : 'Accounting setup'),
-              ),
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
 
             // Expandable Accounting Setup (`AccountingPanel.tsx`)
             if (_showSetup) ...[
@@ -1196,39 +1197,36 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
       _method = methodOptions.keys.first;
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settlements & Cashup'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    return LuxuryModuleScaffold(
+      title: 'Settlements & Cashup',
+      icon: Icons.account_balance_wallet_outlined,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _tab,
+        onChanged: (v) => setState(() {
+          _tab = v;
+          _showForm = v != 'OPEN_ITEMS';
+        }),
+        tabs: [
+          ('OPEN_ITEMS', 'Open Items (${openItems.length})'),
+          ('RECEIPTS', 'Receipts'),
+          ('DISBURSEMENTS', 'Disbursements'),
+          ('REFUNDS', 'Refunds'),
+          ('CLEARINGS', 'Provider Clearings (${clearings.length})'),
+        ],
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.account_balance_wallet_outlined,
-              title: 'Treasury, Settlements and Open Items',
-              subtitle:
-                  'Real-time AR/AP subledger open items, partial settlements, customer advances, and bank/card clearing.',
-            ),
-            const SizedBox(height: 14),
-            PillTabs<String>(
-              value: _tab,
-              onChanged: (v) => setState(() {
-                _tab = v;
-                _showForm = v != 'OPEN_ITEMS';
-              }),
-              tabs: [
-                ('OPEN_ITEMS', 'Open Items (${openItems.length})'),
-                ('RECEIPTS', 'Receipts'),
-                ('DISBURSEMENTS', 'Disbursements'),
-                ('REFUNDS', 'Refunds'),
-                ('CLEARINGS', 'Provider Clearings (${clearings.length})'),
-              ],
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
 
             if (_tab != 'OPEN_ITEMS') ...[
               const SizedBox(height: 12),
@@ -1623,25 +1621,22 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Banking & Reconciliation'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: 'Banking & Reconciliation',
+      icon: Icons.account_balance_rounded,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.account_balance_outlined,
-              title: 'Bank Statements & Reconciliation',
-              subtitle:
-                  'Immutable statement imports, balance continuity checks, exact/allocated matches, and period sign-off.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
             SaasFormCard(
               title: 'Import normalized bank CSV',
               subtitle:
@@ -1816,24 +1811,21 @@ class _ConsolidatedChainAnalyticsScreenState
     final entities = asList(_data['legalEntities'] ?? _data['legalEntityComparison']);
     final balanced = _data['intercompanyBalanced'] != false;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Consolidated Chain Analytics'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
-      ),
+    return LuxuryModuleScaffold(
+      title: 'Consolidated Chain Analytics',
+      icon: Icons.hub_outlined,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.insights_rounded,
-              title: 'Consolidated Chain Analytics',
-              subtitle:
-                  'Derived multi-entity reporting with balanced intercompany eliminations and zero ledger mutation.',
-            ),
-            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(

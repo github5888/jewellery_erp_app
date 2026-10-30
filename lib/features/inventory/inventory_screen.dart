@@ -172,89 +172,52 @@ class _InventoryScreenState extends State<InventoryScreen> {
     final filtered = _filteredArticles;
     final availableCount = _articles.where((a) => a.isAvailable).length;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Vault & Tagged Stock'),
-        actions: [
-          IconButton(
-            tooltip: 'Scan Tag',
-            onPressed: _scan,
-            icon: const Icon(Icons.qr_code_scanner_rounded),
-          ),
-          IconButton(
-            tooltip: 'Refresh Vault',
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
+    return LuxuryModuleScaffold(
+      title: 'Vault & Tagged Stock',
+      icon: Icons.diamond_outlined,
+      searchController: _search,
+      searchHint: 'Search Tag, Ornament, Purity or Vault...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          tooltip: 'Scan Tag',
+          onPressed: _scan,
+          icon: const Icon(Icons.qr_code_scanner_rounded, color: Pal.goldSoft),
+        ),
+        IconButton(
+          tooltip: 'Refresh Vault',
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        selected: _tab,
+        onChanged: (v) => setState(() => _tab = v),
+        items: [
+          ('ARTICLES', 'Tagged (${_articles.length})', Icons.diamond_outlined),
+          ('LOTS', 'Bullion Lots (${_lots.length})', Icons.layers_outlined),
+          ('VAULTS', 'Vaults (${_locations.length})', Icons.account_balance_outlined),
+          ('TRANSFORM', 'Transform (${_transformations.length})', Icons.merge_type_rounded),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _receiveSheet,
-        backgroundColor: Pal.ink,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add_box_outlined),
-        label: Text('Receive Piece', style: T.body(13.5, color: Colors.white, w: FontWeight.w700)),
+      floatingActionButton: GoldAddFab(
+        onPressed: _tab == 'LOTS'
+            ? _receiveLotSheet
+            : _tab == 'VAULTS'
+                ? _createLocationSheet
+                : _receiveSheet,
+        tooltip: _tab == 'LOTS'
+            ? 'Receive Bullion Lot'
+            : _tab == 'VAULTS'
+                ? 'New Stock Location'
+                : 'Receive Tagged Piece',
       ),
-      body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 10),
-          child: Row(children: [
-            Expanded(
-              child: TextField(
-                controller: _search,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  hintText: 'Search tag, ornament, purity or vault…',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: _search.text.isEmpty
-                      ? null
-                      : IconButton(
-                          icon: const Icon(Icons.close_rounded, size: 18),
-                          onPressed: () {
-                            _search.clear();
-                            setState(() {});
-                          },
-                        ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 50,
-              height: 50,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Pal.obsidian,
-                  foregroundColor: Pal.goldSoft,
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(50, 50),
-                ),
-                onPressed: _scan,
-                child: const Icon(Icons.qr_code_scanner_rounded),
-              ),
-            ),
-          ]),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-          child: PillTabs<String>(
-            selected: _tab,
-            onChanged: (v) => setState(() => _tab = v),
-            items: [
-              ('ARTICLES', 'Tagged (${_articles.length})', Icons.diamond_outlined),
-              ('LOTS', 'Bullion Lots (${_lots.length})', Icons.layers_outlined),
-              ('VAULTS', 'Vaults (${_locations.length})', Icons.account_balance_outlined),
-              ('TRANSFORM', 'Transform (${_transformations.length})', Icons.merge_type_rounded),
-            ],
-          ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            color: Pal.teal,
-            onRefresh: _load,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(18, 4, 18, 96),
-              children: [
+      body: RefreshIndicator(
+        color: Pal.gold,
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 92),
+          children: [
                 // Custody Summary Strip
                 Panel(
                   color: Pal.obsidian,
@@ -450,8 +413,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
               ],
             ),
           ),
-        ),
-      ]),
     );
   }
 

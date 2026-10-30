@@ -276,10 +276,14 @@ class _MoreScreenState extends State<MoreScreen> {
       ),
     ];
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Enterprise SaaS Suite')),
+    return LuxuryModuleScaffold(
+      title: 'Enterprise SaaS Suite',
+      icon: Icons.grid_view_rounded,
+      searchController: _searchCtrl,
+      searchHint: 'Search SaaS module (GST, Refining, Accounting, Bank...)',
+      onSearchChanged: (_) => setState(() {}),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
           LuxuryHeroCard(
             padding: const EdgeInsets.all(18),
@@ -338,21 +342,6 @@ class _MoreScreenState extends State<MoreScreen> {
                 ),
               ]),
             ]),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _searchCtrl,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              hintText: 'Search SaaS module (GST, Refining, Accounting, Bank…)',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: q.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 18),
-                      onPressed: () => setState(_searchCtrl.clear),
-                    ),
-            ),
           ),
           for (final sec in sections) ...[
             Builder(builder: (_) {

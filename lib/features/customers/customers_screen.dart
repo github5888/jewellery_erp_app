@@ -96,154 +96,79 @@ class _CustomersScreenState extends State<CustomersScreen> {
   @override
   Widget build(BuildContext context) {
     final list = _filtered;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.picker ? 'Select Party' : 'Parties & CRM'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    return LuxuryModuleScaffold(
+      title: widget.picker ? 'Select Party' : 'Parties & Karigars',
+      icon: Icons.groups_rounded,
+      searchController: _q,
+      searchHint: 'Search by Name, Mobile, or Code...',
+      onSearchChanged: _onChanged,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        selected: _role,
+        onChanged: (r) {
+          setState(() => _role = r);
+          _load();
+        },
+        items: const [
+          ('ALL', 'All', Icons.groups_outlined),
+          ('CUSTOMER', 'Customers', Icons.person_outline_rounded),
+          ('SUPPLIER', 'Suppliers', Icons.local_shipping_outlined),
+          ('KARIGAR', 'Karigars', Icons.handyman_outlined),
+          ('REFINER', 'Refiners', Icons.balance_rounded),
+        ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: GoldAddFab(
         onPressed: _add,
-        backgroundColor: Pal.ink,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.person_add_alt_1_rounded),
-        label: Text('New Party', style: T.body(13.5, color: Colors.white, w: FontWeight.w700)),
+        tooltip: 'Register New Party',
       ),
-      body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 10),
-          child: TextField(
-            controller: _q,
-            onChanged: _onChanged,
-            decoration: InputDecoration(
-              hintText: 'Search name, mobile, code or GSTIN…',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _q.text.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 18),
-                      onPressed: () {
-                        _q.clear();
-                        _load();
-                      },
-                    ),
-            ),
-          ),
+      body: RefreshIndicator(
+        color: Pal.gold,
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 92),
+          children: [
+            if (_loading)
+              for (var i = 0; i < 4; i++)
+                const Padding(padding: EdgeInsets.only(bottom: 10), child: Panel(child: Skeleton(height: 64)))
+            else if (_error != null)
+              ErrorBlock(_error!, onRetry: _load)
+            else if (list.isEmpty)
+              Panel(
+                child: EmptyBlock(
+                  icon: Icons.people_outline_rounded,
+                  title: 'No matching parties',
+                  body: 'Register retail customers, VIP patrons, Karigar artisans, or bullion suppliers with KYC.',
+                  actionLabel: 'Register Party',
+                  onAction: _add,
+                ),
+              )
+            else
+              for (final p in list)
+                LuxuryRecordCard(
+                  onTap: () => widget.picker ? Navigator.pop(context, p) : _detail(p),
+                  icon: p.roles.contains('KARIGAR')
+                      ? Icons.handyman_rounded
+                      : p.roles.contains('SUPPLIER')
+                          ? Icons.local_shipping_outlined
+                          : Icons.person_rounded,
+                  code: p.name,
+                  status: p.primaryRoleLabel.toUpperCase(),
+                  lines: [
+                    if (p.phone.isNotEmpty) ('Mobile', p.phone),
+                    if (p.city.isNotEmpty) ('City', p.city),
+                    if (p.gstin.isNotEmpty) ('GSTIN', p.gstin),
+                  ],
+                  amountLabel: p.code.isNotEmpty ? 'Code' : 'Type',
+                  amountValue: p.code.isNotEmpty ? p.code : p.kind,
+                ),
+          ],
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-          child: PillTabs<String>(
-            selected: _role,
-            onChanged: (r) {
-              setState(() => _role = r);
-              _load();
-            },
-            items: const [
-              ('ALL', 'All Parties', Icons.groups_outlined),
-              ('CUSTOMER', 'Customers', Icons.person_outline_rounded),
-              ('KARIGAR', 'Karigars', Icons.handyman_outlined),
-              ('SUPPLIER', 'Suppliers', Icons.local_shipping_outlined),
-              ('REFINER', 'Refiners', Icons.balance_rounded),
-            ],
-          ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            color: Pal.teal,
-            onRefresh: _load,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(18, 4, 18, 96),
-              children: [
-                if (_loading)
-                  for (var i = 0; i < 4; i++)
-                    const Padding(padding: EdgeInsets.only(bottom: 10), child: Panel(child: Skeleton(height: 64)))
-                else if (_error != null)
-                  ErrorBlock(_error!, onRetry: _load)
-                else if (list.isEmpty)
-                  Panel(
-                    child: EmptyBlock(
-                      icon: Icons.people_outline_rounded,
-                      title: 'No matching parties',
-                      body: 'Register retail customers, VIP patrons, Karigar artisans, or bullion suppliers with KYC.',
-                      actionLabel: 'Register Party',
-                      onAction: _add,
-                    ),
-                  )
-                else
-                  for (final p in list)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Panel(
-                        onTap: () => widget.picker ? Navigator.pop(context, p) : _detail(p),
-                        child: Row(children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: p.roles.contains('KARIGAR')
-                                  ? Pal.tealWash
-                                  : p.roles.contains('SUPPLIER')
-                                      ? Pal.surfaceAlt
-                                      : Pal.goldWash,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: p.roles.contains('KARIGAR')
-                                    ? Pal.teal.withValues(alpha: 0.35)
-                                    : Pal.gold.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            child: Text(
-                              p.name.isEmpty ? '?' : p.name[0].toUpperCase(),
-                              style: T.display(
-                                18,
-                                color: p.roles.contains('KARIGAR') ? Pal.teal : Pal.goldDeep,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 13),
-                          Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Row(children: [
-                                Flexible(
-                                  child: Text(
-                                    p.name,
-                                    style: T.body(15, w: FontWeight.w800),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                if (p.code.isNotEmpty) ...[
-                                  const SizedBox(width: 6),
-                                  MonoTag(p.code),
-                                ],
-                              ]),
-                              const SizedBox(height: 3),
-                              Text(
-                                [
-                                  if (p.phone.isNotEmpty) p.phone,
-                                  if (p.city.isNotEmpty) p.city,
-                                  if (p.gstin.isNotEmpty) 'GSTIN',
-                                ].isEmpty
-                                    ? p.kind
-                                    : [
-                                        if (p.phone.isNotEmpty) p.phone,
-                                        if (p.city.isNotEmpty) p.city,
-                                        if (p.gstin.isNotEmpty) 'GST Registered',
-                                      ].join(' · '),
-                                style: T.body(12.2, color: Pal.muted),
-                              ),
-                            ]),
-                          ),
-                          const SizedBox(width: 8),
-                          Chip2(p.primaryRoleLabel, gold: p.roles.contains('CUSTOMER')),
-                        ]),
-                      ),
-                    ),
-              ],
-            ),
-          ),
-        ),
-      ]),
+      ),
     );
   }
 

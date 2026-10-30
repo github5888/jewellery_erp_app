@@ -13,7 +13,8 @@ import '../../core/workspace_lookup.dart';
 // ---------------------------------------------------------------------------
 
 class ProcurementScreen extends StatefulWidget {
-  const ProcurementScreen({super.key});
+  const ProcurementScreen({super.key, this.initialTab = 'PO'});
+  final String initialTab;
   @override
   State<ProcurementScreen> createState() => _ProcurementScreenState();
 }
@@ -76,12 +77,13 @@ class _PoDraftLine {
 }
 
 class _ProcurementScreenState extends State<ProcurementScreen> {
-  String _tab = 'PO';
+  late String _tab = widget.initialTab;
+  final _search = TextEditingController();
   Map<String, dynamic> _ws = const {};
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   String? _error;
-  bool _showPostingConfig = true;
+  bool _showPostingConfig = false;
   String? _activeForm; // null | 'PO' | 'GRN' | 'BILL' | 'RETURN'
   bool _busy = false;
 
@@ -162,7 +164,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   @override
   void dispose() {
     for (final c in [
-      _periodId, _journalSeriesId, _poSeriesId, _grnSeriesId, _billSeriesId, _returnSeriesId,
+      _search, _periodId, _journalSeriesId, _poSeriesId, _grnSeriesId, _billSeriesId, _returnSeriesId,
       _poSupplierId, _poOrderDate, _poDeliveryDate, _poCurrency, _poTerms,
       _lineDesc, _lineMetalId, _linePurityId, _lineUnitId, _lineQty, _linePieces,
       _lineGrossWt, _lineUnitCost, _lineTaxRate, _lineTolerance,
@@ -650,128 +652,131 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         .where((o) => o.id.isNotEmpty)
         .toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Procurement & Intake'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    final q = _search.text.trim().toLowerCase();
+    bool matches(Map<String, dynamic> m, List<String> fields) {
+      if (q.isEmpty) return true;
+      final sup = '${asMap(m['supplier'])['displayName'] ?? asMap(m['supplier'])['code'] ?? ''}'.toLowerCase();
+      if (sup.contains(q)) return true;
+      return fields.any((f) => '${m[f] ?? ''}'.toLowerCase().contains(q));
+    }
+
+    final fPos = pos.where((m) => matches(m, const ['documentNumber', 'orderNumber', 'id', 'state'])).toList();
+    final fGrns = grns.where((m) => matches(m, const ['documentNumber', 'supplierDeliveryNote', 'id', 'state'])).toList();
+    final fBills = bills.where((m) => matches(m, const ['supplierInvoiceNumber', 'documentNumber', 'id', 'state'])).toList();
+    final fRets = rets.where((m) => matches(m, const ['documentNumber', 'reason', 'id', 'state'])).toList();
+
+    final (pageTitle, searchHint, formTarget) = switch (_tab) {
+      'GRN' => ('Goods Receipts', 'Search by GRN / Supplier...', 'GRN'),
+      'BILLS' => ('Supplier Bills', 'Search by Bill No. / Supplier...', 'BILL'),
+      'RETURNS' => ('Returns / Debits', 'Search by Return No. / Supplier...', 'RETURN'),
+      _ => ('Purchase Orders', 'Search by PO No. / Supplier...', 'PO'),
+    };
+
+    return LuxuryModuleScaffold(
+      title: pageTitle,
+      icon: Icons.shopping_bag_outlined,
+      searchController: _search,
+      searchHint: searchHint,
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          tooltip: 'Posting Series & Period',
+          onPressed: () => setState(() => _showPostingConfig = !_showPostingConfig),
+          icon: Icon(
+            _showPostingConfig ? Icons.tune_rounded : Icons.settings_outlined,
+            color: Pal.goldSoft,
+          ),
+        ),
+        IconButton(
+          tooltip: 'Refresh',
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _tab,
+        onChanged: (v) => setState(() {
+          _tab = v;
+          _activeForm = null;
+        }),
+        tabs: [
+          ('PO', 'Orders (${pos.length})'),
+          ('GRN', 'Receipts (${grns.length})'),
+          ('BILLS', 'Bills (${bills.length})'),
+          ('RETURNS', 'Returns (${rets.length})'),
+        ],
+      ),
+      floatingActionButton: GoldAddFab(
+        icon: _activeForm == formTarget ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New $pageTitle',
+        onPressed: () => setState(() {
+          _activeForm = _activeForm == formTarget ? null : formTarget;
+        }),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.shopping_cart_outlined,
-              title: 'Procurement and Supplier Lifecycle',
-              subtitle:
-                  'Purchase orders, goods receipt with QC, supplier bill matching, and purchase returns / debit notes.',
-            ),
-            const SizedBox(height: 14),
-            PillTabs<String>(
-              value: _tab,
-              onChanged: (v) => setState(() => _tab = v),
-              tabs: [
-                ('PO', 'Purchase Orders (${pos.length})'),
-                ('GRN', 'Goods Receipts (${grns.length})'),
-                ('BILLS', 'Supplier Bills (${bills.length})'),
-                ('RETURNS', 'Returns / Debits (${rets.length})'),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () => setState(() => _activeForm = _activeForm == 'PO' ? null : 'PO'),
-                    icon: const Icon(Icons.add_rounded, size: 17),
-                    label: const Text('+ New PO'),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => setState(() => _activeForm = _activeForm == 'GRN' ? null : 'GRN'),
-                    icon: const Icon(Icons.inventory_rounded, size: 16),
-                    label: const Text('+ GRN'),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => setState(() => _activeForm = _activeForm == 'BILL' ? null : 'BILL'),
-                    icon: const Icon(Icons.receipt_long_outlined, size: 16),
-                    label: const Text('+ Supplier Bill'),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => setState(() => _activeForm = _activeForm == 'RETURN' ? null : 'RETURN'),
-                    icon: const Icon(Icons.assignment_return_outlined, size: 16),
-                    label: const Text('+ Debit Note'),
-                  ),
-                ],
-              ),
-            ),
-            if (_error != null) ...[const SizedBox(height: 10), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
 
-            // Controlled posting configuration card (Screenshot 677)
-            SaasFormCard(
-              title: 'Controlled posting configuration',
-              subtitle:
-                  'Required series and period IDs are validated by the API; blank values keep posting actions disabled.',
-              trailing: TextButton(
-                onPressed: () => setState(() => _showPostingConfig = !_showPostingConfig),
-                child: Text(_showPostingConfig ? 'Hide' : 'Show'),
-              ),
-              child: _showPostingConfig
-                  ? Column(
-                      children: [
-                        LookupField(
-                          label: 'Posting Period UUID',
-                          controller: _periodId,
-                          options: _lk.openPeriods(),
-                          hint: 'Posting Period UUID',
-                        ),
-                        const SizedBox(height: 10),
-                        LookupField(
-                          label: 'Journal Series UUID',
-                          controller: _journalSeriesId,
-                          options: _lk.seriesFor(const ['JOURNAL']),
-                          hint: 'Journal Series UUID',
-                        ),
-                        const SizedBox(height: 10),
-                        LookupField(
-                          label: 'Purchase Order Series UUID',
-                          controller: _poSeriesId,
-                          options: _lk.seriesFor(const ['PURCHASE_ORDER', 'PO']),
-                          hint: 'Purchase Order Series UUID',
-                        ),
-                        const SizedBox(height: 10),
-                        LookupField(
-                          label: 'Goods Receipt Series UUID',
-                          controller: _grnSeriesId,
-                          options: _lk.seriesFor(const ['GOODS_RECEIPT', 'GRN']),
-                          hint: 'Goods Receipt Series UUID',
-                        ),
-                        const SizedBox(height: 10),
-                        LookupField(
-                          label: 'Supplier Bill Series UUID',
-                          controller: _billSeriesId,
-                          options: _lk.seriesFor(const ['SUPPLIER_BILL', 'BILL']),
-                          hint: 'Supplier Bill Series UUID',
-                        ),
-                        const SizedBox(height: 10),
-                        LookupField(
-                          label: 'Debit Note Series UUID',
-                          controller: _returnSeriesId,
-                          options: _lk.seriesFor(const ['PURCHASE_RETURN', 'DEBIT']),
-                          hint: 'Debit Note Series UUID',
-                        ),
-                      ],
-                    )
-                  : Text(
-                      'Posting period & document series configured.',
-                      style: T.body(12.2, color: Pal.muted),
+            if (_showPostingConfig) ...[
+              SaasFormCard(
+                title: 'Controlled posting configuration',
+                subtitle: 'Series and open period UUIDs used when posting PO, GRN, Bill, or Return.',
+                trailing: TextButton(
+                  onPressed: () => setState(() => _showPostingConfig = false),
+                  child: const Text('Done'),
+                ),
+                child: Column(
+                  children: [
+                    LookupField(
+                      label: 'Posting Period UUID',
+                      controller: _periodId,
+                      options: _lk.openPeriods(),
+                      hint: 'Posting Period UUID',
                     ),
-            ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Journal Series UUID',
+                      controller: _journalSeriesId,
+                      options: _lk.seriesFor(const ['JOURNAL']),
+                      hint: 'Journal Series UUID',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Purchase Order Series UUID',
+                      controller: _poSeriesId,
+                      options: _lk.seriesFor(const ['PURCHASE_ORDER', 'PO']),
+                      hint: 'Purchase Order Series UUID',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Goods Receipt Series UUID',
+                      controller: _grnSeriesId,
+                      options: _lk.seriesFor(const ['GOODS_RECEIPT', 'GRN']),
+                      hint: 'Goods Receipt Series UUID',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Supplier Bill Series UUID',
+                      controller: _billSeriesId,
+                      options: _lk.seriesFor(const ['SUPPLIER_BILL', 'BILL']),
+                      hint: 'Supplier Bill Series UUID',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Debit Note Series UUID',
+                      controller: _returnSeriesId,
+                      options: _lk.seriesFor(const ['PURCHASE_RETURN', 'DEBIT']),
+                      hint: 'Debit Note Series UUID',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
 
             if (_activeForm == 'PO') ...[
               const SizedBox(height: 14),
@@ -1186,180 +1191,124 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_tab == 'PO')
-              pos.isEmpty
-                  ? const SaasEmptyBox('No purchase orders recorded yet.')
+              fPos.isEmpty
+                  ? const SaasEmptyBox('No purchase orders found. Tap + to create a Purchase Order.')
                   : Column(
                       children: [
-                        for (final po in pos)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: SectionCard(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '${asMap(po['supplier'])['code'] ?? ''} · ${asMap(po['supplier'])['displayName'] ?? 'Supplier'}',
-                                          style: T.body(14, w: FontWeight.w700),
-                                        ),
-                                      ),
-                                      StatusChip('${po['state'] ?? 'DRAFT'}'),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  KVRow('Order Date', fmtDate('${po['orderDate'] ?? ''}')),
-                                  KVRow('Subtotal / Tax', '${inr(po['subtotalAmount'])} / ${inr(po['taxAmount'])}'),
-                                  KVRow('Total Amount', inr(po['totalAmount']), bold: true),
-                                  if ('${po['state']}' == 'DRAFT') ...[
-                                    const SizedBox(height: 8),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: ElevatedButton.icon(
-                                        onPressed: _busy ? null : () => _approvePo(po),
-                                        icon: const Icon(Icons.check_circle_outline_rounded, size: 15),
-                                        label: const Text('Approve'),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
+                        for (final po in fPos)
+                          LuxuryRecordCard(
+                            icon: Icons.shopping_bag_outlined,
+                            code: '${po['documentNumber'] ?? po['orderNumber'] ?? shortId('${po['id']}')}',
+                            status: '${po['state'] ?? 'DRAFT'}',
+                            lines: [
+                              ('Supplier', '${asMap(po['supplier'])['displayName'] ?? asMap(po['supplier'])['code'] ?? 'Supplier'}'),
+                              ('Date', fmtDate('${po['orderDate'] ?? ''}')),
+                              ('Subtotal / Tax', '${inr(po['subtotalAmount'])} · GST ${inr(po['taxAmount'])}'),
+                            ],
+                            amountLabel: 'Total',
+                            amountValue: inr(po['totalAmount']),
+                            actions: [
+                              if ('${po['state']}' == 'DRAFT')
+                                GoldButton(
+                                  label: 'Approve PO',
+                                  compact: true,
+                                  busy: _busy,
+                                  icon: Icons.check_circle_outline_rounded,
+                                  onPressed: () => _approvePo(po),
+                                ),
+                            ],
                           ),
                       ],
                     )
             else if (_tab == 'GRN')
-              grns.isEmpty
-                  ? const SaasEmptyBox('No goods receipts recorded yet.')
+              fGrns.isEmpty
+                  ? const SaasEmptyBox('No goods receipts found. Tap + to record a Goods Receipt.')
                   : Column(
                       children: [
-                        for (final grn in grns)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: SectionCard(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '${asMap(grn['supplier'])['displayName'] ?? 'GRN'} · ${fmtDate('${grn['receiptDate'] ?? ''}')}',
-                                          style: T.body(14, w: FontWeight.w700),
-                                        ),
-                                      ),
-                                      StatusChip('${grn['state'] ?? 'DRAFT'}'),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  KVRow('Delivery Note', '${grn['supplierDeliveryNote'] ?? '—'}'),
-                                  KVRow('Accepted Net', inr(grn['acceptedNetAmount']), bold: true),
-                                  if ('${grn['state']}' == 'DRAFT') ...[
-                                    const SizedBox(height: 8),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: ElevatedButton.icon(
-                                        onPressed: _busy ? null : () => _postGrn(grn),
-                                        icon: const Icon(Icons.inventory_2_outlined, size: 15),
-                                        label: const Text('Post GRN'),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
+                        for (final grn in fGrns)
+                          LuxuryRecordCard(
+                            icon: Icons.inventory_outlined,
+                            code: '${grn['documentNumber'] ?? shortId('${grn['id']}')}',
+                            status: '${grn['state'] ?? 'DRAFT'}',
+                            lines: [
+                              ('Supplier', '${asMap(grn['supplier'])['displayName'] ?? 'Supplier'}'),
+                              ('Date', fmtDate('${grn['receiptDate'] ?? ''}')),
+                              ('Delivery Note', '${grn['supplierDeliveryNote'] ?? '—'}'),
+                            ],
+                            amountLabel: 'Accepted Net',
+                            amountValue: inr(grn['acceptedNetAmount']),
+                            actions: [
+                              if ('${grn['state']}' == 'DRAFT')
+                                GoldButton(
+                                  label: 'Post GRN',
+                                  compact: true,
+                                  busy: _busy,
+                                  icon: Icons.inventory_2_outlined,
+                                  onPressed: () => _postGrn(grn),
+                                ),
+                            ],
                           ),
                       ],
                     )
             else if (_tab == 'BILLS')
-              bills.isEmpty
-                  ? const SaasEmptyBox('No supplier bills recorded yet.')
+              fBills.isEmpty
+                  ? const SaasEmptyBox('No supplier bills found. Tap + to match a Supplier Bill.')
                   : Column(
                       children: [
-                        for (final bill in bills)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: SectionCard(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '${bill['supplierInvoiceNumber'] ?? ''} · ${asMap(bill['supplier'])['displayName'] ?? ''}',
-                                          style: T.body(14, w: FontWeight.w700),
-                                        ),
-                                      ),
-                                      StatusChip('${bill['state'] ?? 'DRAFT'}'),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  KVRow('Posting Date', fmtDate('${bill['postingDate'] ?? ''}')),
-                                  KVRow('Matched GRN / Variance', '${inr(bill['matchedReceiptNetAmount'])} / ${inr(bill['varianceAmount'])}'),
-                                  KVRow('Total Amount', inr(bill['totalAmount']), bold: true),
-                                  if ('${bill['state']}' == 'DRAFT') ...[
-                                    const SizedBox(height: 8),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: ElevatedButton.icon(
-                                        onPressed: _busy ? null : () => _postBill(bill),
-                                        icon: const Icon(Icons.task_alt_rounded, size: 15),
-                                        label: const Text('Post Bill'),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
+                        for (final bill in fBills)
+                          LuxuryRecordCard(
+                            icon: Icons.receipt_long_outlined,
+                            code: '${bill['supplierInvoiceNumber'] ?? bill['documentNumber'] ?? shortId('${bill['id']}')}',
+                            status: '${bill['state'] ?? 'DRAFT'}',
+                            lines: [
+                              ('Supplier', '${asMap(bill['supplier'])['displayName'] ?? 'Supplier'}'),
+                              ('Date', fmtDate('${bill['postingDate'] ?? ''}')),
+                              ('Matched / Variance', '${inr(bill['matchedReceiptNetAmount'])} · Var ${inr(bill['varianceAmount'])}'),
+                            ],
+                            amountLabel: 'Total',
+                            amountValue: inr(bill['totalAmount']),
+                            actions: [
+                              if ('${bill['state']}' == 'DRAFT')
+                                GoldButton(
+                                  label: 'Post Bill',
+                                  compact: true,
+                                  busy: _busy,
+                                  icon: Icons.task_alt_rounded,
+                                  onPressed: () => _postBill(bill),
+                                ),
+                            ],
                           ),
                       ],
                     )
             else
-              rets.isEmpty
-                  ? const SaasEmptyBox('No purchase returns recorded yet.')
+              fRets.isEmpty
+                  ? const SaasEmptyBox('No purchase returns found. Tap + to create a Debit Note.')
                   : Column(
                       children: [
-                        for (final ret in rets)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: SectionCard(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '${ret['documentNumber'] ?? shortId('${ret['id']}')} · ${asMap(ret['supplier'])['displayName'] ?? ''}',
-                                          style: T.body(14, w: FontWeight.w700),
-                                        ),
-                                      ),
-                                      StatusChip('${ret['state'] ?? 'DRAFT'}'),
-                                    ],
+                        for (final ret in fRets)
+                          LuxuryRecordCard(
+                            icon: Icons.assignment_return_outlined,
+                            code: '${ret['documentNumber'] ?? shortId('${ret['id']}')}',
+                            status: '${ret['state'] ?? 'DRAFT'}',
+                            lines: [
+                              ('Supplier', '${asMap(ret['supplier'])['displayName'] ?? 'Supplier'}'),
+                              ('Date', fmtDate('${ret['returnDate'] ?? ''}')),
+                              ('Outstanding', inr(ret['outstandingAmount'])),
+                            ],
+                            amountLabel: 'Amount',
+                            amountValue: inr(ret['totalAmount']),
+                            actions: [
+                              if ('${ret['state']}' == 'DRAFT' || '${ret['state']}' == 'APPROVED')
+                                GoldButton(
+                                  label: '${ret['state']}' == 'DRAFT' ? 'Approve' : 'Post Return',
+                                  compact: true,
+                                  busy: _busy,
+                                  onPressed: () => _returnAction(
+                                    ret,
+                                    '${ret['state']}' == 'DRAFT' ? 'approve' : 'post',
                                   ),
-                                  const SizedBox(height: 6),
-                                  KVRow('Return Date', fmtDate('${ret['returnDate'] ?? ''}')),
-                                  KVRow('Total / Open', '${inr(ret['totalAmount'])} / ${inr(ret['outstandingAmount'])}', bold: true),
-                                  if ('${ret['state']}' == 'DRAFT' || '${ret['state']}' == 'APPROVED') ...[
-                                    const SizedBox(height: 8),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: ElevatedButton(
-                                        onPressed: _busy
-                                            ? null
-                                            : () => _returnAction(
-                                                  ret,
-                                                  '${ret['state']}' == 'DRAFT' ? 'approve' : 'post',
-                                                ),
-                                        child: Text('${ret['state']}' == 'DRAFT' ? 'Approve' : 'Post Return'),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
+                                ),
+                            ],
                           ),
                       ],
                     ),
@@ -1381,6 +1330,9 @@ class JobWorkScreen extends StatefulWidget {
 }
 
 class _JobWorkScreenState extends State<JobWorkScreen> {
+  final _search = TextEditingController();
+  String _filter = 'ALL';
+  bool _showForm = false;
   List<Map<String, dynamic>> _orders = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
@@ -1406,7 +1358,7 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
   @override
   void dispose() {
     for (final c in [
-      _karigarPartyId, _custodyLocationId, _jobSeriesId,
+      _search, _karigarPartyId, _custodyLocationId, _jobSeriesId,
       _businessDate, _promisedDate, _allowedLoss, _spec,
     ]) {
       c.dispose();
@@ -1478,6 +1430,7 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
       );
       if (!mounted) return;
       _spec.clear();
+      setState(() => _showForm = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Controlled Karigar work order created.')),
       );
@@ -1491,144 +1444,166 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Karigar Job Work'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    final q = _search.text.trim().toLowerCase();
+    bool isDone(Map<String, dynamic> w) {
+      final s = '${w['state'] ?? w['status'] ?? ''}'.toUpperCase();
+      return s == 'COMPLETED' || s == 'CLOSED' || s == 'RECONCILED';
+    }
+
+    final inProcCount = _orders.where((w) => !isDone(w)).length;
+    final doneCount = _orders.where(isDone).length;
+
+    final filtered = _orders.where((w) {
+      if (_filter == 'IN_PROCESS' && isDone(w)) return false;
+      if (_filter == 'COMPLETED' && !isDone(w)) return false;
+      if (q.isEmpty) return true;
+      final hay = '${w['documentNumber'] ?? ''} ${w['jobNumber'] ?? ''} ${asMap(w['karigar'])['displayName'] ?? ''} ${w['description'] ?? ''}'.toLowerCase();
+      return hay.contains(q);
+    }).toList();
+
+    return LuxuryModuleScaffold(
+      title: 'Karigar Job Work',
+      icon: Icons.handyman_outlined,
+      searchController: _search,
+      searchHint: 'Search by Karigar / Job No...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _filter,
+        onChanged: (v) => setState(() => _filter = v),
+        tabs: [
+          ('ALL', 'All (${_orders.length})'),
+          ('IN_PROCESS', 'In Process ($inProcCount)'),
+          ('COMPLETED', 'Completed ($doneCount)'),
+        ],
+      ),
+      floatingActionButton: GoldAddFab(
+        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New Work Order',
+        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.handyman_outlined,
-              title: 'Karigar & Internal Job Work',
-              subtitle:
-                  'Fine-metal controlled issue, external custody, assay receipt, approved process loss, labour payable and exact reconciliation.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'New work order',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SaasDropdown(
-                    label: 'Execution',
-                    value: _execution,
-                    options: const {
-                      'KARIGAR': 'KARIGAR',
-                      'INTERNAL': 'INTERNAL',
-                    },
-                    onChanged: (v) => setState(() => _execution = v),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Karigar party UUID',
-                    controller: _karigarPartyId,
-                    options: _lk.partiesByRole('KARIGAR'),
-                    optional: _execution == 'INTERNAL',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'External custody location UUID',
-                    controller: _custodyLocationId,
-                    options: _lk.locationsByType(const ['EXTERNAL_CUSTODY', 'VAULT']),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Job series UUID',
-                    controller: _jobSeriesId,
-                    options: _lk.seriesFor(const ['JOB', 'WORK_ORDER']),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: DatePickField(label: 'Business date', controller: _businessDate)),
-                      const SizedBox(width: 10),
-                      Expanded(child: DatePickField(label: 'Promised date', controller: _promisedDate)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SaasDropdown(
-                          label: 'Settlement',
-                          value: _settlement,
-                          options: const {
-                            'MIXED': 'MIXED',
-                            'CASH': 'CASH',
-                            'FINE_METAL': 'FINE_METAL',
-                          },
-                          onChanged: (v) => setState(() => _settlement = v),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasField(
-                          label: 'Allowed fine loss g',
-                          controller: _allowedLoss,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  SaasField(
-                    label: 'Specification / work description',
-                    controller: _spec,
-                  ),
-                  const SizedBox(height: 14),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : _createJob,
-                      child: Text(_busy ? 'Creating…' : 'Create controlled job'),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_showForm) ...[
+              SaasFormCard(
+                title: 'New work order',
+                subtitle: 'Fine-metal controlled karigar / internal job order.',
+                trailing: TextButton(
+                  onPressed: () => setState(() => _showForm = false),
+                  child: const Text('Close'),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SaasDropdown(
+                      label: 'Execution',
+                      value: _execution,
+                      options: const {
+                        'KARIGAR': 'KARIGAR',
+                        'INTERNAL': 'INTERNAL',
+                      },
+                      onChanged: (v) => setState(() => _execution = v),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Karigar party UUID',
+                      controller: _karigarPartyId,
+                      options: _lk.partiesByRole('KARIGAR'),
+                      optional: _execution == 'INTERNAL',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'External custody location UUID',
+                      controller: _custodyLocationId,
+                      options: _lk.locationsByType(const ['EXTERNAL_CUSTODY', 'VAULT']),
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Job series UUID',
+                      controller: _jobSeriesId,
+                      options: _lk.seriesFor(const ['JOB', 'WORK_ORDER']),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: DatePickField(label: 'Business date', controller: _businessDate)),
+                        const SizedBox(width: 10),
+                        Expanded(child: DatePickField(label: 'Promised date', controller: _promisedDate)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasDropdown(
+                            label: 'Settlement',
+                            value: _settlement,
+                            options: const {
+                              'MIXED': 'MIXED',
+                              'CASH': 'CASH',
+                              'FINE_METAL': 'FINE_METAL',
+                            },
+                            onChanged: (v) => setState(() => _settlement = v),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Allowed fine loss g',
+                            controller: _allowedLoss,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Specification / work description',
+                      controller: _spec,
+                    ),
+                    const SizedBox(height: 14),
+                    GoldButton(
+                      label: _busy ? 'Creating…' : 'Create Controlled Job',
+                      busy: _busy,
+                      onPressed: _createJob,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_orders.isEmpty)
-              const SaasEmptyBox('No work orders yet.')
+            else if (filtered.isEmpty)
+              const SaasEmptyBox('No work orders found. Tap + to create a Karigar work order.')
             else
-              for (final w in _orders)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${w['documentNumber'] ?? w['jobNumber'] ?? shortId('${w['id']}')} · ${asMap(w['karigar'])['displayName'] ?? w['executionMode'] ?? 'KARIGAR'}',
-                                style: T.body(14, w: FontWeight.w700),
-                              ),
-                            ),
-                            StatusChip('${w['state'] ?? w['status'] ?? 'OPEN'}'),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        KVRow('Business / Promised', '${fmtDate('${w['businessDate'] ?? ''}')} → ${fmtDate('${w['promisedDate'] ?? ''}')}'),
-                        KVRow('Settlement / Allowed Loss', '${w['settlementMode'] ?? 'MIXED'} · ${grams(w['allowedFineLossGrams'])}'),
-                        KVRow('Issued / Received Fine', '${grams(w['issuedFineGrams'])} / ${grams(w['receivedFineGrams'])}', bold: true),
-                        if ('${w['description'] ?? ''}'.isNotEmpty)
-                          KVRow('Specification', '${w['description']}'),
-                      ],
-                    ),
-                  ),
+              for (final w in filtered)
+                LuxuryRecordCard(
+                  icon: Icons.handyman_outlined,
+                  code: '${w['documentNumber'] ?? w['jobNumber'] ?? shortId('${w['id']}')}',
+                  status: '${w['state'] ?? w['status'] ?? 'OPEN'}',
+                  lines: [
+                    ('Karigar', '${asMap(w['karigar'])['displayName'] ?? w['executionMode'] ?? 'KARIGAR'}'),
+                    ('Date', '${fmtDate('${w['businessDate'] ?? ''}')} → ${fmtDate('${w['promisedDate'] ?? ''}')}'),
+                    if ('${w['description'] ?? ''}'.isNotEmpty) ('Items', '${w['description']}'),
+                    ('Settlement', '${w['settlementMode'] ?? 'MIXED'} · Loss ${grams(w['allowedFineLossGrams'])}'),
+                  ],
+                  amountLabel: 'Issued / Recv Fine',
+                  amountValue: '${grams(w['issuedFineGrams'])} / ${grams(w['receivedFineGrams'])}',
                 ),
           ],
         ),
@@ -1661,6 +1636,9 @@ class _MemoLine {
 }
 
 class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
+  final _search = TextEditingController();
+  String _filter = 'ALL';
+  bool _showForm = false;
   List<Map<String, dynamic>> _memos = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
@@ -1690,7 +1668,7 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
   @override
   void dispose() {
     for (final c in [
-      _partyId, _custodyLocationId, _memoSeriesId, _memoDate,
+      _search, _partyId, _custodyLocationId, _memoSeriesId, _memoDate,
       _dueDate, _currency, _terms, _eligibleArticleId, _taxableAmt, _taxAmt,
     ]) {
       c.dispose();
@@ -1789,7 +1767,10 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
         },
       );
       if (!mounted) return;
-      setState(() => _lines.clear());
+      setState(() {
+        _lines.clear();
+        _showForm = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Approval / consignment memo created.')),
       );
@@ -1804,186 +1785,204 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
   @override
   Widget build(BuildContext context) {
     final roleFilter = _direction == 'CUSTOMER_OUTBOUND' ? 'CUSTOMER' : 'SUPPLIER';
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Approval & Consignment'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    final q = _search.text.trim().toLowerCase();
+    final approvalsCount = _memos.where((m) => '${m['direction']}'.contains('OUTBOUND')).length;
+    final consignCount = _memos.where((m) => '${m['direction']}'.contains('INBOUND')).length;
+
+    final filtered = _memos.where((m) {
+      if (_filter == 'APPROVALS' && !'${m['direction']}'.contains('OUTBOUND')) return false;
+      if (_filter == 'CONSIGNMENTS' && !'${m['direction']}'.contains('INBOUND')) return false;
+      if (q.isEmpty) return true;
+      final hay = '${m['documentNumber'] ?? ''} ${m['memoNumber'] ?? ''} ${asMap(m['party'])['displayName'] ?? ''} ${m['direction'] ?? ''}'.toLowerCase();
+      return hay.contains(q);
+    }).toList();
+
+    return LuxuryModuleScaffold(
+      title: 'Approval & Consignment',
+      icon: Icons.fact_check_outlined,
+      searchController: _search,
+      searchHint: 'Search by Memo No. / Party...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _filter,
+        onChanged: (v) => setState(() => _filter = v),
+        tabs: [
+          ('ALL', 'All (${_memos.length})'),
+          ('APPROVALS', 'Approvals ($approvalsCount)'),
+          ('CONSIGNMENTS', 'Consignments ($consignCount)'),
+        ],
+      ),
+      floatingActionButton: GoldAddFab(
+        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New Approval / Consignment Memo',
+        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.handshake_outlined,
-              title: 'Approval & Consignment Memos',
-              subtitle:
-                  'Keep entity-owned outbound approvals separate from supplier-owned inbound consignment until conversion.',
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'New approval memo',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SaasDropdown(
-                    label: 'Direction',
-                    value: _direction,
-                    options: const {
-                      'CUSTOMER_OUTBOUND': 'Customer outbound approval',
-                      'SUPPLIER_INBOUND': 'Supplier inbound consignment',
-                    },
-                    onChanged: (v) => setState(() {
-                      _direction = v;
-                      _partyId.clear();
-                    }),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Party',
-                    controller: _partyId,
-                    options: _lk.partiesByRole(roleFilter),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Custody location',
-                    controller: _custodyLocationId,
-                    options: _lk.locationsByType(const ['CUSTOMER_CUSTODY', 'EXTERNAL_CUSTODY', 'VAULT']),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Memo series',
-                    controller: _memoSeriesId,
-                    options: _lk.seriesFor(const ['APPROVAL', 'MEMO', 'CONSIGNMENT']),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: DatePickField(label: 'Memo date', controller: _memoDate)),
-                      const SizedBox(width: 10),
-                      Expanded(child: DatePickField(label: 'Due date', controller: _dueDate)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: SaasField(label: 'Currency', controller: _currency, mono: true)),
-                      const SizedBox(width: 10),
-                      Expanded(child: SaasField(label: 'Terms', controller: _terms)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  SaasSubBox(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_showForm) ...[
+              SaasFormCard(
+                title: 'New approval memo',
+                subtitle: 'Outbound customer approval or inbound supplier consignment.',
+                trailing: TextButton(
+                  onPressed: () => setState(() => _showForm = false),
+                  child: const Text('Close'),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SaasDropdown(
+                      label: 'Direction',
+                      value: _direction,
+                      options: const {
+                        'CUSTOMER_OUTBOUND': 'Customer outbound approval',
+                        'SUPPLIER_INBOUND': 'Supplier inbound consignment',
+                      },
+                      onChanged: (v) => setState(() {
+                        _direction = v;
+                        _partyId.clear();
+                      }),
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Party',
+                      controller: _partyId,
+                      options: _lk.partiesByRole(roleFilter),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Custody location',
+                      controller: _custodyLocationId,
+                      options: _lk.locationsByType(const ['CUSTOMER_CUSTODY', 'EXTERNAL_CUSTODY', 'VAULT']),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Memo series',
+                      controller: _memoSeriesId,
+                      options: _lk.seriesFor(const ['APPROVAL', 'MEMO', 'CONSIGNMENT']),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
                       children: [
-                        LookupField(
-                          label: 'Eligible article',
-                          controller: _eligibleArticleId,
-                          options: _lk.articles,
-                          hint: 'Select',
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SaasField(
-                                label: 'Taxable amount',
-                                controller: _taxableAmt,
-                                mono: true,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: SaasField(
-                                label: 'Tax amount',
-                                controller: _taxAmt,
-                                mono: true,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton(
-                            onPressed: _addLine,
-                            child: const Text('Add line'),
+                        Expanded(child: DatePickField(label: 'Memo date', controller: _memoDate)),
+                        const SizedBox(width: 10),
+                        Expanded(child: DatePickField(label: 'Due date', controller: _dueDate)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: SaasField(label: 'Currency', controller: _currency, mono: true)),
+                        const SizedBox(width: 10),
+                        Expanded(child: SaasField(label: 'Terms', controller: _terms)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SaasSubBox(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          LookupField(
+                            label: 'Eligible article',
+                            controller: _eligibleArticleId,
+                            options: _lk.articles,
+                            hint: 'Select',
                           ),
-                        ),
-                        for (var i = 0; i < _lines.length; i++) ...[
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Row(
                             children: [
                               Expanded(
-                                child: Text(
-                                  '${_lines[i].articleLabel} · Taxable ₹${_lines[i].taxableAmount} + Tax ₹${_lines[i].taxAmount}',
-                                  style: T.body(12.2, w: FontWeight.w600),
+                                child: SaasField(
+                                  label: 'Taxable amount',
+                                  controller: _taxableAmt,
+                                  mono: true,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                 ),
                               ),
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
-                                onPressed: () => setState(() => _lines.removeAt(i)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Tax amount',
+                                  controller: _taxAmt,
+                                  mono: true,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                ),
                               ),
                             ],
                           ),
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton(
+                              onPressed: _addLine,
+                              child: const Text('+ Add line'),
+                            ),
+                          ),
+                          for (var i = 0; i < _lines.length; i++) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${_lines[i].articleLabel} · Taxable ₹${_lines[i].taxableAmount} + Tax ₹${_lines[i].taxAmount}',
+                                    style: T.body(12.2, w: FontWeight.w600),
+                                  ),
+                                ),
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
+                                  onPressed: () => setState(() => _lines.removeAt(i)),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : _createMemo,
-                      child: Text(_busy ? 'Saving…' : 'Create memo'),
+                    const SizedBox(height: 14),
+                    GoldButton(
+                      label: _busy ? 'Saving…' : 'Create Memo',
+                      busy: _busy,
+                      onPressed: _createMemo,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_memos.isEmpty)
-              const SaasEmptyBox('No approval or consignment memos yet.')
+            else if (filtered.isEmpty)
+              const SaasEmptyBox('No approval or consignment memos found. Tap + to create a memo.')
             else
-              for (final m in _memos)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${m['documentNumber'] ?? m['memoNumber'] ?? shortId('${m['id']}')} · ${asMap(m['party'])['displayName'] ?? m['direction'] ?? ''}',
-                                style: T.body(14, w: FontWeight.w700),
-                              ),
-                            ),
-                            StatusChip('${m['state'] ?? m['status'] ?? 'OPEN'}'),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        KVRow('Direction', '${m['direction'] ?? ''}'),
-                        KVRow('Memo / Due Date', '${fmtDate('${m['memoDate'] ?? ''}')} → ${fmtDate('${m['dueDate'] ?? ''}')}'),
-                        KVRow('Total Amount', inr(m['totalAmount'] ?? m['taxableAmount']), bold: true),
-                      ],
-                    ),
-                  ),
+              for (final m in filtered)
+                LuxuryRecordCard(
+                  icon: Icons.verified_user_outlined,
+                  code: '${m['documentNumber'] ?? m['memoNumber'] ?? shortId('${m['id']}')}',
+                  status: '${m['state'] ?? m['status'] ?? 'OPEN'}',
+                  lines: [
+                    ('Party', '${asMap(m['party'])['displayName'] ?? '—'}'),
+                    ('Direction', '${m['direction'] ?? ''}'),
+                    ('Date', '${fmtDate('${m['memoDate'] ?? ''}')} → ${fmtDate('${m['dueDate'] ?? ''}')}'),
+                  ],
+                  amountLabel: 'Amount',
+                  amountValue: inr(m['totalAmount'] ?? m['taxableAmount']),
                 ),
           ],
         ),
@@ -2003,6 +2002,9 @@ class WholesaleRateFixingScreen extends StatefulWidget {
 }
 
 class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
+  final _search = TextEditingController();
+  String _filter = 'ALL';
+  bool _showForm = false;
   Map<String, dynamic> _ws = const {};
   List<Map<String, dynamic>> _contracts = [];
   WorkspaceLookup _lk = WorkspaceLookup();
@@ -2035,7 +2037,7 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
   @override
   void dispose() {
     for (final c in [
-      _partyId, _metalId, _purityId, _unitId, _seriesId,
+      _search, _partyId, _metalId, _purityId, _unitId, _seriesId,
       _contractDate, _fixingDeadline, _deliveryDeadline,
       _contractQty, _exactFineGrams, _toleranceGrams,
       _settlementDueDays, _currency, _terms,
@@ -2126,6 +2128,7 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
       _contractQty.clear();
       _exactFineGrams.clear();
       _terms.clear();
+      setState(() => _showForm = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Draft metal-denominated contract created.')),
       );
@@ -2146,200 +2149,216 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
     final unsettledVal = inr(sum['unsettledMatchedValue'] ?? '0.00');
     final roleFilter = _direction == 'CUSTOMER_SALE' ? 'CUSTOMER' : 'SUPPLIER';
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Wholesale Rate Fixing'),
-        actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
+    final q = _search.text.trim().toLowerCase();
+    final salesCount = _contracts.where((c) => '${c['direction']}'.contains('SALE')).length;
+    final purchCount = _contracts.where((c) => '${c['direction']}'.contains('PURCHASE')).length;
+    final filtered = _contracts.where((c) {
+      if (_filter == 'SALE' && !'${c['direction']}'.contains('SALE')) return false;
+      if (_filter == 'PURCHASE' && !'${c['direction']}'.contains('PURCHASE')) return false;
+      if (q.isEmpty) return true;
+      final hay = '${c['documentNumber'] ?? ''} ${c['contractNumber'] ?? ''} ${asMap(c['party'])['displayName'] ?? ''}'.toLowerCase();
+      return hay.contains(q);
+    }).toList();
+
+    return LuxuryModuleScaffold(
+      title: 'Wholesale Rate Fixing',
+      icon: Icons.lock_clock_rounded,
+      searchController: _search,
+      searchHint: 'Search by Contract No. / Party...',
+      onSearchChanged: (_) => setState(() {}),
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      topFilterBar: PillTabs<String>(
+        value: _filter,
+        onChanged: (v) => setState(() => _filter = v),
+        tabs: [
+          ('ALL', 'All (${_contracts.length})'),
+          ('SALE', 'Sales ($salesCount)'),
+          ('PURCHASE', 'Purchases ($purchCount)'),
+        ],
+      ),
+      floatingActionButton: GoldAddFab(
+        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: 'New Unfixed Contract',
+        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
           children: [
-            const SaasModuleHeader(
-              icon: Icons.trending_up_rounded,
-              title: 'Wholesale & Metal Rate Fixing',
-              subtitle:
-                  'Keep metal obligation, price fixing, physical delivery, and monetary settlement independent and auditable.',
-            ),
-            const SizedBox(height: 14),
             SaasKpiGrid(
               items: [
                 (label: 'ACTIVE CONTRACTS', value: activeCount),
                 (label: 'UNFIXED FINE EXPOSURE', value: unfixedFine),
                 (label: 'UNDELIVERED FINE', value: undeliveredFine),
-                (label: 'UNSETTLED MATCHED VALUE', value: unsettledVal),
+                (label: 'UNSETTLED MATCHED', value: unsettledVal),
               ],
             ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
-            SaasFormCard(
-              title: 'New metal-denominated contract',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SaasDropdown(
-                    label: 'Direction',
-                    value: _direction,
-                    options: const {
-                      'CUSTOMER_SALE': 'Wholesale customer sale',
-                      'SUPPLIER_PURCHASE': 'Bullion supplier purchase',
-                    },
-                    onChanged: (v) => setState(() {
-                      _direction = v;
-                      _partyId.clear();
-                    }),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Party',
-                    controller: _partyId,
-                    options: _lk.partiesByRole(roleFilter),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Metal',
-                    controller: _metalId,
-                    options: _lk.metals,
-                    hint: 'Select',
-                    onSelected: (_) => setState(() => _purityId.clear()),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Purity / agreed fineness',
-                    controller: _purityId,
-                    options: _lk.puritiesForMetal(_metalId.text.trim()),
-                    hint: 'Select',
-                    onSelected: (_) => setState(_recalcExactFine),
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Contract unit',
-                    controller: _unitId,
-                    options: _lk.units,
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  LookupField(
-                    label: 'Document series',
-                    controller: _seriesId,
-                    options: _lk.seriesFor(const ['RATE_FIXING', 'CONTRACT', 'WHOLESALE']),
-                    hint: 'Select',
-                  ),
-                  const SizedBox(height: 10),
-                  DatePickField(label: 'Contract date', controller: _contractDate),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: DatePickField(label: 'Fixing deadline', controller: _fixingDeadline)),
-                      const SizedBox(width: 10),
-                      Expanded(child: DatePickField(label: 'Delivery deadline', controller: _deliveryDeadline)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const FieldLabel('Contract quantity'),
-                            TextField(
-                              controller: _contractQty,
-                              style: T.mono(13),
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              onChanged: (_) => _recalcExactFine(),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasField(
-                          label: 'Exact fine grams',
-                          controller: _exactFineGrams,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SaasField(
-                          label: 'Fine tolerance grams',
-                          controller: _toleranceGrams,
-                          mono: true,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasField(
-                          label: 'Settlement due days',
-                          controller: _settlementDueDays,
-                          mono: true,
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: SaasField(label: 'Currency', controller: _currency, mono: true)),
-                      const SizedBox(width: 10),
-                      Expanded(child: SaasField(label: 'Commercial terms', controller: _terms)),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : _createContract,
-                      child: Text(_busy ? 'Saving…' : 'Create draft contract'),
+            const SizedBox(height: 12),
+            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_showForm) ...[
+              SaasFormCard(
+                title: 'New metal-denominated contract',
+                trailing: TextButton(
+                  onPressed: () => setState(() => _showForm = false),
+                  child: const Text('Close'),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SaasDropdown(
+                      label: 'Direction',
+                      value: _direction,
+                      options: const {
+                        'CUSTOMER_SALE': 'Wholesale customer sale',
+                        'SUPPLIER_PURCHASE': 'Bullion supplier purchase',
+                      },
+                      onChanged: (v) => setState(() {
+                        _direction = v;
+                        _partyId.clear();
+                      }),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Party',
+                      controller: _partyId,
+                      options: _lk.partiesByRole(roleFilter),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Metal',
+                      controller: _metalId,
+                      options: _lk.metals,
+                      hint: 'Select',
+                      onSelected: (_) => setState(() => _purityId.clear()),
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Purity / agreed fineness',
+                      controller: _purityId,
+                      options: _lk.puritiesForMetal(_metalId.text.trim()),
+                      hint: 'Select',
+                      onSelected: (_) => setState(_recalcExactFine),
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Contract unit',
+                      controller: _unitId,
+                      options: _lk.units,
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Document series',
+                      controller: _seriesId,
+                      options: _lk.seriesFor(const ['RATE_FIXING', 'CONTRACT', 'WHOLESALE']),
+                      hint: 'Select',
+                    ),
+                    const SizedBox(height: 10),
+                    DatePickField(label: 'Contract date', controller: _contractDate),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: DatePickField(label: 'Fixing deadline', controller: _fixingDeadline)),
+                        const SizedBox(width: 10),
+                        Expanded(child: DatePickField(label: 'Delivery deadline', controller: _deliveryDeadline)),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const FieldLabel('Contract quantity'),
+                              TextField(
+                                controller: _contractQty,
+                                style: T.mono(13),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                onChanged: (_) => _recalcExactFine(),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Exact fine grams',
+                            controller: _exactFineGrams,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Fine tolerance grams',
+                            controller: _toleranceGrams,
+                            mono: true,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Settlement due days',
+                            controller: _settlementDueDays,
+                            mono: true,
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: SaasField(label: 'Currency', controller: _currency, mono: true)),
+                        const SizedBox(width: 10),
+                        Expanded(child: SaasField(label: 'Commercial terms', controller: _terms)),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    GoldButton(
+                      label: _busy ? 'Saving…' : 'Create Draft Contract',
+                      busy: _busy,
+                      onPressed: _createContract,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_contracts.isEmpty)
-              const SaasEmptyBox('No wholesale metal contracts recorded yet.')
+            else if (filtered.isEmpty)
+              const SaasEmptyBox('No wholesale metal contracts found. Tap + to create a contract.')
             else
-              for (final c in _contracts)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${c['documentNumber'] ?? c['contractNumber'] ?? shortId('${c['id']}')} · ${asMap(c['party'])['displayName'] ?? c['direction'] ?? ''}',
-                                style: T.body(14, w: FontWeight.w700),
-                              ),
-                            ),
-                            StatusChip('${c['state'] ?? c['status'] ?? 'DRAFT'}'),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        KVRow('Exact Fine Grams', grams(c['exactFineWeightGrams'] ?? c['fineWeightGrams']), bold: true),
-                        KVRow('Fixing / Delivery Deadline', '${fmtDate('${c['fixingDeadline'] ?? ''}')} / ${fmtDate('${c['deliveryDeadline'] ?? ''}')}'),
-                      ],
-                    ),
-                  ),
+              for (final c in filtered)
+                LuxuryRecordCard(
+                  icon: Icons.lock_clock_rounded,
+                  code: '${c['documentNumber'] ?? c['contractNumber'] ?? shortId('${c['id']}')}',
+                  status: '${c['state'] ?? c['status'] ?? 'DRAFT'}',
+                  lines: [
+                    ('Party', '${asMap(c['party'])['displayName'] ?? c['direction'] ?? '—'}'),
+                    ('Deadlines', '${fmtDate('${c['fixingDeadline'] ?? ''}')} / ${fmtDate('${c['deliveryDeadline'] ?? ''}')}'),
+                  ],
+                  amountLabel: 'Fine Wt',
+                  amountValue: grams(c['exactFineWeightGrams'] ?? c['fineWeightGrams']),
                 ),
           ],
         ),
