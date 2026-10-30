@@ -47,7 +47,7 @@ class _ScannerPageState extends State<ScannerPage> {
             textCapitalization: TextCapitalization.characters,
             style: T.mono(16, w: FontWeight.w700),
             decoration: const InputDecoration(
-              hintText: 'JWL-2026-B001',
+              hintText: 'Enter tag or barcode',
               prefixIcon: Icon(Icons.sell_outlined),
             ),
             onSubmitted: (s) => Navigator.pop(ctx, s),

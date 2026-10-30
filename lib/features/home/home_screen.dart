@@ -108,31 +108,41 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: SafeArea(
         child: RefreshIndicator(
-          color: Pal.teal,
+          color: Pal.gold,
           onRefresh: _refreshAll,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
             children: [
-              // 1. Luxury Obsidian Showroom Header
+              // 1. Royal Espresso & 24K Gold Showroom Header
               LuxuryHeroCard(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(18),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    const GemMark(size: 30, darkSurface: true),
-                    const SizedBox(width: 10),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: Pal.goldBright.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(11),
+                        border: Border.all(color: Pal.goldBright.withValues(alpha: 0.42)),
+                      ),
+                      child: const GemMark(darkSurface: true),
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text(
                           (app.tenantName.isEmpty ? 'Jewellery ERP' : app.tenantName).toUpperCase(),
-                          style: T.caps(10.5, color: Pal.goldSoft),
+                          style: T.caps(10, color: Pal.goldSoft, letterSpacing: 1.15),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 3),
                         Text(
-                          app.branchName.isEmpty ? 'Showroom Desk' : app.branchName,
-                          style: T.display(22, color: Colors.white),
-                          maxLines: 1,
+                          app.branchName.isEmpty ? 'Active Showroom' : app.branchName,
+                          style: T.display(20, color: Colors.white),
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ]),
@@ -140,16 +150,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (app.branchCount > 1)
                       IconButton(
                         tooltip: 'Switch Showroom',
+                        visualDensity: VisualDensity.compact,
                         onPressed: app.switchShowroom,
-                        icon: const Icon(Icons.swap_horiz_rounded, color: Pal.goldSoft),
+                        icon: const Icon(Icons.swap_horiz_rounded, color: Pal.goldSoft, size: 20),
                       ),
+                    const SizedBox(width: 4),
                     IconButton(
-                      tooltip: 'Quick Scan to Bill',
+                      tooltip: 'Quick Scan Tag',
+                      visualDensity: VisualDensity.compact,
                       onPressed: _quickScanToBill,
                       style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withValues(alpha: 0.1),
+                        backgroundColor: Pal.goldBright.withValues(alpha: 0.16),
+                        side: BorderSide(color: Pal.goldBright.withValues(alpha: 0.35)),
                       ),
-                      icon: const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 20),
+                      icon: const Icon(Icons.qr_code_scanner_rounded, color: Pal.goldSoft, size: 19),
                     ),
                   ]),
                   const SizedBox(height: 14),
@@ -161,71 +175,63 @@ class _HomeScreenState extends State<HomeScreen> {
                 ]),
               ),
 
-              // 2. Live Bullion Spot Board
-              const SizedBox(height: 18),
+              // 2. Live Bullion Spot Board (Overflow-Safe Header)
+              const SizedBox(height: 20),
               Row(children: [
-                Text('LIVE BULLION BOARD', style: T.caps(11)),
-                const Spacer(),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('1g')),
-                    ButtonSegment(value: true, label: Text('10g')),
-                  ],
-                  selected: {_perTenGram},
-                  showSelectedIcon: false,
-                  style: SegmentedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    selectedBackgroundColor: Pal.goldWash,
-                    selectedForegroundColor: Pal.goldDeep,
-                    side: const BorderSide(color: Pal.line),
-                    textStyle: T.mono(11.5, w: FontWeight.w700),
+                Expanded(
+                  child: Text(
+                    'LIVE BULLION BOARD',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: T.caps(10.8, color: Pal.goldDeep, letterSpacing: 0.9),
                   ),
-                  onSelectionChanged: (s) => setState(() => _perTenGram = s.first),
+                ),
+                const SizedBox(width: 8),
+                _UnitToggle(
+                  perTenGram: _perTenGram,
+                  onChanged: (v) => setState(() => _perTenGram = v),
                 ),
                 const SizedBox(width: 6),
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: _openCalculator,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Pal.tealWash,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Pal.teal.withValues(alpha: 0.3)),
+                Material(
+                  color: Pal.goldWash,
+                  borderRadius: BorderRadius.circular(9),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(9),
+                    onTap: _openCalculator,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6.5),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: Pal.goldBorder),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.calculate_outlined, size: 14, color: Pal.goldDeep),
+                        const SizedBox(width: 4),
+                        Text('Quote', style: T.body(11.5, color: Pal.goldDeep, w: FontWeight.w700)),
+                      ]),
                     ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.calculate_outlined, size: 15, color: Pal.teal),
-                      const SizedBox(width: 4),
-                      Text('Quote', style: T.body(11.5, color: Pal.teal, w: FontWeight.w700)),
-                    ]),
                   ),
                 ),
               ]),
               const SizedBox(height: 10),
               _BullionBoard(rates: rates, perTenGram: _perTenGram),
 
-              // 3. Live Showroom Custody & Revenue KPIs
+              // 3. Live Showroom Custody & Revenue KPIs (Intrinsic Height, Never Overflows)
               const SectionLabel('Showroom Pulse'),
               if (_kpiLoading)
-                const Row(children: [
-                  Expanded(child: Panel(child: Skeleton(height: 68))),
-                  SizedBox(width: 10),
-                  Expanded(child: Panel(child: Skeleton(height: 68))),
-                ])
+                const ResponsiveGrid2(
+                  children: [
+                    Panel(child: Skeleton(height: 68)),
+                    Panel(child: Skeleton(height: 68)),
+                  ],
+                )
               else
-                GridView.count(
-                  crossAxisCount: 2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 10,
-                  crossAxisSpacing: 10,
-                  childAspectRatio: 1.58,
+                ResponsiveGrid2(
                   children: [
                     MetricTile(
                       label: 'Pure 999 Vault',
                       value: _stockSummary != null
-                          ? fineGrams(_stockSummary!['grandPureFineGrams'] ?? '0').replaceAll(' Fine', '')
+                          ? fineGrams(_stockSummary!['grandPureFineGrams'] ?? '0')
                           : '0.000 g',
                       subtitle: '${_stockSummary?['totalTaggedPieces'] ?? 0} tagged pieces',
                       icon: Icons.diamond_outlined,
@@ -234,40 +240,38 @@ class _HomeScreenState extends State<HomeScreen> {
                       onTap: () => widget.onJump(1),
                     ),
                     MetricTile(
-                      label: 'Vault Carrying Cost',
+                      label: 'Vault Valuation',
                       value: inrCompact(_stockSummary?['grandTotalInventoryCost'] ?? '0'),
-                      subtitle: 'FIFO cost valuation',
+                      subtitle: 'FIFO carrying cost',
                       icon: Icons.account_balance_outlined,
+                      accent: Pal.goldDeep,
+                      accentWash: Pal.goldWash,
                       onTap: () => _push(const ReportsScreen(initialTab: 'STOCK')),
                     ),
                     MetricTile(
                       label: 'Sales Register',
                       value: inrCompact(_salesTotal.toStringAsFixed(2)),
-                      subtitle: '$_invoiceCount invoice(s) recorded',
+                      subtitle: '$_invoiceCount posted invoice(s)',
                       icon: Icons.receipt_long_outlined,
                       accent: Pal.ok,
                       accentWash: Pal.okWash,
                       onTap: () => widget.onJump(2),
                     ),
                     MetricTile(
-                      label: 'POS Counter',
-                      value: 'Ready',
-                      subtitle: 'Tap to open / reconcile shift',
+                      label: 'Counter Drawer',
+                      value: 'Shift Desk',
+                      subtitle: 'Open / reconcile cash',
                       icon: Icons.point_of_sale_rounded,
+                      accent: Pal.ruby,
+                      accentWash: Pal.rubyWash,
                       onTap: () => _push(const ShiftScreen()),
                     ),
                   ],
                 ),
 
-              // 4. Counter & Vault Quick Actions Grid
+              // 4. Counter & Vault Quick Actions Grid (Intrinsic Height, Never Overflows)
               const SectionLabel('Showroom Desk'),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 1.72,
+              ResponsiveGrid2(
                 children: [
                   _QuickCard(
                     icon: Icons.point_of_sale_rounded,
@@ -285,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   _QuickCard(
                     icon: Icons.recycling_rounded,
                     title: 'Old Gold Assay',
-                    sub: 'Melt loss & credit voucher',
+                    sub: 'Melt loss & voucher',
                     onTap: () => _push(const OldGoldScreen()),
                   ),
                   _QuickCard(
@@ -311,6 +315,54 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Compact Royal Gold 1g / 10g pill switcher with zero wide Material segment padding.
+class _UnitToggle extends StatelessWidget {
+  const _UnitToggle({required this.perTenGram, required this.onChanged});
+  final bool perTenGram;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget item(String text, bool tenG) {
+      final active = perTenGram == tenG;
+      return GestureDetector(
+        onTap: () => onChanged(tenG),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: active ? Pal.ink : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Text(
+            text,
+            style: T.mono(
+              11.5,
+              w: FontWeight.w700,
+              color: active ? Pal.goldSoft : Pal.textSoft,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: Pal.line),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          item('1g', false),
+          item('10g', true),
+        ],
       ),
     );
   }
@@ -413,7 +465,7 @@ class _BullionRow extends StatelessWidget {
             color: isGold ? Pal.goldWash : Pal.surfaceAlt,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isGold ? Pal.gold.withValues(alpha: 0.45) : Pal.line,
+              color: isGold ? Pal.goldBorder : Pal.line,
             ),
           ),
           child: Text(
@@ -426,18 +478,23 @@ class _BullionRow extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(
               '${humanize(rateItem.metal)} · ${rateItem.karatLabel}',
-              style: T.body(14.2, w: FontWeight.w800),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: T.body(14, w: FontWeight.w800),
             ),
             if (decOrZero(buyVal) > Decimal.zero)
               Text(
                 'Buyback ${inr(buyVal, paise: false)}$unitSuffix',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: T.mono(11.5, color: Pal.muted),
               ),
           ]),
         ),
+        const SizedBox(width: 8),
         Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(inr(sellVal, paise: false), style: T.display(18.5)),
-          Text('Sell $unitSuffix', style: T.caps(9, color: Pal.teal)),
+          Text(inr(sellVal, paise: false), style: T.display(18)),
+          Text('Sell $unitSuffix', style: T.caps(9, color: Pal.goldDeep)),
         ]),
       ]),
     );
@@ -462,32 +519,40 @@ class _QuickCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Panel(
       onTap: onTap,
-      color: primary ? Pal.obsidian : Pal.card,
-      borderColor: primary ? Pal.goldBright.withValues(alpha: 0.35) : Pal.line,
+      color: primary ? Pal.ink : Pal.card,
+      borderColor: primary ? Pal.goldBright.withValues(alpha: 0.45) : Pal.line,
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(children: [
-            Icon(icon, size: 21, color: primary ? Pal.goldSoft : Pal.teal),
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: primary ? Pal.goldBright.withValues(alpha: 0.16) : Pal.goldWash,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 17, color: primary ? Pal.goldSoft : Pal.goldDeep),
+            ),
             const Spacer(),
-            Icon(Icons.north_east_rounded, size: 15, color: primary ? Colors.white54 : Pal.muted),
+            Icon(Icons.north_east_rounded, size: 15, color: primary ? Pal.goldSoft : Pal.muted),
           ]),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(
-              title,
-              style: T.body(14.2, w: FontWeight.w800, color: primary ? Colors.white : Pal.text),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              sub,
-              style: T.body(11.5, color: primary ? Colors.white70 : Pal.muted),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ]),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: T.body(14, w: FontWeight.w800, color: primary ? Colors.white : Pal.text),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            sub,
+            style: T.body(11.5, color: primary ? Colors.white70 : Pal.muted),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
@@ -504,16 +569,10 @@ class _MetalPriceCalculatorSheet extends StatefulWidget {
 class _MetalPriceCalculatorSheetState extends State<_MetalPriceCalculatorSheet> {
   String _metal = 'GOLD';
   String _purity = '916';
-  final _weight = TextEditingController(text: '10.000');
+  final _weight = TextEditingController();
   double _makingPct = 12;
   Map<String, String>? _quote;
   bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _recalc());
-  }
 
   @override
   void dispose() {
@@ -522,7 +581,10 @@ class _MetalPriceCalculatorSheetState extends State<_MetalPriceCalculatorSheet> 
   }
 
   Future<void> _recalc() async {
-    if (!isValidWeight(_weight.text)) return;
+    if (!isValidWeight(_weight.text)) {
+      setState(() => _quote = null);
+      return;
+    }
     setState(() => _busy = true);
     final q = await context.read<RatesController>().calculateMetalValue(
           metal: _metal,
@@ -550,7 +612,7 @@ class _MetalPriceCalculatorSheetState extends State<_MetalPriceCalculatorSheet> 
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('Counter Jewellery Price Estimator', style: T.display(22)),
         const SizedBox(height: 4),
-        Text('Instant patron estimate using live showroom bullion spot + making + 3% GST.', style: T.body(12.5, color: Pal.muted)),
+        Text('Live showroom bullion valuation with making charges and 3% GST.', style: T.body(12.5, color: Pal.muted)),
         const SizedBox(height: 14),
         Wrap(spacing: 8, runSpacing: 8, children: [
           for (final opt in const [
@@ -577,12 +639,13 @@ class _MetalPriceCalculatorSheetState extends State<_MetalPriceCalculatorSheet> 
         Row(children: [
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const FieldLabel('Net Metal Weight (g)'),
+              const FieldLabel('Net Metal Wt (g)'),
               TextField(
                 controller: _weight,
+                autofocus: true,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 style: T.mono(16, w: FontWeight.w700),
-                decoration: const InputDecoration(suffixText: 'g'),
+                decoration: const InputDecoration(hintText: '0.000', suffixText: 'g'),
                 onChanged: (_) => _recalc(),
               ),
             ]),
@@ -596,7 +659,7 @@ class _MetalPriceCalculatorSheetState extends State<_MetalPriceCalculatorSheet> 
                 min: 0,
                 max: 30,
                 divisions: 30,
-                activeColor: Pal.teal,
+                activeColor: Pal.gold,
                 onChanged: (v) => setState(() => _makingPct = v),
               ),
             ]),
@@ -614,9 +677,8 @@ class _MetalPriceCalculatorSheetState extends State<_MetalPriceCalculatorSheet> 
                   KeyValue('GST (3.00%)', inr(gst.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
                   Divider(color: Colors.white.withValues(alpha: 0.16)),
                   Row(children: [
-                    Text('ESTIMATED QUOTE', style: T.caps(10, color: Colors.white70)),
-                    const Spacer(),
-                    Text(inr(grand.toStringAsFixed(2)), style: T.display(25, color: Pal.goldSoft)),
+                    Expanded(child: Text('ESTIMATED QUOTE', style: T.caps(10, color: Colors.white70))),
+                    Text(inr(grand.toStringAsFixed(2)), style: T.display(24, color: Pal.goldSoft)),
                   ]),
                 ]),
         ),

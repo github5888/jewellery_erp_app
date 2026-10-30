@@ -316,7 +316,7 @@ class _PartyDetailSheetState extends State<_PartyDetailSheet> {
               textCapitalization: TextCapitalization.characters,
               style: T.mono(15),
               decoration: InputDecoration(
-                hintText: docType == 'PAN' ? 'ABCDE1234F' : docType == 'AADHAAR' ? '12-digit Aadhaar' : 'Identifier',
+                hintText: docType == 'PAN' ? '10-character PAN' : docType == 'AADHAAR' ? '12-digit Aadhaar' : 'Document ID',
               ),
             ),
           ]),
@@ -498,7 +498,7 @@ class _NewPartySheetState extends State<NewPartySheet> {
     }
     final pan = _pan.text.trim().toUpperCase();
     if (pan.isNotEmpty && !RegExp(r'^[A-Z]{5}\d{4}[A-Z]$').hasMatch(pan)) {
-      setState(() => _error = 'PAN must follow 10-character format (e.g. ABCDE1234F).');
+      setState(() => _error = 'PAN must follow valid 10-character Indian PAN format.');
       return;
     }
 
@@ -593,18 +593,18 @@ class _NewPartySheetState extends State<NewPartySheet> {
         TextField(
           controller: _name,
           textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(hintText: 'Ananya Verma / Malabar Bullion House'),
+          decoration: const InputDecoration(hintText: 'Enter full legal or trade name'),
         ),
         const SizedBox(height: 12),
         Row(children: [
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const FieldLabel('Mobile (India +91 / E.164)'),
+              const FieldLabel('Mobile (+91 / E.164)'),
               TextField(
                 controller: _phone,
                 keyboardType: TextInputType.phone,
                 style: T.mono(14),
-                decoration: const InputDecoration(hintText: '9876543210'),
+                decoration: const InputDecoration(hintText: '10-digit mobile'),
               ),
             ]),
           ),
@@ -615,7 +615,7 @@ class _NewPartySheetState extends State<NewPartySheet> {
               TextField(
                 controller: _email,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(hintText: 'patron@mail.com'),
+                decoration: const InputDecoration(hintText: 'Email address'),
               ),
             ]),
           ),
@@ -624,24 +624,24 @@ class _NewPartySheetState extends State<NewPartySheet> {
         Row(children: [
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const FieldLabel('PAN (For Bills > ₹2L)'),
+              const FieldLabel('PAN (Optional)'),
               TextField(
                 controller: _pan,
                 textCapitalization: TextCapitalization.characters,
                 style: T.mono(14),
-                decoration: const InputDecoration(hintText: 'ABCDE1234F'),
+                decoration: const InputDecoration(hintText: '10-char PAN'),
               ),
             ]),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const FieldLabel('GSTIN (B2B Optional)'),
+              const FieldLabel('GSTIN (Optional)'),
               TextField(
                 controller: _gstin,
                 textCapitalization: TextCapitalization.characters,
                 style: T.mono(13.5),
-                decoration: const InputDecoration(hintText: '27AAACB1234F1Z5'),
+                decoration: const InputDecoration(hintText: '15-char GSTIN'),
               ),
             ]),
           ),

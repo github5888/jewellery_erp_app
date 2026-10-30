@@ -8,7 +8,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
 
-  testWidgets('JewelleryErpApp boots cleanly into enterprise sign-in screen', (WidgetTester tester) async {
+  testWidgets('JewelleryErpApp boots cleanly into Royal Gold sign-in screen', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final api = ApiClient.inMemory();
@@ -17,6 +17,6 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 4));
 
     expect(find.text('Sign in to workspace'), findsOneWidget);
-    expect(find.text('Kalyan Store Fill'), findsOneWidget);
+    expect(find.text('Sign In'), findsOneWidget);
   });
 }

@@ -114,8 +114,13 @@ class _ContextScreenState extends State<ContextScreen> {
                   padding: const EdgeInsets.all(18),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Row(children: [
-                      const EnterpriseBadge('Working Context', icon: Icons.storefront_rounded),
-                      const Spacer(),
+                      const Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: EnterpriseBadge('Working Context', icon: Icons.storefront_rounded),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       StatusPill(app.mfaEnrolled ? 'VERIFIED' : 'ACTIVE'),
                     ]),
                     const SizedBox(height: 12),

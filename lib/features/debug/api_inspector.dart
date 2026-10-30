@@ -65,8 +65,13 @@ class _ApiInspectorState extends State<ApiInspector> {
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                const EnterpriseBadge('Active API Gateway', icon: Icons.dns_outlined),
-                const Spacer(),
+                const Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: EnterpriseBadge('Active API Gateway', icon: Icons.dns_outlined),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Text(kBuildVersion, style: T.mono(11, color: Colors.white60)),
               ]),
               const SizedBox(height: 10),

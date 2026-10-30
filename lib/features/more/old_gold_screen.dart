@@ -300,7 +300,7 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
                   onChanged: (_) => setState(() {}),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   style: T.mono(15, w: FontWeight.w700),
-                  decoration: const InputDecoration(hintText: '15.000', suffixText: 'g'),
+                  decoration: const InputDecoration(hintText: '0.000', suffixText: 'g'),
                 ),
               ]),
             ),
@@ -313,7 +313,7 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
                   onChanged: (_) => setState(() {}),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   style: T.mono(15, w: FontWeight.w700),
-                  decoration: const InputDecoration(hintText: '0.300', suffixText: 'g'),
+                  decoration: const InputDecoration(hintText: '0.000', suffixText: 'g'),
                 ),
               ]),
             ),
@@ -327,7 +327,7 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
             style: T.mono(16, w: FontWeight.w700),
             decoration: const InputDecoration(
               prefixText: '₹ ',
-              hintText: '7100.00',
+              hintText: '0.00',
               helperText: 'Auto-synced with showroom buy rate; override requires manager authorization.',
             ),
           ),
@@ -475,8 +475,13 @@ class _OldGoldScreenState extends State<OldGoldScreen> {
             padding: const EdgeInsets.all(22),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                const EnterpriseBadge('Voucher Confirmed', icon: Icons.verified_rounded),
-                const Spacer(),
+                const Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: EnterpriseBadge('Voucher Confirmed', icon: Icons.verified_rounded),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 StatusPill(_payout, tone: Tone.gold),
               ]),
               const SizedBox(height: 14),

@@ -130,7 +130,7 @@ class _BillingScreenState extends State<BillingScreen> {
               TextField(
                 controller: ref,
                 style: T.mono(14),
-                decoration: const InputDecoration(hintText: 'UTR4298109248'),
+                decoration: const InputDecoration(hintText: 'Transaction / UTR reference'),
               ),
             ],
             const SizedBox(height: 18),
@@ -257,7 +257,7 @@ class _BillingScreenState extends State<BillingScreen> {
               textCapitalization: TextCapitalization.characters,
               style: T.mono(14),
               decoration: const InputDecoration(
-                hintText: 'Scan or enter tag e.g. JWL-2026-B001',
+                hintText: 'Scan or enter ornament tag',
                 prefixIcon: Icon(Icons.sell_outlined, size: 19),
               ),
               onSubmitted: (s) {

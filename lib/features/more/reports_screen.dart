@@ -230,8 +230,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
       LuxuryHeroCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const EnterpriseBadge('Month-to-Date Profitability', icon: Icons.insights_rounded),
-            const Spacer(),
+            const Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: EnterpriseBadge('MTD Profitability', icon: Icons.insights_rounded),
+              ),
+            ),
+            const SizedBox(width: 8),
             StatusPill('${pct(s['overallGrossMarginPct'] ?? '0')} Margin', tone: Tone.gold),
           ]),
           const SizedBox(height: 12),
@@ -297,8 +302,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
       LuxuryHeroCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const EnterpriseBadge('Double-Entry Ledger', icon: Icons.balance_rounded),
-            const Spacer(),
+            const Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: EnterpriseBadge('Double-Entry Ledger', icon: Icons.balance_rounded),
+              ),
+            ),
+            const SizedBox(width: 8),
             StatusPill(balanced ? 'BALANCED' : 'VARIANCE'),
           ]),
           const SizedBox(height: 12),
@@ -387,13 +397,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         },
       ),
       const SizedBox(height: 14),
-      GridView.count(
-        crossAxisCount: 2,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
-        childAspectRatio: 1.75,
+      ResponsiveGrid2(
         children: [
           MetricTile(label: 'Total Open', value: inr('${s['totalOpen'] ?? '0.00'}', paise: false), icon: Icons.account_balance_wallet_outlined),
           MetricTile(label: 'Current (0–30d)', value: inr('${s['current'] ?? '0.00'}', paise: false), icon: Icons.check_circle_outline_rounded, accent: Pal.ok, accentWash: Pal.okWash),

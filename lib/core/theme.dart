@@ -3,56 +3,59 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Design tokens harmonized directly with https://pos.hrpocket.in
-/// ("Jewellery ERP Enterprise · Haute Joaillerie & Precious Bullion"):
-/// - Midnight Obsidian hero & bullion plates with 24K Champagne Gold accents
-/// - Crisp Enterprise Slate-50 workspace canvas, pure white cards & Slate-200 borders
-/// - Royal Teal & Obsidian action triggers matching the web portal
+/// Royal Haute Joaillerie & Sovereign 24K Bullion Design System:
+/// - Deep Espresso-Onyx velvet (`ink`) paired with 24K Sovereign Gold (`goldBright` / `gold`)
+/// - Warm Royal Ivory (`pearl`) workspace canvas & pure white cards (`card`) with sand-gold hairlines
+/// - Zero cold hospital greens: every accent, focus border, wash, and primary CTA radiates luxury gold
 class Pal {
-  // Obsidian / Vault luxury dark surfaces
-  static const ink = Color(0xFF0B1120);
+  // Deep Royal Espresso-Onyx velvet surfaces
+  static const ink = Color(0xFF16110B);
   static const obsidian = ink;
-  static const inkSoft = Color(0xFF152238);
-  static const inkElevated = Color(0xFF1E2E4A);
-  static const inkLine = Color(0xFF283A5E);
+  static const inkSoft = Color(0xFF251C12);
+  static const inkElevated = Color(0xFF342719);
+  static const inkLine = Color(0xFF4A3824);
 
-  // Enterprise workspace light surfaces (Slate-50 / White / Slate-200)
-  static const pearl = Color(0xFFF8FAFC);
-  static const surfaceAlt = Color(0xFFF1F5F9);
+  // Warm Royal Ivory & Champagne Linen light surfaces
+  static const pearl = Color(0xFFFAF7F1);
+  static const surfaceAlt = Color(0xFFF3ECE0);
   static const card = Color(0xFFFFFFFF);
-  static const line = Color(0xFFE2E8F0);
-  static const lineStrong = Color(0xFFCBD5E1);
+  static const line = Color(0xFFE7DEC9);
+  static const lineStrong = Color(0xFFD6C6A9);
 
-  // Typography inks
-  static const text = Color(0xFF0F172A);
-  static const textSoft = Color(0xFF334155);
-  static const muted = Color(0xFF64748B);
+  // Warm Espresso Typography Inks
+  static const text = Color(0xFF1A140E);
+  static const textSoft = Color(0xFF3D3124);
+  static const muted = Color(0xFF756756);
 
-  // Haute Joaillerie 24K Bullion Gold & Champagne accents
-  static const gold = Color(0xFFB78628);
+  // 24K Sovereign Royal Gold Palette
+  static const gold = Color(0xFFB8860B);
   static const goldBright = Color(0xFFD4AF37);
-  static const goldSoft = Color(0xFFF3D58D);
-  static const goldDeep = Color(0xFF78530D);
-  static const goldWash = Color(0xFFFEF7E6);
-  static const goldBorder = Color(0xFFF2DEAC);
+  static const goldSoft = Color(0xFFF3D892);
+  static const goldDeep = Color(0xFF7A5608);
+  static const goldWash = Color(0xFFFBF3DF);
+  static const goldBorder = Color(0xFFE7CE92);
 
-  // Enterprise Royal Teal (matches web portal bg-teal-700)
-  static const teal = Color(0xFF0F766E);
-  static const tealDark = Color(0xFF115E59);
-  static const tealWash = Color(0xFFCCFBF1);
+  // Sovereign Burnished Gold action tokens (replaces cold teal/mint across all screens)
+  static const teal = Color(0xFFA67814);
+  static const tealDark = Color(0xFF7D580A);
+  static const tealWash = Color(0xFFF9EFE0);
 
-  // Status semantics
-  static const ok = Color(0xFF059669);
-  static const okWash = Color(0xFFECFDF5);
-  static const warn = Color(0xFFD97706);
-  static const warnWash = Color(0xFFFFFBEB);
-  static const danger = Color(0xFFDC2626);
-  static const dangerWash = Color(0xFFFEF2F2);
-  static const violet = Color(0xFF6D28D9);
-  static const violetWash = Color(0xFFF5F3FF);
+  // Imperial Ruby / Burgundy secondary accent
+  static const ruby = Color(0xFF6E1E32);
+  static const rubyWash = Color(0xFFFAF0F3);
+
+  // Refined Jewel-Tone Status Semantics
+  static const ok = Color(0xFF1E6B47);
+  static const okWash = Color(0xFFEDF7F1);
+  static const warn = Color(0xFFB4690E);
+  static const warnWash = Color(0xFFFEF5E7);
+  static const danger = Color(0xFF9E2A2B);
+  static const dangerWash = Color(0xFFFDF0F0);
+  static const violet = Color(0xFF5C2D68);
+  static const violetWash = Color(0xFFF6EFF8);
 }
 
-/// Editorial Haute Joaillerie serif (Fraunces) + Enterprise geometric sans
+/// Editorial Haute Joaillerie serif (Fraunces) + Clean Luxury Sans
 /// (Plus Jakarta Sans) + Tabular precision monospace (JetBrains Mono).
 class T {
   static const _tab = [FontFeature.tabularFigures()];
@@ -61,13 +64,13 @@ class T {
     double size, {
     Color color = Pal.text,
     FontWeight w = FontWeight.w600,
-    double letterSpacing = -0.35,
+    double letterSpacing = -0.3,
   }) =>
       GoogleFonts.fraunces(
         fontSize: size,
         fontWeight: w,
         color: color,
-        height: 1.14,
+        height: 1.15,
         letterSpacing: letterSpacing,
         fontFeatures: _tab,
       );
@@ -118,17 +121,17 @@ class T {
 ThemeData buildTheme() {
   final base = GoogleFonts.plusJakartaSansTextTheme();
   const scheme = ColorScheme.light(
-    primary: Pal.ink,
+    primary: Pal.gold,
     onPrimary: Colors.white,
-    secondary: Pal.teal,
+    secondary: Pal.ink,
     onSecondary: Colors.white,
-    tertiary: Pal.gold,
+    tertiary: Pal.goldBright,
     surface: Pal.pearl,
     onSurface: Pal.text,
     error: Pal.danger,
   );
   OutlineInputBorder border(Color c, [double w = 1]) => OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(13),
         borderSide: BorderSide(color: c, width: w),
       );
   return ThemeData(
@@ -143,7 +146,7 @@ ThemeData buildTheme() {
       scrolledUnderElevation: 0.5,
       shadowColor: Pal.line,
       centerTitle: false,
-      titleTextStyle: T.display(20.5, w: FontWeight.w600),
+      titleTextStyle: T.display(20, w: FontWeight.w600),
       iconTheme: const IconThemeData(color: Pal.text, size: 22),
       systemOverlayStyle: SystemUiOverlayStyle.dark,
     ),
@@ -153,38 +156,38 @@ ThemeData buildTheme() {
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: border(Pal.lineStrong),
       enabledBorder: border(Pal.lineStrong),
-      focusedBorder: border(Pal.teal, 1.8),
+      focusedBorder: border(Pal.gold, 1.8),
       errorBorder: border(Pal.danger),
       focusedErrorBorder: border(Pal.danger, 1.8),
       labelStyle: T.body(13.5, color: Pal.muted),
-      hintStyle: T.body(13.5, color: Pal.muted),
+      hintStyle: T.body(13.5, color: Pal.muted.withValues(alpha: 0.78)),
       helperStyle: T.body(12, color: Pal.muted),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: Pal.ink,
+        backgroundColor: Pal.gold,
         foregroundColor: Colors.white,
         disabledBackgroundColor: Pal.line,
         disabledForegroundColor: Pal.muted,
         minimumSize: const Size.fromHeight(50),
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
         textStyle: T.body(14.5, w: FontWeight.w700),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: Pal.text,
+        foregroundColor: Pal.goldDeep,
         backgroundColor: Colors.white,
         minimumSize: const Size.fromHeight(48),
-        side: const BorderSide(color: Pal.lineStrong, width: 1),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        side: const BorderSide(color: Pal.goldBorder, width: 1.1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
         textStyle: T.body(14, w: FontWeight.w700),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: Pal.teal,
+        foregroundColor: Pal.goldDeep,
         textStyle: T.body(13.5, w: FontWeight.w700),
       ),
     ),
@@ -198,7 +201,7 @@ ThemeData buildTheme() {
         (s) => T.body(
           11.2,
           w: s.contains(WidgetState.selected) ? FontWeight.w800 : FontWeight.w600,
-          color: s.contains(WidgetState.selected) ? Pal.ink : Pal.muted,
+          color: s.contains(WidgetState.selected) ? Pal.goldDeep : Pal.muted,
         ),
       ),
       iconTheme: WidgetStateProperty.resolveWith(

@@ -1,5 +1,5 @@
-/// Build metadata and environment presets matching the production web portal.
-const kBuild = 'v2.0 Enterprise · Oct 2026';
+/// Build metadata and environment presets.
+const kBuild = 'v2.1 Enterprise';
 const kBuildVersion = kBuild;
 
 const kProductionApiUrl = 'https://pos.hrpocket.in/api/v1';
@@ -19,7 +19,7 @@ class ServerPreset {
 const kServerPresets = <ServerPreset>[
   ServerPreset(
     label: 'Production Cloud (pos.hrpocket.in)',
-    subtitle: 'Live Kalyan Jewellers / Enterprise SaaS Gateway',
+    subtitle: 'Primary Enterprise Cloud Gateway',
     url: 'https://pos.hrpocket.in/api/v1',
   ),
   ServerPreset(

@@ -587,7 +587,6 @@ class _ReceiveArticleSheetState extends State<_ReceiveArticleSheet> {
   void initState() {
     super.initState();
     if (widget.locations.isNotEmpty) _locationId = widget.locations.first.id;
-    _tag.text = 'JWL-${DateTime.now().year}-${(DateTime.now().millisecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
     _loadMaterials();
   }
 
@@ -715,7 +714,12 @@ class _ReceiveArticleSheetState extends State<_ReceiveArticleSheet> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const FieldLabel('Ornament Tag'),
-                TextField(controller: _tag, style: T.mono(13.5), textCapitalization: TextCapitalization.characters),
+                TextField(
+                  controller: _tag,
+                  style: T.mono(13.5),
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(hintText: 'Tag / Barcode'),
+                ),
               ]),
             ),
             const SizedBox(width: 10),
@@ -739,7 +743,7 @@ class _ReceiveArticleSheetState extends State<_ReceiveArticleSheet> {
           TextField(
             controller: _desc,
             textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(hintText: '22K Antique Temple Necklace'),
+            decoration: const InputDecoration(hintText: 'Enter ornament description'),
           ),
           const SizedBox(height: 12),
           if (grades.isNotEmpty) ...[
@@ -764,7 +768,7 @@ class _ReceiveArticleSheetState extends State<_ReceiveArticleSheet> {
                   controller: _gross,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   style: T.mono(14),
-                  decoration: const InputDecoration(hintText: '15.200', suffixText: 'g'),
+                  decoration: const InputDecoration(hintText: '0.000', suffixText: 'g'),
                   onChanged: (v) {
                     if (_net.text.isEmpty) _net.text = v;
                   },
@@ -779,7 +783,7 @@ class _ReceiveArticleSheetState extends State<_ReceiveArticleSheet> {
                   controller: _net,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   style: T.mono(14),
-                  decoration: const InputDecoration(hintText: '14.500', suffixText: 'g'),
+                  decoration: const InputDecoration(hintText: '0.000', suffixText: 'g'),
                 ),
               ]),
             ),
@@ -790,7 +794,7 @@ class _ReceiveArticleSheetState extends State<_ReceiveArticleSheet> {
             controller: _cost,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             style: T.mono(15, w: FontWeight.w700),
-            decoration: const InputDecoration(prefixText: '₹ ', hintText: '98500.00'),
+            decoration: const InputDecoration(prefixText: '₹ ', hintText: '0.00'),
           ),
           if (_err != null)
             Padding(padding: const EdgeInsets.only(top: 12), child: Text(_err!, style: T.body(13, color: Pal.danger, w: FontWeight.w700))),

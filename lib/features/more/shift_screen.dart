@@ -179,11 +179,16 @@ class _ShiftScreenState extends State<ShiftScreen> {
               LuxuryHeroCard(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
-                    EnterpriseBadge(
-                      _isOpen ? 'Drawer Active' : 'Drawer Closed',
-                      icon: _isOpen ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: EnterpriseBadge(
+                          _isOpen ? 'Drawer Active' : 'Drawer Closed',
+                          icon: _isOpen ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
+                        ),
+                      ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
                     StatusPill(_isOpen ? 'OPEN' : 'CLOSED'),
                   ]),
                   const SizedBox(height: 14),
