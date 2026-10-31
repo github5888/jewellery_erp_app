@@ -7,8 +7,10 @@ import 'package:provider/provider.dart';
 
 import '../../core/api.dart';
 import '../../core/app_state.dart';
+import '../../core/build.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../debug/api_inspector.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -74,6 +76,87 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     _run(() => context.read<AppState>().submitMfa(raw));
+  }
+
+  Future<void> _serverSheet() async {
+    final app = context.read<AppState>();
+    final c = TextEditingController(text: app.api.baseUrl);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Padding(
+          padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Expanded(child: Text('Gateway Configuration', style: T.display(21))),
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(builder: (_) => const ApiInspector()),
+                      );
+                    },
+                    icon: const Icon(Icons.monitor_heart_outlined, size: 16),
+                    label: const Text('Diagnostics'),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                for (final preset in kServerPresets)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Panel(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      borderColor: c.text.trim() == preset.url ? Pal.gold : Pal.line,
+                      color: c.text.trim() == preset.url ? Pal.goldWash : Colors.white,
+                      onTap: () => setModal(() => c.text = preset.url),
+                      child: Row(children: [
+                        Icon(
+                          preset.url.startsWith('https') ? Icons.cloud_done_outlined : Icons.dns_outlined,
+                          size: 20,
+                          color: c.text.trim() == preset.url ? Pal.goldDeep : Pal.muted,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(preset.label, style: T.body(13.5, w: FontWeight.w700)),
+                            Text(preset.subtitle, style: T.body(11.5, color: Pal.muted)),
+                          ]),
+                        ),
+                        if (c.text.trim() == preset.url)
+                          const Icon(Icons.check_circle_rounded, size: 18, color: Pal.goldDeep),
+                      ]),
+                    ),
+                  ),
+                const SizedBox(height: 10),
+                const FieldLabel('Server Endpoint'),
+                TextField(
+                  controller: c,
+                  keyboardType: TextInputType.url,
+                  autocorrect: false,
+                  style: T.mono(13),
+                  decoration: const InputDecoration(hintText: 'https://pos.hrpocket.in/api/v1'),
+                ),
+                const SizedBox(height: 16),
+                RoyalGoldButton(
+                  label: 'Save Connection',
+                  onPressed: () async {
+                    await app.setServer(c.text);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   InputDecoration _luxuryInput({
@@ -144,7 +227,26 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
 
-            // 3. Centered Minimal Royal Gold Sign-In Card
+            // 3. Discreet Top-Right Connection Settings Icon
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6, right: 12),
+                  child: IconButton(
+                    tooltip: 'Server Settings',
+                    onPressed: _serverSheet,
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.black.withValues(alpha: 0.28),
+                      side: BorderSide(color: Pal.goldBright.withValues(alpha: 0.24)),
+                    ),
+                    icon: const Icon(Icons.tune_rounded, size: 18, color: Pal.goldSoft),
+                  ),
+                ),
+              ),
+            ),
+
+            // 4. Centered Minimal Royal Gold Sign-In Card
             SafeArea(
               child: LayoutBuilder(
                 builder: (ctx, constraints) => SingleChildScrollView(
@@ -161,34 +263,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             // Exact `pos.hrpocket.in` Website Brand Logo
                             const GemMark(size: 56, darkSurface: true),
                             const SizedBox(height: 14),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Jewellery ERP',
-                                  textAlign: TextAlign.center,
-                                  style: T.body(
-                                    25,
-                                    color: const Color(0xFFFDF8EE),
-                                    w: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                                  decoration: BoxDecoration(
-                                    color: Pal.goldBright.withValues(alpha: 0.16),
-                                    borderRadius: BorderRadius.circular(5),
-                                    border: Border.all(color: Pal.goldBright.withValues(alpha: 0.48)),
-                                  ),
-                                  child: Text(
-                                    'SAAS',
-                                    style: T.caps(9.5, color: Pal.goldSoft, letterSpacing: 0.9),
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              'Jewellery ERP',
+                              textAlign: TextAlign.center,
+                              style: T.display(27, color: const Color(0xFFFDF8EE), w: FontWeight.w600),
                             ),
-                            const SizedBox(height: 7),
+                            const SizedBox(height: 6),
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -196,7 +276,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: 9),
                                   child: Text(
-                                    'ENTERPRISE PLATFORM',
+                                    'TRADITION  •  TRUST  •  GROWTH',
                                     style: T.caps(9.5, color: Pal.goldSoft, letterSpacing: 1.5),
                                   ),
                                 ),

@@ -49,8 +49,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('More · All Modules'), findsOneWidget);
-    expect(find.text('Jewellery ERP'), findsOneWidget);
-    expect(find.text('SAAS'), findsOneWidget);
+    expect(find.text('Enterprise SaaS Suite'), findsOneWidget);
+    expect(find.text('Bullion 24K: Fine 999 Board Active'), findsOneWidget);
   });
 }

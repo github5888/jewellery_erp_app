@@ -78,7 +78,7 @@ class _ShellState extends State<Shell> {
             const NavigationDestination(
               icon: Icon(Icons.people_outline_rounded),
               selectedIcon: Icon(Icons.people_rounded),
-              label: 'Parties',
+              label: 'Clients',
             ),
             const NavigationDestination(
               icon: Icon(Icons.grid_view_outlined),

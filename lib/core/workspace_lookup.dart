@@ -602,7 +602,6 @@ class SaasField extends StatelessWidget {
     this.hint,
     this.keyboardType,
     this.mono = false,
-    this.obscureText = false,
     this.maxLines = 1,
     this.trailing,
   });
@@ -612,7 +611,6 @@ class SaasField extends StatelessWidget {
   final String? hint;
   final TextInputType? keyboardType;
   final bool mono;
-  final bool obscureText;
   final int maxLines;
   final Widget? trailing;
 
@@ -626,8 +624,7 @@ class SaasField extends StatelessWidget {
         TextField(
           controller: controller,
           keyboardType: keyboardType,
-          obscureText: obscureText,
-          maxLines: obscureText ? 1 : maxLines,
+          maxLines: maxLines,
           style: mono ? T.mono(13) : T.body(13.5, w: FontWeight.w500),
           decoration: InputDecoration(hintText: hint),
         ),
@@ -1221,8 +1218,21 @@ class LuxuryModuleScaffold extends StatelessWidget {
                                 ),
                                 const SizedBox(width: 4),
                               ],
-                              const GemMark(size: 32, darkSurface: true),
-                              const SizedBox(width: 10),
+                              if (icon != null) ...[
+                                Container(
+                                  width: 30,
+                                  height: 30,
+                                  decoration: BoxDecoration(
+                                    color: Pal.goldBright.withValues(alpha: 0.14),
+                                    borderRadius: BorderRadius.circular(9),
+                                    border: Border.all(
+                                      color: Pal.goldBright.withValues(alpha: 0.35),
+                                    ),
+                                  ),
+                                  child: Icon(icon, color: Pal.goldSoft, size: 16),
+                                ),
+                                const SizedBox(width: 9),
+                              ],
                               Expanded(
                                 child: Text(
                                   title,

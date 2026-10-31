@@ -71,13 +71,8 @@ class _Gate extends StatelessWidget {
             backgroundColor: Pal.obsidian,
             body: Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                WebsiteBrandLockup(
-                  badgeSize: 48,
-                  fontSize: 21,
-                  darkSurface: true,
-                  centered: true,
-                ),
-                SizedBox(height: 22),
+                GemMark(size: 54, darkSurface: true),
+                SizedBox(height: 18),
                 SizedBox(
                   width: 24,
                   height: 24,
