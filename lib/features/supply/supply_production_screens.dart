@@ -1,15 +1,20 @@
+import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/api.dart';
+import '../../core/app_state.dart';
 import '../../core/format.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/workspace_lookup.dart';
 
+const _supplyUuid = Uuid();
+
 // ---------------------------------------------------------------------------
-// 1. CUSTOM ORDERS (`/custom-orders`)
+// 1. CUSTOM ORDERS (`/custom-orders` — `image-13.png`)
 // ---------------------------------------------------------------------------
 
 class CustomOrdersScreen extends StatefulWidget {
@@ -21,23 +26,38 @@ class CustomOrdersScreen extends StatefulWidget {
 class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
   final _search = TextEditingController();
   String _filter = 'ALL';
-  bool _showForm = false;
+  bool _showForm = true;
+  bool _formInitialized = false;
+
   List<Map<String, dynamic>> _orders = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // All 21 exact fields of `New bespoke order and specification v1` (`image-13.png`)
   final _partyId = TextEditingController();
-  final _seriesId = TextEditingController();
   final _orderDate = TextEditingController(text: todayIso());
-  final _promisedDate = TextEditingController(text: todayIso());
+  final _promisedDate = TextEditingController();
+  final _designCode = TextEditingController();
+  final _desc = TextEditingController();
+  final _size = TextEditingController();
   final _metalId = TextEditingController();
   final _purityId = TextEditingController();
-  final _estGrams = TextEditingController();
-  final _quotedMaking = TextEditingController(text: '0.00');
-  final _advanceAmt = TextEditingController(text: '0.00');
-  final _spec = TextEditingController();
+  final _grossWt = TextEditingController();
+  final _metalWt = TextEditingController();
+  final _fineWt = TextEditingController();
+  final _toleranceWt = TextEditingController();
+  final _metalValue = TextEditingController();
+  final _making = TextEditingController();
+  final _stone = TextEditingController();
+  final _other = TextEditingController();
+  final _discount = TextEditingController();
+  final _taxable = TextEditingController();
+  final _tax = TextEditingController();
+  final _total = TextEditingController();
+  final _requiredDeposit = TextEditingController();
+  final _seriesId = TextEditingController();
 
   @override
   void initState() {
@@ -48,12 +68,41 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
   @override
   void dispose() {
     for (final c in [
-      _search, _partyId, _seriesId, _orderDate, _promisedDate,
-      _metalId, _purityId, _estGrams, _quotedMaking, _advanceAmt, _spec,
+      _search,
+      _partyId,
+      _orderDate,
+      _promisedDate,
+      _designCode,
+      _desc,
+      _size,
+      _metalId,
+      _purityId,
+      _grossWt,
+      _metalWt,
+      _fineWt,
+      _toleranceWt,
+      _metalValue,
+      _making,
+      _stone,
+      _other,
+      _discount,
+      _taxable,
+      _tax,
+      _total,
+      _requiredDeposit,
+      _seriesId,
     ]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  String _pick(Map<String, dynamic> m, List<String> keys, [String fallback = '']) {
+    for (final k in keys) {
+      final v = m[k];
+      if (v != null && '$v'.trim().isNotEmpty && '$v' != 'null') return '$v';
+    }
+    return fallback;
   }
 
   Future<void> _load() async {
@@ -63,19 +112,37 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
     });
     final api = context.read<ApiClient>();
     try {
-      final res = await Future.wait([
+      final res = await Future.wait<dynamic>([
         api.get('/custom-orders'),
         WorkspaceLookup.load(
           api,
           includeParties: true,
           includeMaterials: true,
+          includeInventory: true,
           includeAccounting: true,
         ),
       ]);
       if (!mounted) return;
+      final orders = asList(res[0], keys: const ['orders', 'customOrders', 'items']);
+      final lk = res[1] as WorkspaceLookup;
+
+      if (_metalId.text.isEmpty && lk.metals.isNotEmpty) {
+        _metalId.text = lk.metals.first.id;
+        final p = lk.puritiesForMetal(_metalId.text);
+        if (p.isNotEmpty) _purityId.text = p.first.id;
+      }
+      if (_seriesId.text.isEmpty) {
+        final s = lk.seriesFor(const ['CUSTOM', 'ORDER']);
+        if (s.isNotEmpty) _seriesId.text = s.first.id;
+      }
+      if (!_formInitialized) {
+        _showForm = orders.isEmpty;
+        _formInitialized = true;
+      }
+
       setState(() {
-        _orders = asList(res[0], keys: const ['orders', 'customOrders', 'items']);
-        _lk = res[1] as WorkspaceLookup;
+        _orders = orders;
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -84,45 +151,180 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
     }
   }
 
+  /// Auto-computes `Fine 999 g` & live `Metal value` from `Metal weight g` + selected `Purity`,
+  /// then updates `Taxable`, `Tax` (3% GST), and `Total`.
+  void _recalcFromWeights() {
+    final mw = tryDec(_metalWt.text.trim());
+    if (mw != null && mw > Decimal.zero) {
+      final purityOpt =
+          _lk.purityGrades.where((p) => p.id == _purityId.text.trim()).firstOrNull;
+      final fineness = tryDec(purityOpt?.raw['finenessPerThousand']) ?? Decimal.fromInt(916);
+      final fine = (mw * fineness * Decimal.parse('0.001')).round(scale: 6);
+      _fineWt.text = fine.toStringAsFixed(6);
+
+      // Estimate live metal value from active bullion rate board if available
+      final rates = context.read<RatesController>();
+      final metalCode = '${purityOpt?.raw['metalCode'] ?? 'GOLD'}';
+      final finCode = fineness.round().toString();
+      final quote = rates.find(metalCode, finCode) ?? rates.find(metalCode, '999');
+      if (quote != null && decOrZero(quote.sell) > Decimal.zero) {
+        final mv = (mw * decOrZero(quote.sell)).round(scale: 2);
+        _metalValue.text = mv.toStringAsFixed(2);
+      }
+    }
+    _recalcTotals();
+  }
+
+  void _recalcTotals() {
+    final mv = decOrZero(_metalValue.text);
+    final mk = decOrZero(_making.text);
+    final st = decOrZero(_stone.text);
+    final ot = decOrZero(_other.text);
+    final disc = decOrZero(_discount.text);
+    final rawTaxable = mv + mk + st + ot - disc;
+    final taxable = rawTaxable < Decimal.zero ? Decimal.zero : rawTaxable.round(scale: 2);
+    if (taxable > Decimal.zero ||
+        _metalValue.text.isNotEmpty ||
+        _making.text.isNotEmpty ||
+        _stone.text.isNotEmpty) {
+      final tax = (taxable * Decimal.parse('0.03')).round(scale: 2);
+      final total = (taxable + tax).round(scale: 2);
+      _taxable.text = taxable.toStringAsFixed(2);
+      _tax.text = tax.toStringAsFixed(2);
+      _total.text = total.toStringAsFixed(2);
+    }
+    setState(() {});
+  }
+
   Future<void> _createOrder() async {
-    if (_partyId.text.trim().isEmpty ||
-        _metalId.text.trim().isEmpty ||
-        _purityId.text.trim().isEmpty ||
-        _estGrams.text.trim().isEmpty ||
-        _spec.text.trim().length < 3) {
-      setState(() => _error = 'Select customer, metal, purity, estimated weight, and design specification.');
+    if (_partyId.text.trim().isEmpty) {
+      setState(() => _error = 'Select a Customer before creating a custom order.');
       return;
     }
+    if (_promisedDate.text.trim().isEmpty) {
+      setState(() => _error = 'Select the Promised date for delivery.');
+      return;
+    }
+    if (_desc.text.trim().length < 3) {
+      setState(() => _error = 'Enter Description (min 3 characters).');
+      return;
+    }
+    if (_metalId.text.trim().isEmpty || _purityId.text.trim().isEmpty) {
+      setState(() => _error = 'Select both Metal and Purity.');
+      return;
+    }
+    if (!isValidWeight(_grossWt.text) || !isValidWeight(_metalWt.text)) {
+      setState(() => _error = 'Enter valid Gross weight g and Metal weight g.');
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
     setState(() {
       _busy = true;
       _error = null;
     });
+
+    final grossStr = normWeight6(_grossWt.text);
+    final metalWtStr = normWeight6(_metalWt.text);
+    final fineStr = normWeight6(_fineWt.text.trim().isEmpty ? _metalWt.text : _fineWt.text);
+    final tolStr = normWeight6(_toleranceWt.text.trim().isEmpty ? '0' : _toleranceWt.text);
+    final metalValStr = normAmount(_metalValue.text.trim().isEmpty ? '0' : _metalValue.text);
+    final makingStr = normAmount(_making.text.trim().isEmpty ? '0' : _making.text);
+    final stoneStr = normAmount(_stone.text.trim().isEmpty ? '0' : _stone.text);
+    final otherStr = normAmount(_other.text.trim().isEmpty ? '0' : _other.text);
+    final discountStr = normAmount(_discount.text.trim().isEmpty ? '0' : _discount.text);
+    final taxableStr = normAmount(_taxable.text.trim().isEmpty ? '0' : _taxable.text);
+    final taxStr = normAmount(_tax.text.trim().isEmpty ? '0' : _tax.text);
+    final totalStr = normAmount(_total.text.trim().isEmpty ? '0' : _total.text);
+    final depositStr = normAmount(
+      _requiredDeposit.text.trim().isEmpty ? '0' : _requiredDeposit.text,
+    );
+
+    final specMap = <String, dynamic>{
+      if (_designCode.text.trim().isNotEmpty) 'designCode': _designCode.text.trim(),
+      'description': _desc.text.trim(),
+      if (_size.text.trim().isNotEmpty) 'size': _size.text.trim(),
+      'metalId': _metalId.text.trim(),
+      'purityGradeId': _purityId.text.trim(),
+      'grossWeightGrams': grossStr,
+      'metalWeightGrams': metalWtStr,
+      'fineWeightGrams': fineStr,
+      'toleranceGrams': tolStr,
+      'metalValue': metalValStr,
+      'makingAmount': makingStr,
+      'stoneAmount': stoneStr,
+      'otherAmount': otherStr,
+      'discountAmount': discountStr,
+      'taxableAmount': taxableStr,
+      'taxAmount': taxStr,
+      'totalAmount': totalStr,
+    };
+
+    final api = context.read<ApiClient>();
     try {
-      await context.read<ApiClient>().post(
-        '/custom-orders',
-        idempotent: true,
-        body: {
-          'customerPartyId': _partyId.text.trim(),
-          if (_seriesId.text.trim().isNotEmpty) 'documentSeriesId': _seriesId.text.trim(),
-          'orderDate': _orderDate.text.trim(),
-          'promisedDate': _promisedDate.text.trim(),
-          'metalId': _metalId.text.trim(),
-          'purityGradeId': _purityId.text.trim(),
-          'estimatedWeightGrams': _estGrams.text.trim(),
-          'quotedMakingAmount': _quotedMaking.text.trim().isEmpty ? '0.00' : _quotedMaking.text.trim(),
-          'advanceAmount': _advanceAmt.text.trim().isEmpty ? '0.00' : _advanceAmt.text.trim(),
-          'currency': 'INR',
-          'description': _spec.text.trim(),
-        },
-      );
+      try {
+        await api.post(
+          '/custom-orders',
+          idempotencyKey: _supplyUuid.v4(),
+          body: {
+            'customerPartyId': _partyId.text.trim(),
+            if (_seriesId.text.trim().isNotEmpty) 'documentSeriesId': _seriesId.text.trim(),
+            'orderDate': _orderDate.text.trim().isEmpty ? todayIso() : _orderDate.text.trim(),
+            'promisedDate': _promisedDate.text.trim(),
+            'requiredDepositAmount': depositStr,
+            'advanceAmount': depositStr,
+            'estimatedWeightGrams': grossStr,
+            'quotedMakingAmount': makingStr,
+            'currency': 'INR',
+            ...specMap,
+            'specification': specMap,
+            'reason': 'Created bespoke customer order and specification v1.',
+          },
+        );
+      } on ApiException catch (e) {
+        if (e.status == 400) {
+          // Strict schema fallback (nested specification v1 only)
+          await api.post(
+            '/custom-orders',
+            idempotencyKey: _supplyUuid.v4(),
+            body: {
+              'customerPartyId': _partyId.text.trim(),
+              'orderDate': _orderDate.text.trim().isEmpty ? todayIso() : _orderDate.text.trim(),
+              'promisedDate': _promisedDate.text.trim(),
+              'requiredDepositAmount': depositStr,
+              'currency': 'INR',
+              'specification': specMap,
+            },
+          );
+        } else {
+          rethrow;
+        }
+      }
+
       if (!mounted) return;
-      _estGrams.clear();
-      _spec.clear();
+      for (final c in [
+        _designCode,
+        _desc,
+        _size,
+        _grossWt,
+        _metalWt,
+        _fineWt,
+        _toleranceWt,
+        _metalValue,
+        _making,
+        _stone,
+        _other,
+        _discount,
+        _taxable,
+        _tax,
+        _total,
+        _requiredDeposit,
+      ]) {
+        c.clear();
+      }
       setState(() => _showForm = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Custom order created.')),
-      );
-      _load();
+      toast(context, 'Custom order & specification v1 created.');
+      await _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -130,8 +332,193 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
     }
   }
 
+  Future<void> _showOrderLifecycleSheet(Map<String, dynamic> order) async {
+    final id = '${order['id'] ?? ''}';
+    if (id.isEmpty) return;
+    final curState = _pick(order, ['state', 'status'], 'DRAFT').toUpperCase();
+    String stage = curState == 'DRAFT'
+        ? 'APPROVE'
+        : curState.contains('QC') || curState == 'BILLED'
+            ? 'DELIVER'
+            : 'QC';
+    final reasonCtrl = TextEditingController();
+    final ackCtrl = TextEditingController();
+    final depAmtCtrl = TextEditingController(
+      text: _pick(order, ['requiredDepositAmount', 'advanceAmount'], '0.00'),
+    );
+    bool sheetBusy = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            24 + MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Order Lifecycle · ${_pick(order, ['documentNumber', 'orderNumber'], shortId(id))}',
+                style: T.display(20),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Maker-checker approval, advance deposit, QC verification, and acknowledged delivery.',
+                style: T.body(12.2, color: Pal.muted),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final opt in const [
+                    ('APPROVE', 'Approve Spec'),
+                    ('ADVANCE', 'Record Deposit'),
+                    ('QC', 'Pass Production QC'),
+                    ('DELIVER', 'Acknowledge Delivery'),
+                  ])
+                    ChoiceChip(
+                      label: Text(opt.$2),
+                      selected: stage == opt.$1,
+                      showCheckmark: false,
+                      selectedColor: Pal.goldWash,
+                      onSelected: (_) => setLocal(() => stage = opt.$1),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (stage == 'ADVANCE') ...[
+                SaasField(
+                  label: 'Deposit Amount (INR)',
+                  controller: depAmtCtrl,
+                  mono: true,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (stage == 'DELIVER') ...[
+                SaasField(
+                  label: 'Customer Acknowledgement Ref',
+                  controller: ackCtrl,
+                  hint: 'Signed delivery challan / OTP ref',
+                ),
+                const SizedBox(height: 10),
+              ],
+              SaasField(
+                label: 'Authorization Reason (min 5 chars)',
+                controller: reasonCtrl,
+                hint: 'Enter approval / QC / delivery note',
+                maxLines: 2,
+              ),
+              if (sheetErr != null) ...[
+                const SizedBox(height: 10),
+                Text(sheetErr!, style: T.body(12.5, color: Pal.danger, w: FontWeight.w700)),
+              ],
+              const SizedBox(height: 14),
+              RoyalGoldButton(
+                busy: sheetBusy,
+                label: stage == 'APPROVE'
+                    ? 'Approve Specification'
+                    : stage == 'ADVANCE'
+                        ? 'Post Advance Deposit'
+                        : stage == 'QC'
+                            ? 'Confirm Production & QC'
+                            : 'Confirm Acknowledged Delivery',
+                onPressed: sheetBusy
+                    ? null
+                    : () async {
+                        if (reasonCtrl.text.trim().length < 5) {
+                          setLocal(() => sheetErr = 'Enter reason (min 5 chars).');
+                          return;
+                        }
+                        setLocal(() {
+                          sheetBusy = true;
+                          sheetErr = null;
+                        });
+                        final api = context.read<ApiClient>();
+                        final ver = asInt(order['version'], fallback: 1);
+                        try {
+                          final paths = switch (stage) {
+                            'APPROVE' => ['/custom-orders/$id/approve'],
+                            'ADVANCE' => [
+                                '/custom-orders/$id/advances',
+                                '/custom-orders/$id/deposits',
+                              ],
+                            'QC' => [
+                                '/custom-orders/$id/qc',
+                                '/custom-orders/$id/complete-qc',
+                              ],
+                            _ => [
+                                '/custom-orders/$id/deliver',
+                                '/custom-orders/$id/delivery',
+                              ],
+                          };
+                          final payload = <String, dynamic>{
+                            'expectedVersion': ver,
+                            'reason': reasonCtrl.text.trim(),
+                            if (stage == 'ADVANCE') 'amount': normAmount(depAmtCtrl.text),
+                            if (stage == 'QC') 'qcState': 'PASSED',
+                            if (stage == 'DELIVER') ...{
+                              'deliveryDate': todayIso(),
+                              if (ackCtrl.text.trim().isNotEmpty)
+                                'customerAcknowledgementRef': ackCtrl.text.trim(),
+                            },
+                          };
+                          for (var i = 0; i < paths.length; i++) {
+                            try {
+                              await api.post(
+                                paths[i],
+                                idempotencyKey: _supplyUuid.v4(),
+                                body: payload,
+                              );
+                              break;
+                            } on ApiException catch (e) {
+                              if ((e.status != 404 && e.code != 'HTTP_ERROR') ||
+                                  i == paths.length - 1) {
+                                rethrow;
+                              }
+                            }
+                          }
+                          if (!ctx.mounted) return;
+                          Navigator.pop(ctx);
+                          if (!mounted) return;
+                          toast(context, 'Custom order updated.');
+                          await _load();
+                        } on ApiException catch (e) {
+                          setLocal(() => sheetErr = e.message);
+                        } finally {
+                          if (ctx.mounted) setLocal(() => sheetBusy = false);
+                        }
+                      },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    reasonCtrl.dispose();
+    ackCtrl.dispose();
+    depAmtCtrl.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999');
+    final bullionActive = gold999 != null && decOrZero(gold999.sell) > Decimal.zero;
+    final showroomContext = [
+      if (app.tenantName.trim().isNotEmpty) app.tenantName.trim(),
+      if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
+    ].join(' · ');
+
     final q = _search.text.trim().toLowerCase();
     bool isDone(Map<String, dynamic> o) {
       final s = '${o['state'] ?? o['status'] ?? ''}'.toUpperCase();
@@ -144,18 +531,24 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
       if (_filter == 'OPEN' && isDone(o)) return false;
       if (_filter == 'DELIVERED' && !isDone(o)) return false;
       if (q.isEmpty) return true;
-      final hay = '${o['documentNumber'] ?? ''} ${o['orderNumber'] ?? ''} ${asMap(o['customer'])['displayName'] ?? ''} ${o['description'] ?? ''}'.toLowerCase();
+      final spec = asMap(o['specification']);
+      final hay =
+          '${o['documentNumber'] ?? ''} ${o['orderNumber'] ?? ''} ${asMap(o['customer'])['displayName'] ?? ''} ${o['description'] ?? spec['description'] ?? ''} ${o['designCode'] ?? spec['designCode'] ?? ''}'
+              .toLowerCase();
       return hay.contains(q);
     }).toList();
 
+    final purities = _lk.puritiesForMetal(_metalId.text.trim());
+
     return LuxuryModuleScaffold(
       title: 'Custom Orders',
-      icon: Icons.auto_awesome_outlined,
+      icon: Icons.diamond_outlined,
       searchController: _search,
-      searchHint: 'Search by Order No. / Customer...',
+      searchHint: 'Search order #, design code, customer or state...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
+          tooltip: 'Refresh custom orders',
           onPressed: _load,
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
         ),
@@ -166,145 +559,488 @@ class _CustomOrdersScreenState extends State<CustomOrdersScreen> {
         tabs: [
           ('ALL', 'All (${_orders.length})'),
           ('OPEN', 'In Progress ($openCnt)'),
-          ('DELIVERED', 'Completed ($doneCnt)'),
+          ('DELIVERED', 'Delivered ($doneCnt)'),
         ],
       ),
       floatingActionButton: GoldAddFab(
         icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'New Custom Order',
+        tooltip: 'New bespoke order and specification v1',
         onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 88),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            // Website Sub-Header (`Custom Orders` from `image-13.png`)
+            Panel(
+              radius: 16,
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFBF3DC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE7CF8B)),
+                        ),
+                        child: const Icon(
+                          Icons.diamond_outlined,
+                          size: 19,
+                          color: Pal.goldDeep,
+                        ),
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Custom Orders',
+                              style: T.body(16, color: Pal.ink, w: FontWeight.w800),
+                            ),
+                            if (showroomContext.isNotEmpty) ...[
+                              const SizedBox(height: 1),
+                              Text(
+                                showroomContext,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: T.body(11.8, color: Pal.muted, w: FontWeight.w600),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Versioned customer specifications, maker-checker approval, advance liability, production/QC, billing and acknowledged delivery.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      InkWell(
+                        borderRadius: BorderRadius.circular(99),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => const MaterialsRatesScreen(),
+                          ),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: bullionActive ? const Color(0xFFFBF3DC) : Pal.warnWash,
+                            borderRadius: BorderRadius.circular(99),
+                            border: Border.all(
+                              color: bullionActive
+                                  ? const Color(0xFFE5CC82)
+                                  : Pal.warn.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.toll_rounded,
+                                size: 13.5,
+                                color: bullionActive ? Pal.goldDeep : Pal.warn,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                bullionActive
+                                    ? 'Bullion 24K: Fine 999 Board Active'
+                                    : 'Bullion 24K: Configure Rate Board',
+                                style: T.body(
+                                  11.2,
+                                  color: bullionActive ? Pal.goldDeep : Pal.warn,
+                                  w: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      ActionChip(
+                        avatar: Icon(
+                          _showForm ? Icons.expand_less_rounded : Icons.add_rounded,
+                          size: 16,
+                          color: Pal.goldDeep,
+                        ),
+                        label: Text(
+                          'New bespoke order v1',
+                          style: T.body(11.8, color: Pal.goldDeep, w: FontWeight.w700),
+                        ),
+                        backgroundColor: _showForm ? Pal.goldWash : Pal.card,
+                        side: BorderSide(color: Pal.gold.withValues(alpha: 0.45)),
+                        onPressed: () => setState(() => _showForm = !_showForm),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              ErrorBanner(_error!, onRetry: _load),
+            ],
+
+            // `New bespoke order and specification v1` (`image-13.png` — all 21 fields)
             if (_showForm) ...[
+              const SizedBox(height: 12),
               SaasFormCard(
-                title: 'New custom order',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showForm = false),
-                  child: const Text('Close'),
-                ),
+                title: 'New bespoke order and specification v1',
+                trailing: _orders.isNotEmpty
+                    ? TextButton(
+                        onPressed: () => setState(() => _showForm = false),
+                        child: const Text('Hide'),
+                      )
+                    : null,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // 1. Customer, Order date, Promised date, Design code
                     LookupField(
                       label: 'Customer',
                       controller: _partyId,
                       options: _lk.partiesByRole('CUSTOMER'),
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Order series',
-                      controller: _seriesId,
-                      options: _lk.seriesFor(const ['CUSTOM', 'ORDER']),
-                      optional: true,
-                      hint: 'Select',
+                      hint: 'Select customer',
                     ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: DatePickField(label: 'Order date', controller: _orderDate)),
+                        Expanded(
+                          child: DatePickField(
+                            label: 'Order date',
+                            controller: _orderDate,
+                          ),
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(child: DatePickField(label: 'Promised delivery', controller: _promisedDate)),
+                        Expanded(
+                          child: DatePickField(
+                            label: 'Promised date',
+                            controller: _promisedDate,
+                          ),
+                        ),
                       ],
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Metal',
-                      controller: _metalId,
-                      options: _lk.metals,
-                      hint: 'Select',
-                      onSelected: (_) => setState(() => _purityId.clear()),
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Purity grade',
-                      controller: _purityId,
-                      options: _lk.puritiesForMetal(_metalId.text.trim()),
-                      hint: 'Select',
                     ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
                         Expanded(
                           child: SaasField(
-                            label: 'Estimated weight g',
-                            controller: _estGrams,
+                            label: 'Design code',
+                            controller: _designCode,
+                            hint: 'Design code',
                             mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: SaasField(
-                            label: 'Quoted making (INR)',
-                            controller: _quotedMaking,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            label: 'Size',
+                            controller: _size,
+                            hint: 'Size',
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
                     SaasField(
-                      label: 'Advance receipt (INR)',
-                      controller: _advanceAmt,
+                      label: 'Description',
+                      controller: _desc,
+                      hint: 'Description',
+                    ),
+                    const SizedBox(height: 10),
+
+                    // 2. Metal & Purity
+                    Row(
+                      children: [
+                        Expanded(
+                          child: LookupField(
+                            label: 'Metal',
+                            controller: _metalId,
+                            options: _lk.metals,
+                            hint: 'Select metal',
+                            onSelected: (opt) {
+                              setState(() {
+                                _purityId.clear();
+                                if (opt != null) {
+                                  final p = _lk.puritiesForMetal(opt.id);
+                                  if (p.isNotEmpty) _purityId.text = p.first.id;
+                                }
+                              });
+                              _recalcFromWeights();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: LookupField(
+                            label: 'Purity',
+                            controller: _purityId,
+                            options: purities.isNotEmpty ? purities : _lk.purityGrades,
+                            hint: 'Select purity',
+                            onSelected: (_) => _recalcFromWeights(),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    // 3. Gross weight g, Metal weight g, Fine 999 g, Tolerance g
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const FieldLabel('Gross weight g'),
+                              TextField(
+                                controller: _grossWt,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(decimal: true),
+                                style: T.mono(13.5),
+                                decoration: const InputDecoration(hintText: '0.000'),
+                                onChanged: (v) {
+                                  if (_metalWt.text.trim().isEmpty) {
+                                    _metalWt.text = v;
+                                    _recalcFromWeights();
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const FieldLabel('Metal weight g'),
+                              TextField(
+                                controller: _metalWt,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(decimal: true),
+                                style: T.mono(13.5),
+                                decoration: const InputDecoration(hintText: '0.000'),
+                                onChanged: (_) => _recalcFromWeights(),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Fine 999 g',
+                            controller: _fineWt,
+                            hint: '0.000000',
+                            mono: true,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Tolerance g',
+                            controller: _toleranceWt,
+                            hint: '0.000',
+                            mono: true,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    // 4. Metal value, Making, Stone, Other
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _amountInputField('Metal value', _metalValue),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _amountInputField('Making', _making),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _amountInputField('Stone', _stone),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _amountInputField('Other', _other),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    // 5. Discount, Taxable, Tax, Total, Required deposit
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _amountInputField('Discount', _discount),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Taxable',
+                            controller: _taxable,
+                            hint: '0.00',
+                            mono: true,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Tax',
+                            controller: _tax,
+                            hint: '0.00',
+                            mono: true,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Total',
+                            controller: _total,
+                            hint: '0.00',
+                            mono: true,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: true),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Required deposit',
+                      controller: _requiredDeposit,
+                      hint: '0.00',
                       mono: true,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
                     ),
-                    const SizedBox(height: 10),
-                    SaasField(
-                      label: 'Design & size specification',
-                      controller: _spec,
-                      maxLines: 2,
-                    ),
-                    const SizedBox(height: 14),
-                    GoldButton(
-                      label: _busy ? 'Saving…' : 'Create Custom Order',
+                    const SizedBox(height: 16),
+                    RoyalGoldButton(
                       busy: _busy,
-                      onPressed: _createOrder,
+                      label: 'Create custom order',
+                      onPressed: _busy ? null : _createOrder,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
             ],
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
+
+            const SectionLabel('Bespoke Orders Register'),
+            if (_loading && _orders.isEmpty)
+              const Panel(child: Skeleton(height: 110))
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No custom orders found. Tap + to book a custom order.')
+              const SaasEmptyBox('No custom orders yet.')
             else
               for (final o in filtered)
-                LuxuryRecordCard(
-                  icon: Icons.auto_awesome_outlined,
-                  code: '${o['documentNumber'] ?? o['orderNumber'] ?? shortId('${o['id']}')}',
-                  status: '${o['state'] ?? o['status'] ?? 'OPEN'}',
-                  lines: [
-                    ('Customer', '${asMap(o['customer'])['displayName'] ?? 'Customer'}'),
-                    ('Promised', fmtDate('${o['promisedDate'] ?? ''}')),
-                    ('Est. Weight', grams(o['estimatedWeightGrams'])),
-                    if ('${o['description'] ?? ''}'.isNotEmpty) ('Design', '${o['description']}'),
-                  ],
-                  amountLabel: 'Advance',
-                  amountValue: inr(o['advanceAmount']),
-                ),
+                Builder(builder: (_) {
+                  final spec = asMap(o['specification']);
+                  final desc = _pick(o, ['description'], _pick(spec, ['description']));
+                  final design = _pick(o, ['designCode'], _pick(spec, ['designCode']));
+                  final gross = _pick(
+                    o,
+                    ['grossWeightGrams', 'estimatedWeightGrams'],
+                    _pick(spec, ['grossWeightGrams'], '0'),
+                  );
+                  final total = _pick(
+                    o,
+                    ['totalAmount'],
+                    _pick(spec, ['totalAmount'], _pick(o, ['requiredDepositAmount', 'advanceAmount'], '0.00')),
+                  );
+                  final deposit = _pick(
+                    o,
+                    ['requiredDepositAmount', 'advanceAmount'],
+                    '0.00',
+                  );
+                  return LuxuryRecordCard(
+                    icon: Icons.diamond_outlined,
+                    code:
+                        '${_pick(o, ['documentNumber', 'orderNumber'], shortId('${o['id']}'))}${design.isNotEmpty ? ' · $design' : ''}',
+                    status: _pick(o, ['state', 'status'], 'DRAFT'),
+                    lines: [
+                      ('Customer', '${asMap(o['customer'])['displayName'] ?? '-'}'),
+                      if (desc.isNotEmpty) ('Specification', desc),
+                      (
+                        'Promised Date',
+                        fmtDate(_pick(o, ['promisedDate'])),
+                      ),
+                      ('Gross Weight', grams(gross)),
+                      ('Required Deposit', inr(deposit)),
+                    ],
+                    amountLabel: 'Order Total',
+                    amountValue: inr(total),
+                    actions: [
+                      GoldButton(
+                        label: 'Manage Order',
+                        compact: true,
+                        onPressed: () => _showOrderLifecycleSheet(o),
+                      ),
+                    ],
+                  );
+                }),
           ],
         ),
       ),
     );
   }
+
+  Widget _amountInputField(String label, TextEditingController controller) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FieldLabel(label),
+        TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: T.mono(13.5),
+          decoration: const InputDecoration(hintText: '0.00'),
+          onChanged: (_) => _recalcTotals(),
+        ),
+      ],
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
-// 2. REPAIRS & CUSTOMER CUSTODY (`/repairs`)
+// 2. REPAIRS & CUSTODY (`/repairs` — `image-14.png`)
 // ---------------------------------------------------------------------------
 
 class RepairsCustodyScreen extends StatefulWidget {
@@ -313,25 +1049,65 @@ class RepairsCustodyScreen extends StatefulWidget {
   State<RepairsCustodyScreen> createState() => _RepairsCustodyScreenState();
 }
 
+class _RepairCustodyItemDraft {
+  _RepairCustodyItemDraft({String defaultMetalId = '', String defaultPurityId = ''})
+      : descCtrl = TextEditingController(),
+        metalIdCtrl = TextEditingController(text: defaultMetalId),
+        purityIdCtrl = TextEditingController(text: defaultPurityId),
+        grossWtCtrl = TextEditingController(),
+        metalWtCtrl = TextEditingController(),
+        fineWtCtrl = TextEditingController(),
+        stoneWtCtrl = TextEditingController(text: '0.000000'),
+        marksCtrl = TextEditingController();
+
+  final TextEditingController descCtrl;
+  final TextEditingController metalIdCtrl;
+  final TextEditingController purityIdCtrl;
+  final TextEditingController grossWtCtrl;
+  final TextEditingController metalWtCtrl;
+  final TextEditingController fineWtCtrl;
+  final TextEditingController stoneWtCtrl;
+  final TextEditingController marksCtrl;
+
+  void dispose() {
+    descCtrl.dispose();
+    metalIdCtrl.dispose();
+    purityIdCtrl.dispose();
+    grossWtCtrl.dispose();
+    metalWtCtrl.dispose();
+    fineWtCtrl.dispose();
+    stoneWtCtrl.dispose();
+    marksCtrl.dispose();
+  }
+}
+
 class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
   final _search = TextEditingController();
   String _filter = 'ALL';
-  bool _showForm = false;
+  bool _showForm = true;
+  bool _formInitialized = false;
+
   List<Map<String, dynamic>> _repairs = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // All 11 header fields of `New repair intake` (`image-14.png`)
   final _partyId = TextEditingController();
   final _custodyLocId = TextEditingController();
   final _seriesId = TextEditingController();
+  final _evidenceFileUuid = TextEditingController();
   final _intakeDate = TextEditingController(text: todayIso());
-  final _promisedDate = TextEditingController(text: todayIso());
-  final _articleDesc = TextEditingController();
-  final _grossGrams = TextEditingController();
-  final _estCharge = TextEditingController(text: '0.00');
-  final _conditionNotes = TextEditingController();
+  final _promisedDate = TextEditingController();
+  final _itemSummary = TextEditingController();
+  final _complaint = TextEditingController();
+  final _visibleCondition = TextEditingController();
+  final _photoEvidenceRef = TextEditingController();
+  final _customerAck = TextEditingController();
+
+  // Dynamic `Custody item 1..N` (`+ Add custody item` in `image-14.png`)
+  final List<_RepairCustodyItemDraft> _items = [_RepairCustodyItemDraft()];
 
   @override
   void initState() {
@@ -341,13 +1117,34 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
 
   @override
   void dispose() {
+    for (final it in _items) {
+      it.dispose();
+    }
     for (final c in [
-      _search, _partyId, _custodyLocId, _seriesId, _intakeDate, _promisedDate,
-      _articleDesc, _grossGrams, _estCharge, _conditionNotes,
+      _search,
+      _partyId,
+      _custodyLocId,
+      _seriesId,
+      _evidenceFileUuid,
+      _intakeDate,
+      _promisedDate,
+      _itemSummary,
+      _complaint,
+      _visibleCondition,
+      _photoEvidenceRef,
+      _customerAck,
     ]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  String _pick(Map<String, dynamic> m, List<String> keys, [String fallback = '']) {
+    for (final k in keys) {
+      final v = m[k];
+      if (v != null && '$v'.trim().isNotEmpty && '$v' != 'null') return '$v';
+    }
+    return fallback;
   }
 
   Future<void> _load() async {
@@ -357,19 +1154,45 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
     });
     final api = context.read<ApiClient>();
     try {
-      final res = await Future.wait([
+      final res = await Future.wait<dynamic>([
         api.get('/repairs'),
         WorkspaceLookup.load(
           api,
           includeParties: true,
           includeInventory: true,
+          includeMaterials: true,
           includeAccounting: true,
         ),
       ]);
       if (!mounted) return;
+      final repairs = asList(res[0], keys: const ['repairs', 'repairOrders', 'jobs', 'items']);
+      final lk = res[1] as WorkspaceLookup;
+
+      final custodyLocs = lk.locationsByType(
+        const ['CUSTOMER_CUSTODY', 'QUARANTINE', 'VAULT'],
+      );
+      if (_custodyLocId.text.isEmpty && custodyLocs.isNotEmpty) {
+        _custodyLocId.text = custodyLocs.first.id;
+      }
+      final repSeries = lk.seriesFor(const ['REPAIR', 'CUSTODY']);
+      if (_seriesId.text.isEmpty && repSeries.isNotEmpty) {
+        _seriesId.text = repSeries.first.id;
+      }
+      for (final it in _items) {
+        if (it.metalIdCtrl.text.isEmpty && lk.metals.isNotEmpty) {
+          it.metalIdCtrl.text = lk.metals.first.id;
+          final p = lk.puritiesForMetal(it.metalIdCtrl.text);
+          if (p.isNotEmpty) it.purityIdCtrl.text = p.first.id;
+        }
+      }
+      if (!_formInitialized) {
+        _showForm = repairs.isEmpty;
+        _formInitialized = true;
+      }
+
       setState(() {
-        _repairs = asList(res[0], keys: const ['repairs', 'jobs', 'items']);
-        _lk = res[1] as WorkspaceLookup;
+        _repairs = repairs;
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -378,44 +1201,172 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
     }
   }
 
-  Future<void> _createRepair() async {
-    if (_partyId.text.trim().isEmpty ||
-        _custodyLocId.text.trim().isEmpty ||
-        _articleDesc.text.trim().length < 3 ||
-        _grossGrams.text.trim().isEmpty) {
-      setState(() => _error = 'Select customer, custody location, article description, and gross weight.');
+  void _recalcItemFine(_RepairCustodyItemDraft item) {
+    final mw = tryDec(item.metalWtCtrl.text.trim());
+    if (mw != null && mw > Decimal.zero) {
+      final pOpt = _lk.purityGrades
+          .where((p) => p.id == item.purityIdCtrl.text.trim())
+          .firstOrNull;
+      final fineness = tryDec(pOpt?.raw['finenessPerThousand']) ?? Decimal.fromInt(916);
+      final fine = (mw * fineness * Decimal.parse('0.001')).round(scale: 6);
+      item.fineWtCtrl.text = fine.toStringAsFixed(6);
+      setState(() {});
+    }
+  }
+
+  Future<void> _recordIntake() async {
+    if (_partyId.text.trim().isEmpty) {
+      setState(() => _error = 'Select a Customer (Customer UUID).');
       return;
     }
+    if (_custodyLocId.text.trim().isEmpty) {
+      setState(() => _error = 'Select a Custody location (Custody location UUID).');
+      return;
+    }
+    if (_promisedDate.text.trim().isEmpty) {
+      setState(() => _error = 'Select the Promised date.');
+      return;
+    }
+    if (_itemSummary.text.trim().length < 2 || _complaint.text.trim().length < 2) {
+      setState(() => _error = 'Enter Item summary and Customer complaint.');
+      return;
+    }
+    for (final it in _items) {
+      if (it.descCtrl.text.trim().length < 2 ||
+          it.metalIdCtrl.text.trim().isEmpty ||
+          it.purityIdCtrl.text.trim().isEmpty ||
+          !isValidWeight(it.grossWtCtrl.text) ||
+          !isValidWeight(it.metalWtCtrl.text)) {
+        setState(
+          () => _error =
+              'Complete Description, Metal UUID, Purity UUID, Gross weight g, and Metal weight g for every custody item.',
+        );
+        return;
+      }
+    }
+
+    FocusScope.of(context).unfocus();
     setState(() {
       _busy = true;
       _error = null;
     });
-    try {
-      await context.read<ApiClient>().post(
-        '/repairs',
-        idempotent: true,
-        body: {
-          'customerPartyId': _partyId.text.trim(),
-          'custodyLocationId': _custodyLocId.text.trim(),
-          if (_seriesId.text.trim().isNotEmpty) 'documentSeriesId': _seriesId.text.trim(),
-          'intakeDate': _intakeDate.text.trim(),
-          'promisedDate': _promisedDate.text.trim(),
-          'articleDescription': _articleDesc.text.trim(),
-          'receivedGrossWeightGrams': _grossGrams.text.trim(),
-          'estimatedChargeAmount': _estCharge.text.trim().isEmpty ? '0.00' : _estCharge.text.trim(),
-          'currency': 'INR',
-          if (_conditionNotes.text.trim().isNotEmpty) 'conditionNotes': _conditionNotes.text.trim(),
+
+    final builtItems = [
+      for (final it in _items)
+        {
+          'description': it.descCtrl.text.trim(),
+          'metalId': it.metalIdCtrl.text.trim(),
+          'purityGradeId': it.purityIdCtrl.text.trim(),
+          'grossWeightGrams': normWeight6(it.grossWtCtrl.text),
+          'metalWeightGrams': normWeight6(it.metalWtCtrl.text),
+          'fineWeightGrams': normWeight6(
+            it.fineWtCtrl.text.trim().isEmpty ? it.metalWtCtrl.text : it.fineWtCtrl.text,
+          ),
+          'stoneWeightGrams': normWeight6(
+            it.stoneWtCtrl.text.trim().isEmpty ? '0' : it.stoneWtCtrl.text,
+          ),
+          if (it.marksCtrl.text.trim().isNotEmpty)
+            'distinguishingMarks': it.marksCtrl.text.trim(),
         },
-      );
+    ];
+
+    final totalGross = _items.fold<Decimal>(
+      Decimal.zero,
+      (s, it) => s + decOrZero(it.grossWtCtrl.text),
+    );
+
+    final body = <String, dynamic>{
+      'customerPartyId': _partyId.text.trim(),
+      'custodyLocationId': _custodyLocId.text.trim(),
+      if (_seriesId.text.trim().isNotEmpty) 'intakeSeriesId': _seriesId.text.trim(),
+      if (_seriesId.text.trim().isNotEmpty) 'documentSeriesId': _seriesId.text.trim(),
+      if (_evidenceFileUuid.text.trim().isNotEmpty)
+        'evidenceFileId': _evidenceFileUuid.text.trim(),
+      'intakeDate': _intakeDate.text.trim().isEmpty ? todayIso() : _intakeDate.text.trim(),
+      'promisedDate': _promisedDate.text.trim(),
+      'itemSummary': _itemSummary.text.trim(),
+      'articleDescription': _itemSummary.text.trim(),
+      'customerComplaint': _complaint.text.trim(),
+      if (_visibleCondition.text.trim().isNotEmpty)
+        'visibleCondition': _visibleCondition.text.trim(),
+      if (_visibleCondition.text.trim().isNotEmpty)
+        'conditionNotes': _visibleCondition.text.trim(),
+      if (_photoEvidenceRef.text.trim().isNotEmpty)
+        'photoEvidenceRef': _photoEvidenceRef.text.trim(),
+      if (_customerAck.text.trim().isNotEmpty)
+        'customerAcknowledgementRef': _customerAck.text.trim(),
+      'receivedGrossWeightGrams': totalGross.toStringAsFixed(6),
+      'items': builtItems,
+      'custodyItems': builtItems,
+      'reason': 'Recorded customer repair custody intake with itemized weight verification.',
+    };
+
+    final api = context.read<ApiClient>();
+    try {
+      try {
+        await api.post(
+          '/repairs',
+          idempotencyKey: _supplyUuid.v4(),
+          body: body,
+        );
+      } on ApiException catch (e) {
+        if (e.status == 404 || e.code == 'HTTP_ERROR') {
+          await api.post(
+            '/repairs/intakes',
+            idempotencyKey: _supplyUuid.v4(),
+            body: body,
+          );
+        } else if (e.status == 400) {
+          // Strict-schema retry matching exact `image-14.png` field names
+          await api.post(
+            '/repairs',
+            idempotencyKey: _supplyUuid.v4(),
+            body: {
+              'customerPartyId': _partyId.text.trim(),
+              'custodyLocationId': _custodyLocId.text.trim(),
+              if (_seriesId.text.trim().isNotEmpty) 'intakeSeriesId': _seriesId.text.trim(),
+              if (_evidenceFileUuid.text.trim().isNotEmpty)
+                'evidenceFileId': _evidenceFileUuid.text.trim(),
+              'intakeDate':
+                  _intakeDate.text.trim().isEmpty ? todayIso() : _intakeDate.text.trim(),
+              'promisedDate': _promisedDate.text.trim(),
+              'itemSummary': _itemSummary.text.trim(),
+              'customerComplaint': _complaint.text.trim(),
+              if (_visibleCondition.text.trim().isNotEmpty)
+                'visibleCondition': _visibleCondition.text.trim(),
+              if (_photoEvidenceRef.text.trim().isNotEmpty)
+                'photoEvidenceRef': _photoEvidenceRef.text.trim(),
+              if (_customerAck.text.trim().isNotEmpty)
+                'customerAcknowledgement': _customerAck.text.trim(),
+              'items': builtItems,
+            },
+          );
+        } else {
+          rethrow;
+        }
+      }
+
       if (!mounted) return;
-      _articleDesc.clear();
-      _grossGrams.clear();
-      _conditionNotes.clear();
+      _itemSummary.clear();
+      _complaint.clear();
+      _visibleCondition.clear();
+      _photoEvidenceRef.clear();
+      _customerAck.clear();
+      _evidenceFileUuid.clear();
+      for (var i = _items.length - 1; i >= 1; i--) {
+        _items[i].dispose();
+        _items.removeAt(i);
+      }
+      _items.first.descCtrl.clear();
+      _items.first.grossWtCtrl.clear();
+      _items.first.metalWtCtrl.clear();
+      _items.first.fineWtCtrl.clear();
+      _items.first.stoneWtCtrl.text = '0.000000';
+      _items.first.marksCtrl.clear();
+
       setState(() => _showForm = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Repair custody receipt recorded.')),
-      );
-      _load();
+      toast(context, 'Repair custody intake recorded.');
+      await _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -423,12 +1374,174 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
     }
   }
 
+  Future<void> _showRepairLifecycleSheet(Map<String, dynamic> rep) async {
+    final id = '${rep['id'] ?? ''}';
+    if (id.isEmpty) return;
+    String stage = 'COMPLETE';
+    final chargeCtrl = TextEditingController(
+      text: _pick(rep, ['estimatedChargeAmount', 'repairChargeAmount'], '0.00'),
+    );
+    final ackCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    bool sheetBusy = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            24 + MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Repair Custody · ${_pick(rep, ['documentNumber', 'jobNumber'], shortId(id))}',
+                style: T.display(20),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final opt in const [
+                    ('QUOTE', 'Approve Estimate'),
+                    ('COMPLETE', 'Complete Repair QC'),
+                    ('RETURN', 'Return Custody to Customer'),
+                  ])
+                    ChoiceChip(
+                      label: Text(opt.$2),
+                      selected: stage == opt.$1,
+                      showCheckmark: false,
+                      selectedColor: Pal.goldWash,
+                      onSelected: (_) => setLocal(() => stage = opt.$1),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (stage == 'QUOTE') ...[
+                SaasField(
+                  label: 'Quoted Repair Charge (INR)',
+                  controller: chargeCtrl,
+                  mono: true,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (stage == 'RETURN') ...[
+                SaasField(
+                  label: 'Customer Return Acknowledgement Ref',
+                  controller: ackCtrl,
+                  hint: 'Signed return receipt / OTP ref',
+                ),
+                const SizedBox(height: 10),
+              ],
+              SaasField(
+                label: 'Authorization / QC Notes (min 5 chars)',
+                controller: reasonCtrl,
+                hint: 'Verified repair weight & hallmark on return',
+                maxLines: 2,
+              ),
+              if (sheetErr != null) ...[
+                const SizedBox(height: 10),
+                Text(sheetErr!, style: T.body(12.5, color: Pal.danger, w: FontWeight.w700)),
+              ],
+              const SizedBox(height: 14),
+              RoyalGoldButton(
+                busy: sheetBusy,
+                label: stage == 'QUOTE'
+                    ? 'Save Repair Estimate'
+                    : stage == 'COMPLETE'
+                        ? 'Mark Repair QC Passed'
+                        : 'Confirm Custody Return',
+                onPressed: sheetBusy
+                    ? null
+                    : () async {
+                        if (reasonCtrl.text.trim().length < 5) {
+                          setLocal(() => sheetErr = 'Enter notes (min 5 chars).');
+                          return;
+                        }
+                        setLocal(() {
+                          sheetBusy = true;
+                          sheetErr = null;
+                        });
+                        final api = context.read<ApiClient>();
+                        final ver = asInt(rep['version'], fallback: 1);
+                        try {
+                          final paths = switch (stage) {
+                            'QUOTE' => ['/repairs/$id/quote', '/repairs/$id/approve'],
+                            'COMPLETE' => ['/repairs/$id/complete', '/repairs/$id/qc'],
+                            _ => ['/repairs/$id/deliver', '/repairs/$id/return'],
+                          };
+                          final payload = <String, dynamic>{
+                            'expectedVersion': ver,
+                            'reason': reasonCtrl.text.trim(),
+                            if (stage == 'QUOTE')
+                              'estimatedChargeAmount': normAmount(chargeCtrl.text),
+                            if (stage == 'RETURN') ...{
+                              'returnDate': todayIso(),
+                              if (ackCtrl.text.trim().isNotEmpty)
+                                'customerAcknowledgementRef': ackCtrl.text.trim(),
+                            },
+                          };
+                          for (var i = 0; i < paths.length; i++) {
+                            try {
+                              await api.post(
+                                paths[i],
+                                idempotencyKey: _supplyUuid.v4(),
+                                body: payload,
+                              );
+                              break;
+                            } on ApiException catch (e) {
+                              if ((e.status != 404 && e.code != 'HTTP_ERROR') ||
+                                  i == paths.length - 1) {
+                                rethrow;
+                              }
+                            }
+                          }
+                          if (!ctx.mounted) return;
+                          Navigator.pop(ctx);
+                          if (!mounted) return;
+                          toast(context, 'Repair job updated.');
+                          await _load();
+                        } on ApiException catch (e) {
+                          setLocal(() => sheetErr = e.message);
+                        } finally {
+                          if (ctx.mounted) setLocal(() => sheetBusy = false);
+                        }
+                      },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    chargeCtrl.dispose();
+    ackCtrl.dispose();
+    reasonCtrl.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999');
+    final bullionActive = gold999 != null && decOrZero(gold999.sell) > Decimal.zero;
+    final showroomContext = [
+      if (app.tenantName.trim().isNotEmpty) app.tenantName.trim(),
+      if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
+    ].join(' · ');
+
     final q = _search.text.trim().toLowerCase();
     bool isDone(Map<String, dynamic> r) {
       final s = '${r['state'] ?? r['status'] ?? ''}'.toUpperCase();
-      return s == 'DELIVERED' || s == 'COMPLETED' || s == 'CLOSED';
+      return s == 'DELIVERED' || s == 'RETURNED' || s == 'COMPLETED' || s == 'CLOSED';
     }
 
     final activeCnt = _repairs.where((r) => !isDone(r)).length;
@@ -437,7 +1550,9 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
       if (_filter == 'ACTIVE' && isDone(r)) return false;
       if (_filter == 'DONE' && !isDone(r)) return false;
       if (q.isEmpty) return true;
-      final hay = '${r['documentNumber'] ?? ''} ${r['jobNumber'] ?? ''} ${asMap(r['customer'])['displayName'] ?? ''} ${r['articleDescription'] ?? ''}'.toLowerCase();
+      final hay =
+          '${r['documentNumber'] ?? ''} ${r['jobNumber'] ?? ''} ${asMap(r['customer'])['displayName'] ?? ''} ${r['itemSummary'] ?? r['articleDescription'] ?? ''} ${r['customerComplaint'] ?? ''}'
+              .toLowerCase();
       return hay.contains(q);
     }).toList();
 
@@ -445,10 +1560,11 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
       title: 'Repairs & Custody',
       icon: Icons.build_outlined,
       searchController: _search,
-      searchHint: 'Search by Repair No. / Customer...',
+      searchHint: 'Search repair #, customer, item summary or complaint...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
+          tooltip: 'Refresh repairs & custody',
           onPressed: _load,
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
         ),
@@ -464,116 +1580,501 @@ class _RepairsCustodyScreenState extends State<RepairsCustodyScreen> {
       ),
       floatingActionButton: GoldAddFab(
         icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'Receive Repair Article',
+        tooltip: 'New repair intake',
         onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 88),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            // Website Sub-Header (`Repairs & Custody` + `Bullion 24K`)
+            Panel(
+              radius: 16,
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFBF3DC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE7CF8B)),
+                        ),
+                        child: const Icon(
+                          Icons.build_outlined,
+                          size: 18,
+                          color: Pal.goldDeep,
+                        ),
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Repairs & Custody',
+                              style: T.body(16, color: Pal.ink, w: FontWeight.w800),
+                            ),
+                            if (showroomContext.isNotEmpty) ...[
+                              const SizedBox(height: 1),
+                              Text(
+                                showroomContext,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: T.body(11.8, color: Pal.muted, w: FontWeight.w600),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Customer ornament custody intake, itemized scale weights & distinguishing marks, workshop QC, and acknowledged return.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      InkWell(
+                        borderRadius: BorderRadius.circular(99),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => const MaterialsRatesScreen(),
+                          ),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: bullionActive ? const Color(0xFFFBF3DC) : Pal.warnWash,
+                            borderRadius: BorderRadius.circular(99),
+                            border: Border.all(
+                              color: bullionActive
+                                  ? const Color(0xFFE5CC82)
+                                  : Pal.warn.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.toll_rounded,
+                                size: 13.5,
+                                color: bullionActive ? Pal.goldDeep : Pal.warn,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                bullionActive
+                                    ? 'Bullion 24K: Fine 999 Board Active'
+                                    : 'Bullion 24K: Configure Rate Board',
+                                style: T.body(
+                                  11.2,
+                                  color: bullionActive ? Pal.goldDeep : Pal.warn,
+                                  w: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      ActionChip(
+                        avatar: Icon(
+                          _showForm ? Icons.expand_less_rounded : Icons.add_rounded,
+                          size: 16,
+                          color: Pal.goldDeep,
+                        ),
+                        label: Text(
+                          'New repair intake',
+                          style: T.body(11.8, color: Pal.goldDeep, w: FontWeight.w700),
+                        ),
+                        backgroundColor: _showForm ? Pal.goldWash : Pal.card,
+                        side: BorderSide(color: Pal.gold.withValues(alpha: 0.45)),
+                        onPressed: () => setState(() => _showForm = !_showForm),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              ErrorBanner(_error!, onRetry: _load),
+            ],
+
+            // `New repair intake` (`image-14.png` — 11 intake fields + dynamic `Custody item 1..N`)
             if (_showForm) ...[
+              const SizedBox(height: 12),
               SaasFormCard(
-                title: 'New customer repair intake',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showForm = false),
-                  child: const Text('Close'),
-                ),
+                title: 'New repair intake',
+                trailing: _repairs.isNotEmpty
+                    ? TextButton(
+                        onPressed: () => setState(() => _showForm = false),
+                        child: const Text('Hide'),
+                      )
+                    : null,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     LookupField(
-                      label: 'Customer',
+                      label: 'Customer UUID',
                       controller: _partyId,
                       options: _lk.partiesByRole('CUSTOMER'),
-                      hint: 'Select',
+                      hint: 'Select customer or enter UUID',
                     ),
                     const SizedBox(height: 10),
                     LookupField(
-                      label: 'Customer custody location',
+                      label: 'Custody location UUID',
                       controller: _custodyLocId,
-                      options: _lk.locationsByType(const ['CUSTOMER_CUSTODY', 'QUARANTINE', 'VAULT']),
-                      hint: 'Select',
+                      options: _lk.locationsByType(
+                        const ['CUSTOMER_CUSTODY', 'QUARANTINE', 'VAULT'],
+                      ),
+                      hint: 'Select custody location or enter UUID',
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Repair series',
-                      controller: _seriesId,
-                      options: _lk.seriesFor(const ['REPAIR', 'CUSTODY']),
-                      optional: true,
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: DatePickField(label: 'Intake date', controller: _intakeDate)),
-                        const SizedBox(width: 10),
-                        Expanded(child: DatePickField(label: 'Promised date', controller: _promisedDate)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    SaasField(label: 'Article description', controller: _articleDesc),
                     const SizedBox(height: 10),
                     Row(
                       children: [
                         Expanded(
-                          child: SaasField(
-                            label: 'Received gross weight g',
-                            controller: _grossGrams,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          child: LookupField(
+                            label: 'Intake series UUID',
+                            controller: _seriesId,
+                            options: _lk.seriesFor(const ['REPAIR', 'CUSTODY']),
+                            optional: true,
+                            hint: 'Intake series',
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: SaasField(
-                            label: 'Estimated charge (INR)',
-                            controller: _estCharge,
+                            label: 'Evidence file UUID',
+                            controller: _evidenceFileUuid,
+                            hint: 'Optional UUID',
                             mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            trailing: IconButton(
+                              tooltip: 'Generate Evidence UUID',
+                              icon: const Icon(
+                                Icons.auto_fix_high_rounded,
+                                size: 17,
+                                color: Pal.goldDeep,
+                              ),
+                              onPressed: () => setState(
+                                () => _evidenceFileUuid.text = _supplyUuid.v4(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DatePickField(
+                            label: 'Intake date',
+                            controller: _intakeDate,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: DatePickField(
+                            label: 'Promised date',
+                            controller: _promisedDate,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
                     SaasField(
-                      label: 'Condition & stone remarks',
-                      controller: _conditionNotes,
-                      maxLines: 2,
+                      label: 'Item summary',
+                      controller: _itemSummary,
+                      hint: 'Item summary',
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Customer complaint',
+                      controller: _complaint,
+                      hint: 'Customer complaint',
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Visible condition',
+                      controller: _visibleCondition,
+                      hint: 'Visible condition',
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Photo/evidence reference',
+                            controller: _photoEvidenceRef,
+                            hint: 'Photo/evidence ref',
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Customer acknowledgement',
+                            controller: _customerAck,
+                            hint: 'Acknowledgement ref',
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 14),
-                    GoldButton(
-                      label: _busy ? 'Saving…' : 'Receive Customer Article',
+
+                    // Dynamic `Custody item 1..N` (`image-14.png`)
+                    for (var i = 0; i < _items.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 10),
+                      Builder(builder: (_) {
+                        final it = _items[i];
+                        final purities = _lk.puritiesForMetal(it.metalIdCtrl.text.trim());
+                        return SaasSubBox(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    'Custody item ${i + 1}',
+                                    style: T.body(13.2, color: Pal.ink, w: FontWeight.w800),
+                                  ),
+                                  const Spacer(),
+                                  if (_items.length > 1)
+                                    TextButton(
+                                      style: TextButton.styleFrom(
+                                        visualDensity: VisualDensity.compact,
+                                        foregroundColor: Pal.danger,
+                                      ),
+                                      onPressed: () => setState(() {
+                                        _items[i].dispose();
+                                        _items.removeAt(i);
+                                      }),
+                                      child: const Text('Remove'),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              SaasField(
+                                label: 'Description',
+                                controller: it.descCtrl,
+                                hint: 'Description',
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: LookupField(
+                                      label: 'Metal UUID',
+                                      controller: it.metalIdCtrl,
+                                      options: _lk.metals,
+                                      hint: 'Metal',
+                                      onSelected: (opt) {
+                                        setState(() {
+                                          it.purityIdCtrl.clear();
+                                          if (opt != null) {
+                                            final p = _lk.puritiesForMetal(opt.id);
+                                            if (p.isNotEmpty) {
+                                              it.purityIdCtrl.text = p.first.id;
+                                            }
+                                          }
+                                        });
+                                        _recalcItemFine(it);
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: LookupField(
+                                      label: 'Purity UUID',
+                                      controller: it.purityIdCtrl,
+                                      options: purities.isNotEmpty
+                                          ? purities
+                                          : _lk.purityGrades,
+                                      hint: 'Purity',
+                                      onSelected: (_) => _recalcItemFine(it),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const FieldLabel('Gross weight g'),
+                                        TextField(
+                                          controller: it.grossWtCtrl,
+                                          keyboardType:
+                                              const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
+                                          style: T.mono(13.5),
+                                          decoration: const InputDecoration(
+                                            hintText: '0.000',
+                                          ),
+                                          onChanged: (v) {
+                                            if (it.metalWtCtrl.text.trim().isEmpty) {
+                                              it.metalWtCtrl.text = v;
+                                              _recalcItemFine(it);
+                                            }
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const FieldLabel('Metal weight g'),
+                                        TextField(
+                                          controller: it.metalWtCtrl,
+                                          keyboardType:
+                                              const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
+                                          style: T.mono(13.5),
+                                          decoration: const InputDecoration(
+                                            hintText: '0.000',
+                                          ),
+                                          onChanged: (_) => _recalcItemFine(it),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: SaasField(
+                                      label: 'Fine 999 g',
+                                      controller: it.fineWtCtrl,
+                                      hint: '0.000000',
+                                      mono: true,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: SaasField(
+                                      label: 'Stone weight g',
+                                      controller: it.stoneWtCtrl,
+                                      hint: '0.000000',
+                                      mono: true,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              SaasField(
+                                label: 'Distinguishing marks',
+                                controller: it.marksCtrl,
+                                hint: 'Distinguishing marks',
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          minimumSize: const Size(0, 38),
+                        ),
+                        onPressed: () {
+                          final defMetal =
+                              _lk.metals.isNotEmpty ? _lk.metals.first.id : '';
+                          final defPur = defMetal.isNotEmpty &&
+                                  _lk.puritiesForMetal(defMetal).isNotEmpty
+                              ? _lk.puritiesForMetal(defMetal).first.id
+                              : '';
+                          setState(
+                            () => _items.add(
+                              _RepairCustodyItemDraft(
+                                defaultMetalId: defMetal,
+                                defaultPurityId: defPur,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.add_rounded, size: 17),
+                        label: const Text('Add custody item'),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    RoyalGoldButton(
                       busy: _busy,
-                      onPressed: _createRepair,
+                      label: 'Record intake',
+                      onPressed: _busy ? null : _recordIntake,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
             ],
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
+
+            const SectionLabel('Repair & Custody Orders'),
+            if (_loading && _repairs.isEmpty)
+              const Panel(child: Skeleton(height: 100))
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No repair or customer custody jobs found. Tap + to intake a repair.')
+              const SaasEmptyBox('No repair orders yet.')
             else
               for (final r in filtered)
                 LuxuryRecordCard(
                   icon: Icons.build_outlined,
-                  code: '${r['documentNumber'] ?? r['jobNumber'] ?? shortId('${r['id']}')}',
-                  status: '${r['state'] ?? r['status'] ?? 'RECEIVED'}',
+                  code: _pick(
+                    r,
+                    ['documentNumber', 'jobNumber', 'intakeNumber'],
+                    shortId('${r['id']}'),
+                  ),
+                  status: _pick(r, ['state', 'status'], 'RECEIVED'),
                   lines: [
-                    ('Customer', '${asMap(r['customer'])['displayName'] ?? 'Customer'}'),
-                    if ('${r['articleDescription'] ?? ''}'.isNotEmpty) ('Article', '${r['articleDescription']}'),
-                    ('Promised', fmtDate('${r['promisedDate'] ?? ''}')),
+                    ('Customer', '${asMap(r['customer'])['displayName'] ?? '-'}'),
+                    if (_pick(r, ['itemSummary', 'articleDescription']).isNotEmpty)
+                      ('Item Summary', _pick(r, ['itemSummary', 'articleDescription'])),
+                    if (_pick(r, ['customerComplaint']).isNotEmpty)
+                      ('Complaint', _pick(r, ['customerComplaint'])),
+                    ('Promised Date', fmtDate(_pick(r, ['promisedDate']))),
                   ],
                   amountLabel: 'Gross Wt',
-                  amountValue: grams(r['receivedGrossWeightGrams']),
+                  amountValue: grams(
+                    _pick(r, ['receivedGrossWeightGrams', 'totalGrossWeightGrams'], '0'),
+                  ),
+                  actions: [
+                    GoldButton(
+                      label: 'Manage Repair',
+                      compact: true,
+                      onPressed: () => _showRepairLifecycleSheet(r),
+                    ),
+                  ],
                 ),
           ],
         ),
