@@ -1008,36 +1008,15 @@ class _DoubleEntryAccountingScreenState
     });
     final api = context.read<ApiClient>();
     try {
-      Map<String, dynamic> rawStmt = {};
-      var fromTrialBalance = false;
-      try {
-        final r = await api.get(
-          '/accounting/statements',
-          query: {
-            'statement': _stmtKind,
-            'startDate': _stmtStart.text.trim(),
-            'endDate': _stmtEnd.text.trim(),
-            'currency': _stmtCurrency.text.trim().toUpperCase(),
-          },
-        );
-        rawStmt = asMap(r);
-      } on ApiException {
-        fromTrialBalance = true;
-        final tb = await api.get(
-          '/reports/trial-balance',
-          query: {
-            'startDate': _stmtStart.text.trim(),
-            'asOfDate': _stmtEnd.text.trim(),
-          },
-        );
-        rawStmt = asMap(tb);
-      }
+      final tb = await api.get(
+        '/reports/trial-balance',
+        query: {
+          'startDate': _stmtStart.text.trim(),
+          'asOfDate': _stmtEnd.text.trim(),
+        },
+      );
+      final rawStmt = asMap(tb);
       if (!mounted) return;
-
-      if (!fromTrialBalance && rawStmt.isNotEmpty) {
-        setState(() => _stmtResult = rawStmt);
-        return;
-      }
 
       // Derive structured P&L or Balance Sheet directly from live GL Trial Balance + COA groups
       final acctGroupById = <String, String>{
@@ -1237,11 +1216,11 @@ class _DoubleEntryAccountingScreenState
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -3653,11 +3632,11 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -4625,11 +4604,11 @@ class _BankingReconciliationScreenState
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -5024,11 +5003,11 @@ class _ConsolidatedChainAnalyticsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,

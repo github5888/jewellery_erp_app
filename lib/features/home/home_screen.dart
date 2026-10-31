@@ -35,19 +35,28 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _openOrderPreview = const [];
   int _activeBatches = 0;
   bool _kpiLoading = true;
+  String _loadedBranchId = '';
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshAll());
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final branchId = context.watch<AppState>().selectedBranchId;
+    if (_loadedBranchId != branchId) {
+      _loadedBranchId = branchId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refreshAll();
+      });
+    }
   }
 
   Future<void> _refreshAll() async {
     final rates = context.read<RatesController>();
     final api = context.read<ApiClient>();
+    final app = context.read<AppState>();
     await Future.wait([
       rates.refresh(),
       _loadKpis(api),
+      app.loadShowroomLogo(force: true),
     ]);
   }
 
@@ -306,25 +315,83 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               const SizedBox(width: 4),
-                              InkWell(
-                                borderRadius: BorderRadius.circular(99),
-                                onTap: app.branchCount > 1
-                                    ? app.switchShowroom
-                                    : () => widget.onJump(4),
-                                child: Container(
-                                  width: 34,
-                                  height: 34,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFFE5C463), Color(0xFFA87718)],
-                                    ),
-                                    border: Border.all(color: Colors.white30, width: 1.2),
+                              Tooltip(
+                                message: (app.showroomLogoBytes != null &&
+                                        app.showroomLogoBytes!.isNotEmpty)
+                                    ? 'Showroom Logo · Company & Invoice Profile'
+                                    : (app.branchCount > 1
+                                        ? 'Switch Showroom (long-press for Company Profile)'
+                                        : 'Company & Invoice Profile'),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(99),
+                                  onTap: app.branchCount > 1
+                                      ? app.switchShowroom
+                                      : () => _push(
+                                            const CompanyInvoiceProfileScreen(),
+                                          ),
+                                  onLongPress: () => _push(
+                                    const CompanyInvoiceProfileScreen(),
                                   ),
-                                  child: Text(
-                                    avatarChar,
-                                    style: T.body(14, color: Pal.ink, w: FontWeight.w800),
+                                  child: Container(
+                                    width: 36,
+                                    height: 36,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: (app.showroomLogoBytes != null &&
+                                              app.showroomLogoBytes!.isNotEmpty)
+                                          ? Colors.white
+                                          : null,
+                                      gradient: (app.showroomLogoBytes != null &&
+                                              app.showroomLogoBytes!.isNotEmpty)
+                                          ? null
+                                          : const LinearGradient(
+                                              colors: [
+                                                Color(0xFFE5C463),
+                                                Color(0xFFA87718),
+                                              ],
+                                            ),
+                                      border: Border.all(
+                                        color: const Color(0xFFE5C463),
+                                        width: 1.4,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.24,
+                                          ),
+                                          blurRadius: 6,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    child: (app.showroomLogoBytes != null &&
+                                            app.showroomLogoBytes!.isNotEmpty)
+                                        ? ClipOval(
+                                            child: Image.memory(
+                                              app.showroomLogoBytes!,
+                                              width: 33,
+                                              height: 33,
+                                              fit: BoxFit.cover,
+                                              gaplessPlayback: true,
+                                              errorBuilder: (_, __, ___) => Text(
+                                                avatarChar,
+                                                style: T.body(
+                                                  14,
+                                                  color: Pal.ink,
+                                                  w: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : Text(
+                                            avatarChar,
+                                            style: T.body(
+                                              14,
+                                              color: Pal.ink,
+                                              w: FontWeight.w800,
+                                            ),
+                                          ),
                                   ),
                                 ),
                               ),

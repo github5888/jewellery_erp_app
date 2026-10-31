@@ -419,14 +419,45 @@ class _MoreScreenState extends State<MoreScreen> {
                           height: 38,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF3F5F8),
+                            color: (app.showroomLogoBytes != null &&
+                                    app.showroomLogoBytes!.isNotEmpty)
+                                ? Colors.white
+                                : const Color(0xFFF3F5F8),
                             shape: BoxShape.circle,
-                            border: Border.all(color: Pal.line),
+                            border: Border.all(
+                              color: (app.showroomLogoBytes != null &&
+                                      app.showroomLogoBytes!.isNotEmpty)
+                                  ? Pal.goldBorder
+                                  : Pal.line,
+                            ),
                           ),
-                          child: Text(
-                            initial,
-                            style: T.body(14.5, color: Pal.ink, w: FontWeight.w800),
-                          ),
+                          child: (app.showroomLogoBytes != null &&
+                                  app.showroomLogoBytes!.isNotEmpty)
+                              ? ClipOval(
+                                  child: Image.memory(
+                                    app.showroomLogoBytes!,
+                                    width: 36,
+                                    height: 36,
+                                    fit: BoxFit.cover,
+                                    gaplessPlayback: true,
+                                    errorBuilder: (_, __, ___) => Text(
+                                      initial,
+                                      style: T.body(
+                                        14.5,
+                                        color: Pal.ink,
+                                        w: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : Text(
+                                  initial,
+                                  style: T.body(
+                                    14.5,
+                                    color: Pal.ink,
+                                    w: FontWeight.w800,
+                                  ),
+                                ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(

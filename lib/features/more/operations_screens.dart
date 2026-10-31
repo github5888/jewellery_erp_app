@@ -925,11 +925,11 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -2804,11 +2804,11 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -3630,11 +3630,11 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -4686,11 +4686,11 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,

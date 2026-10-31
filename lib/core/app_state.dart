@@ -38,6 +38,12 @@ class AppState extends ChangeNotifier {
   int mfaLevel = 0;
   String actorKind = 'TENANT_MEMBER';
 
+  /// Active showroom / company logo (`PNG`, `JPEG`, or `WebP` bytes) scoped to
+  /// the selected branch (`GET /organization/invoice-profile/logo`).
+  /// Shown in the top-right header badge on `HomeScreen` when uploaded.
+  Uint8List? showroomLogoBytes;
+  String _logoBranchKey = '';
+
   String get userName => '${user['displayName'] ?? user['name'] ?? user['email'] ?? ''}';
   String get userEmail => '${user['email'] ?? ''}';
   int get branchCount => options.length;
@@ -47,7 +53,66 @@ class AppState extends ChangeNotifier {
 
   void _expired() {
     if (stage == AuthStage.ready || stage == AuthStage.context) {
+      showroomLogoBytes = null;
+      _logoBranchKey = '';
       stage = AuthStage.loggedOut;
+      notifyListeners();
+    }
+  }
+
+  /// Updates the active showroom logo in memory and notifies `HomeScreen` / `MoreScreen` immediately.
+  void setShowroomLogo(Uint8List? bytes, {String? branchId}) {
+    _logoBranchKey = branchId ?? selectedBranchId;
+    showroomLogoBytes = (bytes != null && bytes.isNotEmpty) ? bytes : null;
+    notifyListeners();
+  }
+
+  /// Fetches the private branch-scoped showroom logo from
+  /// `GET /organization/invoice-profile/logo` (with inline base64 fallback from
+  /// `GET /organization/invoice-profile`).
+  Future<void> loadShowroomLogo({bool force = false}) async {
+    if (stage != AuthStage.ready) return;
+    final targetBranch = selectedBranchId;
+    final targetEntity = selectedEntityId;
+    if (!force && _logoBranchKey == targetBranch && showroomLogoBytes != null) {
+      return;
+    }
+
+    final query = <String, dynamic>{
+      if (targetBranch.isNotEmpty) 'branchId': targetBranch,
+      if (targetEntity.isNotEmpty) 'legalEntityId': targetEntity,
+    };
+
+    Uint8List? bytes;
+    try {
+      bytes = await api.getBytes('/organization/invoice-profile/logo', query: query);
+      if (bytes == null || bytes.isEmpty) {
+        final env = asMap(
+          await api.get('/organization/invoice-profile', query: query),
+        );
+        final nested = asMap(
+          env['profile'] ?? env['invoiceProfile'] ?? env['branchProfile'],
+        );
+        final showroom = asMap(env['showroomIdentity'] ?? env['showroom']);
+        final merged = <String, dynamic>{...env, ...nested, ...showroom};
+        final inlineB64 = '${merged['logoDataUrl'] ?? merged['logoBase64'] ?? merged['logoContentBase64'] ?? ''}'.trim();
+        if (inlineB64.isNotEmpty) {
+          final comma = inlineB64.indexOf(',');
+          bytes = base64Decode(
+            comma >= 0 ? inlineB64.substring(comma + 1) : inlineB64,
+          );
+        }
+      }
+    } catch (_) {
+      // Silently ignore when a user role lacks invoice-profile read access or offline.
+      return;
+    }
+
+    if (stage != AuthStage.ready || selectedBranchId != targetBranch) return;
+    _logoBranchKey = targetBranch;
+    final nextLogo = (bytes != null && bytes.isNotEmpty) ? bytes : null;
+    if (showroomLogoBytes != nextLogo) {
+      showroomLogoBytes = nextLogo;
       notifyListeners();
     }
   }
@@ -103,11 +168,18 @@ class AppState extends ChangeNotifier {
       final selMap = Map<String, dynamic>.from(sel);
       actorKind = '${selMap['actorKind'] ?? 'TENANT_MEMBER'}';
       _rememberLabels(selMap);
+      if (_logoBranchKey != selectedBranchId) {
+        showroomLogoBytes = null;
+      }
       stage = AuthStage.ready;
+      notifyListeners();
+      unawaited(loadShowroomLogo(force: true));
     } else {
+      showroomLogoBytes = null;
+      _logoBranchKey = '';
       stage = AuthStage.context;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   void _rememberLabels(Map<String, dynamic> sel) {
@@ -177,6 +249,10 @@ class AppState extends ChangeNotifier {
       'legalEntityId': o.entityId,
       'branchId': o.branchId,
     });
+    if (_logoBranchKey != o.branchId) {
+      showroomLogoBytes = null;
+      _logoBranchKey = '';
+    }
     selectedTenantId = o.tenantId;
     selectedEntityId = o.entityId;
     selectedBranchId = o.branchId;
@@ -188,6 +264,7 @@ class AppState extends ChangeNotifier {
     timezone = o.timezone;
     stage = AuthStage.ready;
     notifyListeners();
+    unawaited(loadShowroomLogo(force: true));
   }
 
   Future<void> selectContextByIds({
@@ -203,6 +280,10 @@ class AppState extends ChangeNotifier {
       'legalEntityId': legalEntityId,
       'branchId': branchId,
     });
+    if (_logoBranchKey != branchId) {
+      showroomLogoBytes = null;
+      _logoBranchKey = '';
+    }
     selectedTenantId = tenantId;
     selectedEntityId = legalEntityId;
     selectedBranchId = branchId;
@@ -241,6 +322,8 @@ class AppState extends ChangeNotifier {
     entityName = '';
     branchName = '';
     branchCode = '';
+    showroomLogoBytes = null;
+    _logoBranchKey = '';
     stage = AuthStage.loggedOut;
     notifyListeners();
   }
@@ -257,3 +340,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 }
+
+/// Alias kept for modules referencing auth/session context controller.
+typedef AuthController = AppState;

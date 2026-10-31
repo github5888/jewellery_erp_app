@@ -236,6 +236,39 @@ class ApiClient extends ChangeNotifier {
     );
   }
 
+  /// Downloads raw image bytes from a direct `https://` URL without sending
+  /// private ERP session cookies or bearer headers to external hosts.
+  Future<Uint8List> fetchExternalBytes(String url) async {
+    final trimmed = url.trim();
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || (uri.scheme != 'https' && uri.scheme != 'http') || uri.host.isEmpty) {
+      throw ApiException('INVALID_URL', 'Enter a valid https:// image URL.');
+    }
+    final plain = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 20),
+        responseType: ResponseType.bytes,
+        followRedirects: true,
+      ),
+    );
+    try {
+      final res = await plain.getUri<List<int>>(uri);
+      final data = res.data;
+      if (data == null || data.isEmpty) {
+        throw ApiException('EMPTY_IMAGE', 'The image URL returned an empty response.');
+      }
+      return Uint8List.fromList(data);
+    } on DioException catch (e) {
+      throw ApiException(
+        'IMAGE_FETCH_FAILED',
+        e.message ?? 'Unable to download image from URL (${e.response?.statusCode ?? 'network error'}).',
+      );
+    } finally {
+      plain.close();
+    }
+  }
+
   // ---- CSRF, Origin & diagnostics ----
 
   static final _csrfName = RegExp(r'csrf|xsrf', caseSensitive: false);

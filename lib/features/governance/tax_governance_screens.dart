@@ -619,11 +619,11 @@ class _ProviderIntegrationsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -1769,11 +1769,11 @@ class _GstRegistrationTransportScreenState
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -3182,11 +3182,11 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -4448,9 +4448,15 @@ class _CustomerMessagingScreenState extends State<CustomerMessagingScreen> {
       _error = null;
     });
     try {
+      final matchedRecip = _recipientOpts.where((o) => o.id == recipId).toList();
+      final partyId = matchedRecip.isNotEmpty
+          ? '${matchedRecip.first.raw['partyId'] ?? matchedRecip.first.raw['customerId'] ?? asMap(matchedRecip.first.raw['party'])['id'] ?? recipId}'
+              .trim()
+          : recipId;
       await _postFirstLive(
         context.read<ApiClient>(),
         [
+          if (partyId.isNotEmpty) '/parties/$partyId/consents',
           '/messaging/consents',
           '/messaging/recipients/$recipId/consents',
         ],
@@ -4693,11 +4699,11 @@ class _CustomerMessagingScreenState extends State<CustomerMessagingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -5597,11 +5603,11 @@ class _GstEInvoicesBillsScreenState extends State<GstEInvoicesBillsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -7588,11 +7594,11 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -8214,6 +8220,8 @@ class _CompanyInvoiceProfileScreenState
         }
       }
 
+      app.setShowroomLogo(logo, branchId: app.selectedBranchId);
+
       setState(() {
         _rawEnvelope = env;
         _profileMap = merged;
@@ -8410,11 +8418,42 @@ class _CompanyInvoiceProfileScreenState
   }
 
   Future<void> _openUploadLogoModal() async {
+    final urlCtrl = TextEditingController();
     final dataCtrl = TextEditingController();
     Uint8List? stagedBytes;
     String? stagedMime;
     String? modalError;
     bool modalBusy = false;
+    bool fetchingUrl = false;
+
+    void stageValidatedBytes(
+      Uint8List decoded,
+      void Function(void Function()) setModal,
+    ) {
+      if (decoded.length > _maxLogoBytes) {
+        setModal(() {
+          stagedBytes = null;
+          stagedMime = null;
+          modalError =
+              'Image exceeds 512 KB limit (${(decoded.length / 1024).toStringAsFixed(1)} KB).';
+        });
+        return;
+      }
+      final mime = _detectImageMime(decoded);
+      if (mime == null) {
+        setModal(() {
+          stagedBytes = null;
+          stagedMime = null;
+          modalError = 'Only PNG, JPEG, or WebP images are permitted.';
+        });
+        return;
+      }
+      setModal(() {
+        stagedBytes = decoded;
+        stagedMime = mime;
+        modalError = null;
+      });
+    }
 
     void parseInput(String raw, void Function(void Function()) setModal) {
       final trimmed = raw.trim();
@@ -8426,6 +8465,14 @@ class _CompanyInvoiceProfileScreenState
         });
         return;
       }
+      if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
+        urlCtrl.text = trimmed;
+        setModal(() {
+          modalError =
+              'Tap "Fetch URL" above to load the image from that link.';
+        });
+        return;
+      }
       try {
         final comma = trimmed.indexOf(',');
         final b64Part = (trimmed.startsWith('data:') && comma >= 0)
@@ -8433,35 +8480,13 @@ class _CompanyInvoiceProfileScreenState
             : trimmed;
         final cleaned = b64Part.replaceAll(RegExp(r'\s+'), '');
         final decoded = base64Decode(cleaned);
-        if (decoded.length > _maxLogoBytes) {
-          setModal(() {
-            stagedBytes = null;
-            stagedMime = null;
-            modalError =
-                'Image exceeds 512 KB limit (${(decoded.length / 1024).toStringAsFixed(1)} KB).';
-          });
-          return;
-        }
-        final mime = _detectImageMime(decoded);
-        if (mime == null) {
-          setModal(() {
-            stagedBytes = null;
-            stagedMime = null;
-            modalError = 'Only PNG, JPEG, or WebP images are permitted.';
-          });
-          return;
-        }
-        setModal(() {
-          stagedBytes = decoded;
-          stagedMime = mime;
-          modalError = null;
-        });
+        stageValidatedBytes(decoded, setModal);
       } catch (_) {
         setModal(() {
           stagedBytes = null;
           stagedMime = null;
           modalError =
-              'Paste a valid Data URL (data:image/png;base64,...) or Base64 encoded PNG/JPEG/WebP image.';
+              'Enter an https:// image URL above or paste a Data URL / Base64 PNG, JPEG, or WebP image.';
         });
       }
     }
@@ -8476,6 +8501,35 @@ class _CompanyInvoiceProfileScreenState
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) {
+          Future<void> fetchFromUrl() async {
+            final link = urlCtrl.text.trim();
+            if (link.isEmpty) {
+              setModal(
+                () => modalError = 'Paste an https:// logo image URL first.',
+              );
+              return;
+            }
+            setModal(() {
+              fetchingUrl = true;
+              modalError = null;
+            });
+            try {
+              final bytes =
+                  await context.read<ApiClient>().fetchExternalBytes(link);
+              if (ctx.mounted) {
+                stageValidatedBytes(bytes, setModal);
+              }
+            } on ApiException catch (e) {
+              if (ctx.mounted) {
+                setModal(() => modalError = e.message);
+              }
+            } finally {
+              if (ctx.mounted) {
+                setModal(() => fetchingUrl = false);
+              }
+            }
+          }
+
           Future<void> uploadNow() async {
             if (stagedBytes == null || stagedMime == null) {
               setModal(
@@ -8565,6 +8619,11 @@ class _CompanyInvoiceProfileScreenState
               }
               if (!ok && lastErr != null) throw lastErr;
 
+              if (mounted) {
+                final app = context.read<AppState>();
+                app.setShowroomLogo(stagedBytes, branchId: app.selectedBranchId);
+                setState(() => _logoBytes = stagedBytes);
+              }
               if (!ctx.mounted) return;
               Navigator.of(ctx).pop();
               if (!mounted) return;
@@ -8626,6 +8685,38 @@ class _CompanyInvoiceProfileScreenState
                     const SizedBox(height: 10),
                   ],
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Direct Logo Image URL (https://...)',
+                          controller: urlCtrl,
+                          hint: 'https://.../logo.png',
+                          keyboardType: TextInputType.url,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton.icon(
+                        onPressed:
+                            (fetchingUrl || modalBusy) ? null : fetchFromUrl,
+                        icon: fetchingUrl
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.cloud_download_outlined,
+                                size: 16,
+                              ),
+                        label: const Text('Fetch URL'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
                     children: [
                       OutlinedButton.icon(
                         onPressed: () async {
@@ -8633,18 +8724,24 @@ class _CompanyInvoiceProfileScreenState
                               await Clipboard.getData(Clipboard.kTextPlain);
                           final txt = (clip?.text ?? '').trim();
                           if (txt.isNotEmpty) {
-                            dataCtrl.text = txt;
-                            parseInput(txt, setModal);
+                            if (txt.startsWith('https://') ||
+                                txt.startsWith('http://')) {
+                              urlCtrl.text = txt;
+                              await fetchFromUrl();
+                            } else {
+                              dataCtrl.text = txt;
+                              parseInput(txt, setModal);
+                            }
                           }
                         },
                         icon: const Icon(Icons.content_paste_rounded, size: 16),
-                        label: const Text('Paste Image Data / Base64'),
+                        label: const Text('Paste URL or Image Base64'),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
                   SaasField(
-                    label: 'Image Data URL or Base64 (PNG / JPEG / WebP ≤ 512 KB)',
+                    label: 'Or Image Data URL / Base64 (PNG / JPEG / WebP ≤ 512 KB)',
                     controller: dataCtrl,
                     mono: true,
                     maxLines: 3,
@@ -8689,6 +8786,7 @@ class _CompanyInvoiceProfileScreenState
       ),
     );
 
+    urlCtrl.dispose();
     dataCtrl.dispose();
   }
 
@@ -8703,6 +8801,8 @@ class _CompanyInvoiceProfileScreenState
         idempotent: true,
       );
       if (!mounted) return;
+      final app = context.read<AppState>();
+      app.setShowroomLogo(null, branchId: app.selectedBranchId);
       setState(() => _logoBytes = null);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Showroom logo removed.')),

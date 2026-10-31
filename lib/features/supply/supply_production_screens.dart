@@ -3005,11 +3005,11 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -4133,11 +4133,11 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -5042,11 +5042,11 @@ class _InterBranchTransfersScreenState
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
@@ -5931,11 +5931,11 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,

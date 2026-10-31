@@ -351,11 +351,11 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthController>();
+    final auth = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = (auth.tenantName ?? '').trim();
-    final branchName = (auth.branchName ?? '').trim();
+    final tenantName = auth.tenantName.trim();
+    final branchName = auth.branchName.trim();
     final workspaceSub = [
       if (tenantName.isNotEmpty) tenantName,
       if (branchName.isNotEmpty) branchName,
