@@ -3518,7 +3518,7 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 4. REFINING & MELTING (`/refining`) — Screenshot (680)
+// 4. REFINING & MELTING (`/refining`) — `image-24.png`
 // ---------------------------------------------------------------------------
 
 class RefiningMeltingScreen extends StatefulWidget {
@@ -3527,25 +3527,43 @@ class RefiningMeltingScreen extends StatefulWidget {
   State<RefiningMeltingScreen> createState() => _RefiningMeltingScreenState();
 }
 
+class _RefiningInputDraft {
+  _RefiningInputDraft()
+      : balanceIdCtrl = TextEditingController(),
+        versionCtrl = TextEditingController(text: '1'),
+        qtyCtrl = TextEditingController(),
+        fineCtrl = TextEditingController();
+
+  final TextEditingController balanceIdCtrl;
+  final TextEditingController versionCtrl;
+  final TextEditingController qtyCtrl;
+  final TextEditingController fineCtrl;
+
+  void dispose() {
+    balanceIdCtrl.dispose();
+    versionCtrl.dispose();
+    qtyCtrl.dispose();
+    fineCtrl.dispose();
+  }
+}
+
 class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
   final _search = TextEditingController();
   String _filter = 'ALL';
-  bool _showForm = false;
+  bool _formExpanded = true;
   List<Map<String, dynamic>> _batches = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // Exact header + input fields from `image-24.png` (`New melt batch`)
   final _refinerPartyId = TextEditingController();
   final _meltSeriesId = TextEditingController();
   final _businessDate = TextEditingController(text: todayIso());
   final _batchDesc = TextEditingController();
   final _allowedLoss = TextEditingController(text: '0.000000');
-  final _sourceBalanceId = TextEditingController();
-  final _balanceVersion = TextEditingController(text: '1');
-  final _inputQty = TextEditingController();
-  final _inputFine = TextEditingController();
+  final List<_RefiningInputDraft> _inputs = [_RefiningInputDraft()];
 
   @override
   void initState() {
@@ -3556,10 +3574,17 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
   @override
   void dispose() {
     for (final c in [
-      _search, _refinerPartyId, _meltSeriesId, _businessDate, _batchDesc,
-      _allowedLoss, _sourceBalanceId, _balanceVersion, _inputQty, _inputFine,
+      _search,
+      _refinerPartyId,
+      _meltSeriesId,
+      _businessDate,
+      _batchDesc,
+      _allowedLoss,
     ]) {
       c.dispose();
+    }
+    for (final inp in _inputs) {
+      inp.dispose();
     }
     super.dispose();
   }
@@ -3578,12 +3603,21 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
           includeParties: true,
           includeInventory: true,
           includeAccounting: true,
+          includeMaterials: true,
         ),
       ]);
       if (!mounted) return;
+      final lk = res[1] as WorkspaceLookup;
+      if (_meltSeriesId.text.isEmpty) {
+        final s = lk.seriesFor(const ['MELT', 'REFINING', 'BATCH']);
+        if (s.isNotEmpty) _meltSeriesId.text = s.first.id;
+      }
       setState(() {
-        _batches = asList(res[0], keys: const ['batches', 'meltBatches', 'refiningBatches', 'items']);
-        _lk = res[1] as WorkspaceLookup;
+        _batches = asList(
+          res[0],
+          keys: const ['batches', 'meltBatches', 'refiningBatches', 'items'],
+        );
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -3594,13 +3628,41 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
 
   Future<void> _createBatch() async {
     if (_meltSeriesId.text.trim().isEmpty ||
-        _batchDesc.text.trim().length < 3 ||
-        _sourceBalanceId.text.trim().isEmpty ||
-        _inputQty.text.trim().isEmpty ||
-        _inputFine.text.trim().isEmpty) {
-      setState(() => _error = 'Complete Melt series, Batch description, Source balance, Input quantity g, and Input fine g.');
+        _batchDesc.text.trim().length < 3) {
+      setState(
+        () => _error =
+            'Select Melt series UUID and enter Batch description (3+ characters).',
+      );
       return;
     }
+    final lossText = _allowedLoss.text.trim().isEmpty
+        ? '0.000000'
+        : _allowedLoss.text.trim();
+    if (tryDec(lossText) == null) {
+      setState(() => _error = 'Allowed fine loss g must be a valid decimal.');
+      return;
+    }
+
+    final inputPayload = <Map<String, dynamic>>[];
+    for (var i = 0; i < _inputs.length; i++) {
+      final inp = _inputs[i];
+      if (inp.balanceIdCtrl.text.trim().isEmpty ||
+          !isValidWeight(inp.qtyCtrl.text) ||
+          !isValidWeight(inp.fineCtrl.text)) {
+        setState(
+          () => _error =
+              'Complete Source balance UUID, Input quantity g, and Input fine g for line ${i + 1}.',
+        );
+        return;
+      }
+      inputPayload.add({
+        'balanceId': inp.balanceIdCtrl.text.trim(),
+        'expectedBalanceVersion': int.tryParse(inp.versionCtrl.text.trim()) ?? 1,
+        'quantityGrams': normWeight6(inp.qtyCtrl.text),
+        'fineWeightGrams': normWeight6(inp.fineCtrl.text),
+      });
+    }
+
     setState(() {
       _busy = true;
       _error = null;
@@ -3615,27 +3677,21 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
           'documentSeriesId': _meltSeriesId.text.trim(),
           'businessDate': _businessDate.text.trim(),
           'description': _batchDesc.text.trim(),
-          'allowedFineLossGrams': _allowedLoss.text.trim().isEmpty
-              ? '0.000000'
-              : _allowedLoss.text.trim(),
-          'inputs': [
-            {
-              'balanceId': _sourceBalanceId.text.trim(),
-              'expectedBalanceVersion': int.tryParse(_balanceVersion.text.trim()) ?? 1,
-              'quantityGrams': _inputQty.text.trim(),
-              'fineWeightGrams': _inputFine.text.trim(),
-            },
-          ],
+          'allowedFineLossGrams': normWeight6(lossText),
+          'inputs': inputPayload,
         },
       );
       if (!mounted) return;
       _batchDesc.clear();
-      _inputQty.clear();
-      _inputFine.clear();
-      setState(() => _showForm = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Controlled refining / melt batch created.')),
-      );
+      for (final inp in _inputs) {
+        inp.dispose();
+      }
+      setState(() {
+        _inputs
+          ..clear()
+          ..add(_RefiningInputDraft());
+      });
+      toast(context, 'Controlled refining / melt batch created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -3644,8 +3700,449 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
     }
   }
 
+  Future<void> _openBatchLifecycleSheet(Map<String, dynamic> batch) async {
+    var actionTab = 'ASSAY';
+
+    final assayFinenessCtrl = TextEditingController();
+    final assayFineWtCtrl = TextEditingController();
+    final assayCertCtrl = TextEditingController();
+    final assayNotesCtrl = TextEditingController();
+
+    final apvReasonCtrl = TextEditingController();
+
+    final outLocCtrl = TextEditingController(
+      text: _lk.locations.isNotEmpty ? _lk.locations.first.id : '',
+    );
+    final outMetalCtrl = TextEditingController(
+      text: _lk.metals.isNotEmpty ? _lk.metals.first.id : '',
+    );
+    final outPurityCtrl = TextEditingController();
+    final outLotCodeCtrl = TextEditingController();
+    final outQtyCtrl = TextEditingController();
+    final outFineCtrl = TextEditingController();
+    final outLossCtrl = TextEditingController(text: '0.000000');
+    final chargeAmtCtrl = TextEditingController();
+    final periodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final jrnSeriesCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final settleReasonCtrl = TextEditingController();
+
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Manage Batch · ${batch['documentNumber'] ?? batch['batchNumber'] ?? shortId('${batch['id']}')}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${batch['state'] ?? batch['status'] ?? 'OPEN'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: actionTab,
+                  onChanged: (v) => setSheet(() {
+                    actionTab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('ASSAY', 'Submit Assay'),
+                    ('APPROVE', 'Approve Assay'),
+                    ('SETTLE', 'Recoveries & FIFO Settle'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (actionTab == 'ASSAY') ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Assayed fineness ‰',
+                          controller: assayFinenessCtrl,
+                          hint: '999.000000',
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Assayed fine 999 g',
+                          controller: assayFineWtCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Assay certificate / lab ref',
+                    controller: assayCertCtrl,
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Assay notes (optional)',
+                    controller: assayNotesCtrl,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Submit Versioned Assay',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (tryDec(assayFinenessCtrl.text) == null ||
+                                !isValidWeight(assayFineWtCtrl.text)) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter valid assayed fineness per thousand and fine 999 weight.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/refining/batches/${batch['id']}/assays',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(batch['version'], fallback: 1),
+                                  'assayedFinenessPerThousand':
+                                      normWeight6(assayFinenessCtrl.text),
+                                  'assayedFineWeightGrams':
+                                      normWeight6(assayFineWtCtrl.text),
+                                  if (assayCertCtrl.text.trim().isNotEmpty)
+                                    'certificateReference':
+                                        assayCertCtrl.text.trim(),
+                                  if (assayNotesCtrl.text.trim().isNotEmpty)
+                                    'notes': assayNotesCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Versioned assay recorded.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else if (actionTab == 'APPROVE') ...[
+                  Text(
+                    'Maker-checker approval locks the current assay version before recovery settlement.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Assay approval reason (minimum 10 characters)',
+                    controller: apvReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Approve Assay Version',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (apvReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter an approval reason of at least 10 characters.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/refining/batches/${batch['id']}/approve-assay',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(batch['version'], fallback: 1),
+                                  'reason': apvReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Assay version approved.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else ...[
+                  LookupField(
+                    label: 'Destination vault / location UUID',
+                    controller: outLocCtrl,
+                    options: _lk.locations,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Recovered metal',
+                    controller: outMetalCtrl,
+                    options: _lk.metals,
+                    onSelected: (_) => setSheet(() => outPurityCtrl.clear()),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Recovered purity grade',
+                    controller: outPurityCtrl,
+                    options: _lk.puritiesForMetal(outMetalCtrl.text.trim()),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Output bullion lot code',
+                    controller: outLotCodeCtrl,
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Recovered qty g',
+                          controller: outQtyCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Recovered fine 999 g',
+                          controller: outFineCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Process loss fine g',
+                          controller: outLossCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Refining charge (INR)',
+                          controller: chargeAmtCtrl,
+                          hint: '0.00',
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Posting Period UUID',
+                    controller: periodCtrl,
+                    options: _lk.openPeriods(),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Journal Series UUID',
+                    controller: jrnSeriesCtrl,
+                    options: _lk.seriesFor(const ['JOURNAL']),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Settlement audit reason (min 10 chars)',
+                    controller: settleReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Record Recovery & Settle FIFO Cost',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (outLocCtrl.text.trim().isEmpty ||
+                                outMetalCtrl.text.trim().isEmpty ||
+                                outPurityCtrl.text.trim().isEmpty ||
+                                outLotCodeCtrl.text.trim().isEmpty ||
+                                !isValidWeight(outQtyCtrl.text) ||
+                                !isValidWeight(outFineCtrl.text) ||
+                                settleReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Complete destination location, metal, purity, lot code, recovered weights, and 10+ char reason.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/refining/batches/${batch['id']}/settle',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(batch['version'], fallback: 1),
+                                  'businessDate': todayIso(),
+                                  if (periodCtrl.text.trim().isNotEmpty)
+                                    'postingPeriodId': periodCtrl.text.trim(),
+                                  if (jrnSeriesCtrl.text.trim().isNotEmpty)
+                                    'journalSeriesId': jrnSeriesCtrl.text.trim(),
+                                  'processLossFineGrams': normWeight6(
+                                    outLossCtrl.text.trim().isEmpty
+                                        ? '0'
+                                        : outLossCtrl.text,
+                                  ),
+                                  if (chargeAmtCtrl.text.trim().isNotEmpty)
+                                    'refiningChargeAmount':
+                                        normAmount(chargeAmtCtrl.text),
+                                  'recoveries': [
+                                    {
+                                      'locationId': outLocCtrl.text.trim(),
+                                      'metalId': outMetalCtrl.text.trim(),
+                                      'purityGradeId': outPurityCtrl.text.trim(),
+                                      'lotCode': outLotCodeCtrl.text
+                                          .trim()
+                                          .toUpperCase(),
+                                      'quantityGrams':
+                                          normWeight6(outQtyCtrl.text),
+                                      'fineWeightGrams':
+                                          normWeight6(outFineCtrl.text),
+                                    },
+                                  ],
+                                  'reason': settleReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(
+                                context,
+                                'Refining batch recovery & FIFO cost settled.',
+                              );
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final c in [
+      assayFinenessCtrl,
+      assayFineWtCtrl,
+      assayCertCtrl,
+      assayNotesCtrl,
+      apvReasonCtrl,
+      outLocCtrl,
+      outMetalCtrl,
+      outPurityCtrl,
+      outLotCodeCtrl,
+      outQtyCtrl,
+      outFineCtrl,
+      outLossCtrl,
+      chargeAmtCtrl,
+      periodCtrl,
+      jrnSeriesCtrl,
+      settleReasonCtrl,
+    ]) {
+      c.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final q = _search.text.trim().toLowerCase();
     bool isDone(Map<String, dynamic> b) {
       final s = '${b['state'] ?? b['status'] ?? ''}'.toUpperCase();
@@ -3658,13 +4155,16 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
       if (_filter == 'IN_PROCESS' && isDone(b)) return false;
       if (_filter == 'COMPLETED' && !isDone(b)) return false;
       if (q.isEmpty) return true;
-      final hay = '${b['documentNumber'] ?? ''} ${b['batchNumber'] ?? ''} ${b['description'] ?? ''} ${asMap(b['refiner'])['displayName'] ?? ''}'.toLowerCase();
+      final hay =
+          '${b['documentNumber'] ?? ''} ${b['batchNumber'] ?? ''} ${b['description'] ?? ''} ${asMap(b['refiner'])['displayName'] ?? ''}'
+              .toLowerCase();
       return hay.contains(q);
     }).toList();
 
     return LuxuryModuleScaffold(
       title: 'Refining & Melting',
-      icon: Icons.local_fire_department_outlined,
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
+      icon: Icons.factory_outlined,
       searchController: _search,
       searchHint: 'Search by Batch No. / Refiner...',
       onSearchChanged: (_) => setState(() {}),
@@ -3683,127 +4183,307 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
           ('COMPLETED', 'Completed ($doneCnt)'),
         ],
       ),
-      floatingActionButton: GoldAddFab(
-        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'New Melt Batch',
-        onPressed: () => setState(() => _showForm = !_showForm),
-      ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-            if (_showForm) ...[
-              SaasFormCard(
-                title: 'New melt batch',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showForm = false),
-                  child: const Text('Close'),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LookupField(
-                      label: 'Refiner party UUID (optional)',
-                      controller: _refinerPartyId,
-                      options: _lk.partiesByRole('REFINER'),
-                      optional: true,
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header Card (`Refining & Melting` — image-24.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Melt series UUID',
-                      controller: _meltSeriesId,
-                      options: _lk.seriesFor(const ['MELT', 'REFINING', 'BATCH']),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
                     ),
-                    const SizedBox(height: 10),
-                    DatePickField(label: 'Business date', controller: _businessDate),
-                    const SizedBox(height: 10),
-                    SaasField(label: 'Batch description', controller: _batchDesc),
-                    const SizedBox(height: 10),
-                    SaasField(
-                      label: 'Allowed fine loss g',
-                      controller: _allowedLoss,
-                      mono: true,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Source balance UUID',
-                      controller: _sourceBalanceId,
-                      options: _lk.lotBalances,
-                      onSelected: (opt) {
-                        if (opt != null) {
-                          setState(() {
-                            _balanceVersion.text = '${opt.raw['balanceVersion'] ?? opt.raw['version'] ?? 1}';
-                            _inputQty.text = '${opt.raw['quantityGrams'] ?? ''}';
-                            _inputFine.text = '${opt.raw['fineWeightGrams'] ?? ''}';
-                          });
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Expanded(
-                          child: SaasField(
-                            label: 'Balance version',
-                            controller: _balanceVersion,
-                            mono: true,
-                            keyboardType: TextInputType.number,
-                          ),
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasField(
-                            label: 'Input quantity g',
-                            controller: _inputQty,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    SaasField(
-                      label: 'Input fine g',
-                      controller: _inputFine,
-                      mono: true,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    ),
-                    const SizedBox(height: 14),
-                    GoldButton(
-                      label: _busy ? 'Saving…' : 'Create Controlled Batch',
-                      busy: _busy,
-                      onPressed: _createBatch,
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.factory_outlined,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Refining & Melting',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Controlled batch genealogy, versioned assay approval, recoveries, process loss and FIFO cost allocation.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
               ),
-              const SizedBox(height: 14),
-            ],
+            ),
+
+            const SizedBox(height: 12),
+
+            // `New melt batch` card (exact 9 fields from image-24.png)
+            SaasFormCard(
+              title: 'New melt batch',
+              trailing: TextButton(
+                onPressed: () => setState(() => _formExpanded = !_formExpanded),
+                child: Text(_formExpanded ? 'Hide' : 'Show'),
+              ),
+              child: !_formExpanded
+                  ? Text(
+                      'Tap Show to create a controlled melt or refining batch.',
+                      style: T.body(12.2, color: Pal.muted),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LookupField(
+                          label: 'Refiner party UUID (optional)',
+                          controller: _refinerPartyId,
+                          options: _lk.partiesByRole('REFINER'),
+                          hint: 'Select refiner party (optional)',
+                          optional: true,
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Melt series UUID',
+                          controller: _meltSeriesId,
+                          options: _lk.seriesFor(
+                            const ['MELT', 'REFINING', 'BATCH'],
+                          ),
+                          hint: 'Select melt series',
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Business date',
+                                controller: _businessDate,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: SaasField(
+                                label: 'Allowed fine loss g',
+                                controller: _allowedLoss,
+                                mono: true,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        SaasField(
+                          label: 'Batch description',
+                          controller: _batchDesc,
+                        ),
+                        const SizedBox(height: 12),
+
+                        for (var i = 0; i < _inputs.length; i++) ...[
+                          if (i > 0) const SizedBox(height: 10),
+                          SaasSubBox(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (_inputs.length > 1)
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          'Source input ${i + 1}',
+                                          style: T.body(
+                                            12.2,
+                                            weight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      TextButton.icon(
+                                        style: TextButton.styleFrom(
+                                          visualDensity: VisualDensity.compact,
+                                          foregroundColor: Pal.err,
+                                        ),
+                                        onPressed: () {
+                                          final removed = _inputs.removeAt(i);
+                                          removed.dispose();
+                                          setState(() {});
+                                        },
+                                        icon: const Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 15,
+                                        ),
+                                        label: const Text('Remove'),
+                                      ),
+                                    ],
+                                  ),
+                                LookupField(
+                                  label: 'Source balance UUID',
+                                  controller: _inputs[i].balanceIdCtrl,
+                                  options: _lk.lotBalances,
+                                  hint: 'Select source lot balance',
+                                  onSelected: (opt) {
+                                    if (opt != null) {
+                                      setState(() {
+                                        _inputs[i].versionCtrl.text =
+                                            '${opt.raw['balanceVersion'] ?? opt.raw['version'] ?? 1}';
+                                        _inputs[i].qtyCtrl.text =
+                                            '${opt.raw['quantityGrams'] ?? ''}';
+                                        _inputs[i].fineCtrl.text =
+                                            '${opt.raw['fineWeightGrams'] ?? ''}';
+                                      });
+                                    }
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: SaasField(
+                                        label: 'Balance version',
+                                        controller: _inputs[i].versionCtrl,
+                                        mono: true,
+                                        keyboardType: TextInputType.number,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: SaasField(
+                                        label: 'Input quantity g',
+                                        controller: _inputs[i].qtyCtrl,
+                                        mono: true,
+                                        keyboardType:
+                                            const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                SaasField(
+                                  label: 'Input fine g',
+                                  controller: _inputs[i].fineCtrl,
+                                  mono: true,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () =>
+                                setState(() => _inputs.add(_RefiningInputDraft())),
+                            icon: const Icon(Icons.add_rounded, size: 16),
+                            label: const Text('Add source balance'),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        RoyalGoldButton(
+                          label: 'Create controlled batch',
+                          busy: _busy,
+                          onPressed: _busy ? null : _createBatch,
+                        ),
+                      ],
+                    ),
+            ),
+
+            const SizedBox(height: 14),
+
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const Panel(child: Skeleton(height: 92))
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No refining batches found. Tap + to create a melt batch.')
+              const SaasEmptyBox('No refining batches yet.')
             else
               for (final b in filtered)
                 LuxuryRecordCard(
-                  icon: Icons.local_fire_department_outlined,
-                  code: '${b['documentNumber'] ?? b['batchNumber'] ?? shortId('${b['id']}')}',
+                  icon: Icons.factory_outlined,
+                  code:
+                      '${b['documentNumber'] ?? b['batchNumber'] ?? shortId('${b['id']}')}',
                   status: '${b['state'] ?? b['status'] ?? 'OPEN'}',
                   lines: [
                     if ('${asMap(b['refiner'])['displayName'] ?? ''}'.isNotEmpty)
                       ('Refiner', '${asMap(b['refiner'])['displayName']}'),
-                    if ('${b['description'] ?? ''}'.isNotEmpty) ('Batch', '${b['description']}'),
-                    ('Date', fmtDate('${b['businessDate'] ?? ''}')),
+                    if ('${b['description'] ?? ''}'.isNotEmpty)
+                      ('Description', '${b['description']}'),
+                    ('Business Date', fmtDate('${b['businessDate'] ?? ''}')),
+                    (
+                      'Allowed Loss',
+                      grams(b['allowedFineLossGrams'] ?? '0'),
+                    ),
                   ],
                   amountLabel: 'In / Out Fine',
-                  amountValue: '${grams(b['inputFineGrams'])} → ${grams(b['outputFineGrams'])}',
+                  amountValue:
+                      '${grams(b['inputFineGrams'])} → ${grams(b['outputFineGrams'])}',
+                  actions: [
+                    GoldButton(
+                      label: 'Manage Batch',
+                      compact: true,
+                      onPressed: () => _openBatchLifecycleSheet(b),
+                    ),
+                  ],
                 ),
           ],
         ),

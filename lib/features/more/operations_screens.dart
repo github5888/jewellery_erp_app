@@ -2104,7 +2104,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 2. KARIGAR & INTERNAL JOB WORK (`/job-work`) — Screenshot (679)
+// 2. KARIGAR & INTERNAL JOB WORK (`/job-work`) — `image-23.png`
 // ---------------------------------------------------------------------------
 
 class JobWorkScreen extends StatefulWidget {
@@ -2116,13 +2116,14 @@ class JobWorkScreen extends StatefulWidget {
 class _JobWorkScreenState extends State<JobWorkScreen> {
   final _search = TextEditingController();
   String _filter = 'ALL';
-  bool _showForm = false;
+  bool _formExpanded = true;
   List<Map<String, dynamic>> _orders = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // Exact 9 fields from `image-23.png` (`New work order`)
   String _execution = 'KARIGAR';
   final _karigarPartyId = TextEditingController();
   final _custodyLocationId = TextEditingController();
@@ -2142,8 +2143,14 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
   @override
   void dispose() {
     for (final c in [
-      _search, _karigarPartyId, _custodyLocationId, _jobSeriesId,
-      _businessDate, _promisedDate, _allowedLoss, _spec,
+      _search,
+      _karigarPartyId,
+      _custodyLocationId,
+      _jobSeriesId,
+      _businessDate,
+      _promisedDate,
+      _allowedLoss,
+      _spec,
     ]) {
       c.dispose();
     }
@@ -2164,12 +2171,25 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
           includeParties: true,
           includeInventory: true,
           includeAccounting: true,
+          includeMaterials: true,
         ),
       ]);
       if (!mounted) return;
+      final lk = res[1] as WorkspaceLookup;
+      if (_jobSeriesId.text.isEmpty) {
+        final s = lk.seriesFor(const ['JOB', 'WORK_ORDER']);
+        if (s.isNotEmpty) _jobSeriesId.text = s.first.id;
+      }
+      if (_custodyLocationId.text.isEmpty) {
+        final locs = lk.locationsByType(const ['EXTERNAL_CUSTODY', 'VAULT']);
+        if (locs.isNotEmpty) _custodyLocationId.text = locs.first.id;
+      }
       setState(() {
-        _orders = asList(res[0], keys: const ['workOrders', 'orders', 'jobOrders', 'items']);
-        _lk = res[1] as WorkspaceLookup;
+        _orders = asList(
+          res[0],
+          keys: const ['workOrders', 'orders', 'jobOrders', 'items'],
+        );
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -2186,9 +2206,20 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
     if (_custodyLocationId.text.trim().isEmpty ||
         _jobSeriesId.text.trim().isEmpty ||
         _spec.text.trim().length < 3) {
-      setState(() => _error = 'Select External custody location, Job series, and Specification / work description.');
+      setState(
+        () => _error =
+            'Select External custody location UUID, Job series UUID, and Specification / work description (3+ chars).',
+      );
       return;
     }
+    final lossText = _allowedLoss.text.trim().isEmpty
+        ? '0.000000'
+        : _allowedLoss.text.trim();
+    if (tryDec(lossText) == null) {
+      setState(() => _error = 'Allowed fine loss g must be a valid decimal.');
+      return;
+    }
+
     setState(() {
       _busy = true;
       _error = null;
@@ -2206,18 +2237,13 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
           'businessDate': _businessDate.text.trim(),
           'promisedDate': _promisedDate.text.trim(),
           'settlementMode': _settlement,
-          'allowedFineLossGrams': _allowedLoss.text.trim().isEmpty
-              ? '0.000000'
-              : _allowedLoss.text.trim(),
+          'allowedFineLossGrams': normWeight6(lossText),
           'description': _spec.text.trim(),
         },
       );
       if (!mounted) return;
       _spec.clear();
-      setState(() => _showForm = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Controlled Karigar work order created.')),
-      );
+      toast(context, 'Controlled work order created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -2226,8 +2252,568 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
     }
   }
 
+  Future<void> _openJobLifecycleSheet(Map<String, dynamic> job) async {
+    var actionTab = 'ISSUE';
+    final balanceCtrl = TextEditingController();
+    final balVerCtrl = TextEditingController(text: '1');
+    final issueQtyCtrl = TextEditingController();
+    final issueFineCtrl = TextEditingController();
+    final issueNoteCtrl = TextEditingController();
+
+    final recvLocCtrl = TextEditingController(
+      text: _lk.locations.isNotEmpty ? _lk.locations.first.id : '',
+    );
+    final recvMetalCtrl = TextEditingController(
+      text: _lk.metals.isNotEmpty ? _lk.metals.first.id : '',
+    );
+    final recvPurityCtrl = TextEditingController();
+    final recvGrossCtrl = TextEditingController();
+    final recvNetCtrl = TextEditingController();
+    final recvFineCtrl = TextEditingController();
+    final recvLossCtrl = TextEditingController(text: '0.000000');
+    final assayRefCtrl = TextEditingController();
+
+    final apvLossCtrl = TextEditingController(
+      text: '${job['allowedFineLossGrams'] ?? '0.000000'}',
+    );
+    final apvReasonCtrl = TextEditingController();
+
+    final labourAmtCtrl = TextEditingController();
+    final periodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final jrnSeriesCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final expAcctCtrl = TextEditingController();
+    final payAcctCtrl = TextEditingController();
+    final recReasonCtrl = TextEditingController();
+
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Manage Job · ${job['documentNumber'] ?? job['jobNumber'] ?? shortId('${job['id']}')}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${job['state'] ?? job['status'] ?? 'OPEN'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: actionTab,
+                  onChanged: (v) => setSheet(() {
+                    actionTab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('ISSUE', 'Issue Metal'),
+                    ('RECEIPT', 'Assay Receipt'),
+                    ('LOSS', 'Approve Loss'),
+                    ('RECONCILE', 'Labour & Reconcile'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (actionTab == 'ISSUE') ...[
+                  LookupField(
+                    label: 'Source lot balance UUID',
+                    controller: balanceCtrl,
+                    options: _lk.lotBalances,
+                    onSelected: (opt) {
+                      if (opt != null) {
+                        setSheet(() {
+                          balVerCtrl.text =
+                              '${opt.raw['balanceVersion'] ?? opt.raw['version'] ?? 1}';
+                          issueQtyCtrl.text = '${opt.raw['quantityGrams'] ?? ''}';
+                          issueFineCtrl.text =
+                              '${opt.raw['fineWeightGrams'] ?? ''}';
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Balance version',
+                          controller: balVerCtrl,
+                          mono: true,
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Issue quantity g',
+                          controller: issueQtyCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Issue fine 999 g',
+                    controller: issueFineCtrl,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Custody notes (optional)',
+                    controller: issueNoteCtrl,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Issue Controlled Metal',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (balanceCtrl.text.trim().isEmpty ||
+                                !isValidWeight(issueQtyCtrl.text) ||
+                                !isValidWeight(issueFineCtrl.text)) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select source balance and enter valid issue quantity & fine weight.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/job-work/work-orders/${job['id']}/issues',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(job['version'], fallback: 1),
+                                  'businessDate': todayIso(),
+                                  'lines': [
+                                    {
+                                      'balanceId': balanceCtrl.text.trim(),
+                                      'expectedBalanceVersion':
+                                          int.tryParse(balVerCtrl.text.trim()) ??
+                                              1,
+                                      'quantityGrams':
+                                          normWeight6(issueQtyCtrl.text),
+                                      'fineWeightGrams':
+                                          normWeight6(issueFineCtrl.text),
+                                    },
+                                  ],
+                                  if (issueNoteCtrl.text.trim().isNotEmpty)
+                                    'notes': issueNoteCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Metal issued to external custody.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else if (actionTab == 'RECEIPT') ...[
+                  LookupField(
+                    label: 'Destination vault / location UUID',
+                    controller: recvLocCtrl,
+                    options: _lk.locations,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Metal',
+                    controller: recvMetalCtrl,
+                    options: _lk.metals,
+                    onSelected: (_) => setSheet(() => recvPurityCtrl.clear()),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Purity grade',
+                    controller: recvPurityCtrl,
+                    options: _lk.puritiesForMetal(recvMetalCtrl.text.trim()),
+                    onSelected: (opt) {
+                      final fineRatio = tryDec(
+                            opt?.raw['finenessPerThousand'] ?? '916',
+                          ) ??
+                          Decimal.fromInt(916);
+                      final net = tryDec(recvNetCtrl.text);
+                      if (net != null) {
+                        recvFineCtrl.text =
+                            ((net * fineRatio) / Decimal.fromInt(1000))
+                                .toDecimal(scaleOnInfinitePrecision: 6)
+                                .toStringAsFixed(6);
+                      }
+                      setSheet(() {});
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Gross weight g',
+                          controller: recvGrossCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Net metal weight g',
+                          controller: recvNetCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Fine 999 g',
+                          controller: recvFineCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Process loss fine g',
+                          controller: recvLossCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Assay certificate / reference',
+                    controller: assayRefCtrl,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Record Assay Receipt',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (recvLocCtrl.text.trim().isEmpty ||
+                                recvMetalCtrl.text.trim().isEmpty ||
+                                recvPurityCtrl.text.trim().isEmpty ||
+                                !isValidWeight(recvGrossCtrl.text) ||
+                                !isValidWeight(recvFineCtrl.text)) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Complete destination location, metal, purity, gross weight, and fine weight.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/job-work/work-orders/${job['id']}/receipts',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(job['version'], fallback: 1),
+                                  'businessDate': todayIso(),
+                                  'locationId': recvLocCtrl.text.trim(),
+                                  'metalId': recvMetalCtrl.text.trim(),
+                                  'purityGradeId': recvPurityCtrl.text.trim(),
+                                  'grossWeightGrams':
+                                      normWeight6(recvGrossCtrl.text),
+                                  'netMetalWeightGrams': normWeight6(
+                                    recvNetCtrl.text.trim().isEmpty
+                                        ? recvGrossCtrl.text
+                                        : recvNetCtrl.text,
+                                  ),
+                                  'fineWeightGrams':
+                                      normWeight6(recvFineCtrl.text),
+                                  'processLossFineGrams': normWeight6(
+                                    recvLossCtrl.text.trim().isEmpty
+                                        ? '0'
+                                        : recvLossCtrl.text,
+                                  ),
+                                  if (assayRefCtrl.text.trim().isNotEmpty)
+                                    'assayReference': assayRefCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Assay receipt recorded.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else if (actionTab == 'LOSS') ...[
+                  SaasField(
+                    label: 'Approved fine loss g',
+                    controller: apvLossCtrl,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Approval reason (minimum 10 characters)',
+                    controller: apvReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Approve Process Loss',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (tryDec(apvLossCtrl.text) == null ||
+                                apvReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter valid approved fine loss and a reason of 10+ characters.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/job-work/work-orders/${job['id']}/approve-loss',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(job['version'], fallback: 1),
+                                  'approvedFineLossGrams':
+                                      normWeight6(apvLossCtrl.text),
+                                  'reason': apvReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Process loss approved.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else ...[
+                  SaasField(
+                    label: 'Labour payable amount (INR)',
+                    controller: labourAmtCtrl,
+                    hint: '0.00',
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Posting Period UUID',
+                    controller: periodCtrl,
+                    options: _lk.openPeriods(),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Journal Series UUID',
+                    controller: jrnSeriesCtrl,
+                    options: _lk.seriesFor(const ['JOURNAL']),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Labour Expense Account',
+                    controller: expAcctCtrl,
+                    options: _lk.accountsByControl(const ['EXPENSE']),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Karigar Payable Account',
+                    controller: payAcctCtrl,
+                    options: _lk.accountsByControl(
+                      const ['SUPPLIER_PAYABLE', 'LIABILITY'],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Reconciliation audit reason (min 10 chars)',
+                    controller: recReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Post Labour & Reconcile Job',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (periodCtrl.text.trim().isEmpty ||
+                                jrnSeriesCtrl.text.trim().isEmpty ||
+                                recReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select posting period, journal series, and enter a 10+ char reason.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/job-work/work-orders/${job['id']}/reconcile',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(job['version'], fallback: 1),
+                                  if (labourAmtCtrl.text.trim().isNotEmpty)
+                                    'labourAmount':
+                                        normAmount(labourAmtCtrl.text),
+                                  'postingPeriodId': periodCtrl.text.trim(),
+                                  'journalSeriesId': jrnSeriesCtrl.text.trim(),
+                                  if (expAcctCtrl.text.trim().isNotEmpty)
+                                    'labourExpenseAccountId':
+                                        expAcctCtrl.text.trim(),
+                                  if (payAcctCtrl.text.trim().isNotEmpty)
+                                    'payableAccountId': payAcctCtrl.text.trim(),
+                                  'reason': recReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Work order reconciled.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final c in [
+      balanceCtrl,
+      balVerCtrl,
+      issueQtyCtrl,
+      issueFineCtrl,
+      issueNoteCtrl,
+      recvLocCtrl,
+      recvMetalCtrl,
+      recvPurityCtrl,
+      recvGrossCtrl,
+      recvNetCtrl,
+      recvFineCtrl,
+      recvLossCtrl,
+      assayRefCtrl,
+      apvLossCtrl,
+      apvReasonCtrl,
+      labourAmtCtrl,
+      periodCtrl,
+      jrnSeriesCtrl,
+      expAcctCtrl,
+      payAcctCtrl,
+      recReasonCtrl,
+    ]) {
+      c.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final q = _search.text.trim().toLowerCase();
     bool isDone(Map<String, dynamic> w) {
       final s = '${w['state'] ?? w['status'] ?? ''}'.toUpperCase();
@@ -2241,12 +2827,15 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
       if (_filter == 'IN_PROCESS' && isDone(w)) return false;
       if (_filter == 'COMPLETED' && !isDone(w)) return false;
       if (q.isEmpty) return true;
-      final hay = '${w['documentNumber'] ?? ''} ${w['jobNumber'] ?? ''} ${asMap(w['karigar'])['displayName'] ?? ''} ${w['description'] ?? ''}'.toLowerCase();
+      final hay =
+          '${w['documentNumber'] ?? ''} ${w['jobNumber'] ?? ''} ${asMap(w['karigar'])['displayName'] ?? ''} ${w['description'] ?? ''}'
+              .toLowerCase();
       return hay.contains(q);
     }).toList();
 
     return LuxuryModuleScaffold(
       title: 'Karigar Job Work',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.handyman_outlined,
       searchController: _search,
       searchHint: 'Search by Karigar / Job No...',
@@ -2266,128 +2855,246 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
           ('COMPLETED', 'Completed ($doneCount)'),
         ],
       ),
-      floatingActionButton: GoldAddFab(
-        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'New Work Order',
-        onPressed: () => setState(() => _showForm = !_showForm),
-      ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-            if (_showForm) ...[
-              SaasFormCard(
-                title: 'New work order',
-                subtitle: 'Fine-metal controlled karigar / internal job order.',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showForm = false),
-                  child: const Text('Close'),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SaasDropdown(
-                      label: 'Execution',
-                      value: _execution,
-                      options: const {
-                        'KARIGAR': 'KARIGAR',
-                        'INTERNAL': 'INTERNAL',
-                      },
-                      onChanged: (v) => setState(() => _execution = v),
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Karigar party UUID',
-                      controller: _karigarPartyId,
-                      options: _lk.partiesByRole('KARIGAR'),
-                      optional: _execution == 'INTERNAL',
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'External custody location UUID',
-                      controller: _custodyLocationId,
-                      options: _lk.locationsByType(const ['EXTERNAL_CUSTODY', 'VAULT']),
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Job series UUID',
-                      controller: _jobSeriesId,
-                      options: _lk.seriesFor(const ['JOB', 'WORK_ORDER']),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: DatePickField(label: 'Business date', controller: _businessDate)),
-                        const SizedBox(width: 10),
-                        Expanded(child: DatePickField(label: 'Promised date', controller: _promisedDate)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SaasDropdown(
-                            label: 'Settlement',
-                            value: _settlement,
-                            options: const {
-                              'MIXED': 'MIXED',
-                              'CASH': 'CASH',
-                              'FINE_METAL': 'FINE_METAL',
-                            },
-                            onChanged: (v) => setState(() => _settlement = v),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasField(
-                            label: 'Allowed fine loss g',
-                            controller: _allowedLoss,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    SaasField(
-                      label: 'Specification / work description',
-                      controller: _spec,
-                    ),
-                    const SizedBox(height: 14),
-                    GoldButton(
-                      label: _busy ? 'Creating…' : 'Create Controlled Job',
-                      busy: _busy,
-                      onPressed: _createJob,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
             ],
+
+            // Hero Header Card (`Karigar & Internal Job Work` — image-23.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.handyman_outlined,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Karigar & Internal Job Work',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Fine-metal controlled issue, external custody, assay receipt, approved process loss, labour payable and exact reconciliation.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // `New work order` card (exact 9 fields from image-23.png)
+            SaasFormCard(
+              title: 'New work order',
+              trailing: TextButton(
+                onPressed: () => setState(() => _formExpanded = !_formExpanded),
+                child: Text(_formExpanded ? 'Hide' : 'Show'),
+              ),
+              child: !_formExpanded
+                  ? Text(
+                      'Tap Show to create a controlled Karigar or internal work order.',
+                      style: T.body(12.2, color: Pal.muted),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SaasDropdown(
+                          label: 'Execution',
+                          value: _execution,
+                          options: const {
+                            'KARIGAR': 'KARIGAR',
+                            'INTERNAL': 'INTERNAL',
+                          },
+                          onChanged: (v) => setState(() => _execution = v),
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Karigar party UUID',
+                          controller: _karigarPartyId,
+                          options: _lk.partiesByRole('KARIGAR'),
+                          hint: 'Select Karigar party',
+                          optional: _execution == 'INTERNAL',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'External custody location UUID',
+                          controller: _custodyLocationId,
+                          options: _lk.locationsByType(
+                            const ['EXTERNAL_CUSTODY', 'VAULT'],
+                          ),
+                          hint: 'Select external custody location',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Job series UUID',
+                          controller: _jobSeriesId,
+                          options: _lk.seriesFor(const ['JOB', 'WORK_ORDER']),
+                          hint: 'Select job series',
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Business date',
+                                controller: _businessDate,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Promised date',
+                                controller: _promisedDate,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SaasDropdown(
+                                label: 'Settlement',
+                                value: _settlement,
+                                options: const {
+                                  'MIXED': 'MIXED',
+                                  'CASH': 'CASH',
+                                  'FINE_METAL': 'FINE_METAL',
+                                },
+                                onChanged: (v) =>
+                                    setState(() => _settlement = v),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: SaasField(
+                                label: 'Allowed fine loss g',
+                                controller: _allowedLoss,
+                                mono: true,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        SaasField(
+                          label: 'Specification / work description',
+                          controller: _spec,
+                        ),
+                        const SizedBox(height: 14),
+                        RoyalGoldButton(
+                          label: 'Create controlled job',
+                          busy: _busy,
+                          onPressed: _busy ? null : _createJob,
+                        ),
+                      ],
+                    ),
+            ),
+
+            const SizedBox(height: 14),
+
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const Panel(child: Skeleton(height: 92))
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No work orders found. Tap + to create a Karigar work order.')
+              const SaasEmptyBox('No work orders yet.')
             else
               for (final w in filtered)
                 LuxuryRecordCard(
                   icon: Icons.handyman_outlined,
-                  code: '${w['documentNumber'] ?? w['jobNumber'] ?? shortId('${w['id']}')}',
+                  code:
+                      '${w['documentNumber'] ?? w['jobNumber'] ?? shortId('${w['id']}')}',
                   status: '${w['state'] ?? w['status'] ?? 'OPEN'}',
                   lines: [
-                    ('Karigar', '${asMap(w['karigar'])['displayName'] ?? w['executionMode'] ?? 'KARIGAR'}'),
-                    ('Date', '${fmtDate('${w['businessDate'] ?? ''}')} → ${fmtDate('${w['promisedDate'] ?? ''}')}'),
-                    if ('${w['description'] ?? ''}'.isNotEmpty) ('Items', '${w['description']}'),
-                    ('Settlement', '${w['settlementMode'] ?? 'MIXED'} · Loss ${grams(w['allowedFineLossGrams'])}'),
+                    (
+                      'Karigar / Execution',
+                      '${asMap(w['karigar'])['displayName'] ?? w['executionMode'] ?? 'KARIGAR'}',
+                    ),
+                    (
+                      'Business → Promised',
+                      '${fmtDate('${w['businessDate'] ?? ''}')} → ${fmtDate('${w['promisedDate'] ?? ''}')}',
+                    ),
+                    if ('${w['description'] ?? ''}'.isNotEmpty)
+                      ('Specification', '${w['description']}'),
+                    (
+                      'Settlement / Loss',
+                      '${w['settlementMode'] ?? 'MIXED'} · Allowed ${grams(w['allowedFineLossGrams'])}',
+                    ),
                   ],
                   amountLabel: 'Issued / Recv Fine',
-                  amountValue: '${grams(w['issuedFineGrams'])} / ${grams(w['receivedFineGrams'])}',
+                  amountValue:
+                      '${grams(w['issuedFineGrams'])} / ${grams(w['receivedFineGrams'])}',
+                  actions: [
+                    GoldButton(
+                      label: 'Manage Job',
+                      compact: true,
+                      onPressed: () => _openJobLifecycleSheet(w),
+                    ),
+                  ],
                 ),
           ],
         ),
