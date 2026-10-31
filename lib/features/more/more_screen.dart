@@ -186,11 +186,6 @@ class _MoreScreenState extends State<MoreScreen> {
             () => _open(context, const ConsolidatedAnalyticsScreen()),
           ),
           _SidebarItem(
-            Icons.insights_rounded,
-            'Valuation & Ledger Reports',
-            () => _open(context, const ReportsScreen()),
-          ),
-          _SidebarItem(
             Icons.cloud_sync_outlined,
             'Provider Integrations',
             () => _open(context, const ProviderIntegrationsScreen()),
@@ -213,15 +208,12 @@ class _MoreScreenState extends State<MoreScreen> {
           _SidebarItem(
             Icons.print_outlined,
             'GST E-Invoices & Bills',
-            () => _open(
-              context,
-              const GstRegistrationTransportScreen(submissionsFocus: true),
-            ),
+            () => _open(context, const GstEInvoicesBillsScreen()),
           ),
           _SidebarItem(
-            Icons.fact_check_outlined,
-            'Audit & Compliance',
-            () => _open(context, const AuditComplianceScreen()),
+            Icons.bar_chart_rounded,
+            'Audit & Compliance Reports',
+            () => _open(context, const ReportsScreen()),
           ),
           _SidebarItem(
             Icons.apartment_rounded,

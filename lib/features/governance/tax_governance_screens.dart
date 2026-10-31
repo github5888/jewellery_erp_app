@@ -5322,32 +5322,41 @@ class _CustomerMessagingScreenState extends State<CustomerMessagingScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 5. COMPANY & INVOICE PRINT (`/documents/templates` & `/documents/render`)
+// 5. GST E-INVOICES & BILLS — Document Templates & Print Rendering (`image-48.png`)
 // ---------------------------------------------------------------------------
 
-class CompanyInvoicePolicyScreen extends StatefulWidget {
-  const CompanyInvoicePolicyScreen({super.key});
+class GstEInvoicesBillsScreen extends StatefulWidget {
+  const GstEInvoicesBillsScreen({
+    super.key,
+    this.pageTitle = 'GST E-Invoices & Bills',
+  });
+
+  final String pageTitle;
+
   @override
-  State<CompanyInvoicePolicyScreen> createState() => _CompanyInvoicePolicyScreenState();
+  State<GstEInvoicesBillsScreen> createState() =>
+      _GstEInvoicesBillsScreenState();
 }
 
-class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen> {
+typedef CompanyInvoicePolicyScreen = GstEInvoicesBillsScreen;
+
+class _GstEInvoicesBillsScreenState extends State<GstEInvoicesBillsScreen> {
   final _search = TextEditingController();
-  String _tab = 'TEMPLATES';
   List<Map<String, dynamic>> _templates = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
   bool _showCreate = false;
+  bool _showTemplateKeyOverride = false;
   Map<String, dynamic>? _renderedPreview;
 
-  // Generate / Preview Document (`DocumentsPanel.tsx`)
+  // Generate / Preview Document (`image-48.png`)
   String _sourceType = 'SALES_INVOICE';
   final _sourceId = TextEditingController();
   final _renderTemplateKey = TextEditingController();
 
-  // Create Document Template (`createDocumentTemplateSchema`)
+  // Register Document Template (`POST /documents/templates`)
   final _tmplKey = TextEditingController();
   final _tmplName = TextEditingController();
   String _layoutType = 'A4';
@@ -5362,7 +5371,14 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
 
   @override
   void dispose() {
-    for (final c in [_search, _sourceId, _renderTemplateKey, _tmplKey, _tmplName, _tmplBody]) {
+    for (final c in [
+      _search,
+      _sourceId,
+      _renderTemplateKey,
+      _tmplKey,
+      _tmplName,
+      _tmplBody,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -5381,7 +5397,7 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
       ]);
       if (!mounted) return;
       setState(() {
-        _templates = asList(res[0], keys: const ['templates', 'items']);
+        _templates = asList(res[0], keys: const ['templates', 'items', 'rows']);
         _lk = res[1] as WorkspaceLookup;
       });
     } on ApiException catch (e) {
@@ -5391,9 +5407,89 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
     }
   }
 
+  Future<void> _openRenderedSnapshotSheet(Map<String, dynamic> snap) async {
+    final htmlOrText =
+        '${snap['renderedHtml'] ?? snap['html'] ?? snap['renderedContent'] ?? snap['content'] ?? const JsonEncoder.withIndent('  ').convert(snap)}';
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.75,
+        maxChildSize: 0.94,
+        minChildSize: 0.45,
+        builder: (ctx, scrollCtrl) => Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Print Snapshot · ${snap['documentNumber'] ?? _sourceType}',
+                      style: T.body(15.8, weight: FontWeight.w700),
+                    ),
+                  ),
+                  GoldButton(
+                    label: 'Copy Output',
+                    compact: true,
+                    icon: Icons.copy_rounded,
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: htmlOrText));
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content:
+                                Text('Rendered print output copied to clipboard.'),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Layout: ${snap['layoutType'] ?? snap['layout'] ?? 'A4'} · Reprint #${snap['reprintCount'] ?? 0} · Hash: ${shortId('${snap['contentHash'] ?? snap['snapshotHash'] ?? ''}')}',
+                style: T.mono(11.5, color: Pal.muted),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Pal.bgTint,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Pal.border),
+                  ),
+                  child: SingleChildScrollView(
+                    controller: scrollCtrl,
+                    child: SelectableText(
+                      htmlOrText,
+                      style: T.mono(11.5, color: Pal.ink),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _renderDoc() async {
-    if (_sourceId.text.trim().isEmpty) {
-      setState(() => _error = 'Provide Document Source UUID.');
+    final srcId = _sourceId.text.trim();
+    if (srcId.isEmpty) {
+      setState(
+        () => _error =
+            'Provide Document Source UUID (e.g. Sales Invoice ID) before rendering.',
+      );
       return;
     }
     setState(() {
@@ -5403,15 +5499,19 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
     try {
       final res = await context.read<ApiClient>().post(
         '/documents/render',
+        idempotent: true,
         body: {
           'sourceType': _sourceType,
-          'sourceId': _sourceId.text.trim(),
+          'documentType': _sourceType,
+          'sourceId': srcId,
           if (_renderTemplateKey.text.trim().isNotEmpty)
             'templateKey': _renderTemplateKey.text.trim().toUpperCase(),
         },
       );
       if (!mounted) return;
-      setState(() => _renderedPreview = asMap(res));
+      final previewMap = asMap(res);
+      setState(() => _renderedPreview = previewMap);
+      await _openRenderedSnapshotSheet(previewMap);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -5420,10 +5520,17 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
   }
 
   Future<void> _createTemplate() async {
-    if (_tmplKey.text.trim().length < 3 ||
+    final cleanKey = _tmplKey.text
+        .trim()
+        .toUpperCase()
+        .replaceAll(RegExp(r'[^A-Z0-9_]'), '_');
+    if (cleanKey.length < 3 ||
         _tmplName.text.trim().length < 3 ||
         _tmplBody.text.trim().length < 10) {
-      setState(() => _error = 'Enter Template Key (3+ chars), Name, and HTML Template Body (10+ chars).');
+      setState(
+        () => _error =
+            'Enter Template Key (3+ chars), Name, and Print Template Body (10+ chars).',
+      );
       return;
     }
     setState(() {
@@ -5435,9 +5542,10 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
         '/documents/templates',
         idempotent: true,
         body: {
-          'templateKey': _tmplKey.text.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z0-9_]'), '_'),
+          'templateKey': cleanKey,
           'name': _tmplName.text.trim(),
           'layoutType': _layoutType,
+          'layout': _layoutType,
           'templateBody': _tmplBody.text.trim(),
           'isDefault': _isDefault,
         },
@@ -5448,9 +5556,39 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
       _tmplName.clear();
       _tmplBody.clear();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Document template registered.')),
+        const SnackBar(
+          content: Text('Immutable document template version registered.'),
+        ),
       );
-      _load();
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _governTemplateState(
+    Map<String, dynamic> tmpl,
+    String action,
+  ) async {
+    final id = '${tmpl['id'] ?? ''}'.trim();
+    if (id.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await context.read<ApiClient>().post(
+        '/documents/templates/$id/$action',
+        idempotent: true,
+        body: const {},
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Document template $action completed.')),
+      );
+      await _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -5460,16 +5598,31 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final q = _search.text.trim().toLowerCase();
     final fTemplates = _templates.where((t) {
       if (q.isEmpty) return true;
-      return '${t['templateKey'] ?? ''} ${t['name'] ?? ''} ${t['layoutType'] ?? ''}'
+      return '${t['templateKey'] ?? ''} ${t['name'] ?? ''} ${t['layout'] ?? t['layoutType'] ?? ''} ${t['state'] ?? ''}'
           .toLowerCase()
           .contains(q);
     }).toList();
 
+    final sourceOptions = _sourceType == 'SALES_INVOICE'
+        ? _lk.invoices
+        : (_sourceType == 'PROFORMA_ESTIMATE' ? _lk.estimates : const <LookupOption>[]);
+
     return LuxuryModuleScaffold(
-      title: 'Company & Invoice Print',
+      title: widget.pageTitle,
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.print_outlined,
       searchController: _search,
       searchHint: 'Search by Template Key, Name or Layout...',
@@ -5480,32 +5633,108 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
         ),
       ],
-      topFilterBar: PillTabs<String>(
-        value: _tab,
-        onChanged: (v) => setState(() => _tab = v),
-        tabs: [
-          ('TEMPLATES', 'Templates (${_templates.length})'),
-          ('PREVIEW', 'Render & Reprint'),
-        ],
+      floatingActionButton: GoldAddFab(
+        icon: _showCreate ? Icons.close_rounded : Icons.add_rounded,
+        tooltip: _showCreate ? 'Close Form' : 'Register Document Template',
+        onPressed: () => setState(() => _showCreate = !_showCreate),
       ),
-      floatingActionButton: _tab == 'TEMPLATES'
-          ? GoldAddFab(
-              icon: _showCreate ? Icons.close_rounded : Icons.add_rounded,
-              tooltip: 'New Document Template',
-              onPressed: () => setState(() => _showCreate = !_showCreate),
-            )
-          : null,
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 88),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
 
-            if (_showCreate && _tab == 'TEMPLATES') ...[
+            // Hero Header Card (`Document Templates and Print Rendering` — image-48.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.print_outlined,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Document Templates and Print Rendering',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Immutable document versioning, legal print snapshots, A4 and Thermal roll print layouts.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Optional New Template Form (toggled via + FAB)
+            if (_showCreate) ...[
               SaasFormCard(
                 title: 'Register document template',
+                subtitle:
+                    'Register an immutable A4 or Thermal Roll print layout version.',
+                icon: Icons.note_add_outlined,
                 trailing: TextButton(
                   onPressed: () => setState(() => _showCreate = false),
                   child: const Text('Close'),
@@ -5517,7 +5746,7 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
                       children: [
                         Expanded(
                           child: SaasField(
-                            label: 'Template Key (A4_TAX_INVOICE)',
+                            label: 'Template Key',
                             controller: _tmplKey,
                             mono: true,
                           ),
@@ -5528,8 +5757,8 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
                             label: 'Layout',
                             value: _layoutType,
                             options: const {
-                              'A4': 'A4',
-                              'THERMAL_ROLL': 'THERMAL_ROLL',
+                              'A4': 'A4 Legal Layout',
+                              'THERMAL_ROLL': 'Thermal Roll (80mm)',
                             },
                             onChanged: (v) => setState(() => _layoutType = v),
                           ),
@@ -5537,10 +5766,13 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
                       ],
                     ),
                     const SizedBox(height: 10),
-                    SaasField(label: 'Template name', controller: _tmplName),
+                    SaasField(
+                      label: 'Name',
+                      controller: _tmplName,
+                    ),
                     const SizedBox(height: 10),
                     SaasField(
-                      label: 'HTML template body',
+                      label: 'Print template body (HTML / layout markup)',
                       controller: _tmplBody,
                       mono: true,
                       maxLines: 5,
@@ -5551,95 +5783,184 @@ class _CompanyInvoicePolicyScreenState extends State<CompanyInvoicePolicyScreen>
                       value: _isDefault,
                       onChanged: (v) => setState(() => _isDefault = v),
                     ),
-                    const SizedBox(height: 10),
-                    GoldButton(
-                      label: 'Save Template',
+                    const SizedBox(height: 12),
+                    RoyalGoldButton(
+                      label: 'Register Template Version',
                       busy: _busy,
-                      onPressed: _createTemplate,
+                      onPressed: _busy ? null : _createTemplate,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
             ],
 
-            if (_tab == 'PREVIEW')
-              SaasFormCard(
-                title: 'Generate / Preview Document',
-                subtitle:
-                    'Provide document source UUID to render or reprint an official invoice, return note, or receipt.',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SaasDropdown(
-                      label: 'Source type',
-                      value: _sourceType,
-                      options: const {
-                        'SALES_INVOICE': 'Sales Invoice',
-                        'CREDIT_NOTE': 'Sales Credit Note',
-                        'PURCHASE_RETURN': 'Purchase Return / Debit Note',
-                        'SETTLEMENT_RECEIPT': 'Settlement Receipt',
-                        'PARTY_STATEMENT': 'Party Statement',
-                      },
-                      onChanged: (v) => setState(() => _sourceType = v),
+            // Card 1: `Generate / Preview Document` (`image-48.png`)
+            SaasFormCard(
+              title: 'Generate / Preview Document',
+              subtitle:
+                  'Provide document source UUID to render or reprint an official invoice, return note, or receipt.',
+              icon: Icons.visibility_outlined,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SaasDropdown(
+                    label: 'Document Type',
+                    value: _sourceType,
+                    options: const {
+                      'SALES_INVOICE': 'Sales Invoice',
+                      'CREDIT_NOTE': 'Sales Return / Credit Note',
+                      'PURCHASE_RETURN': 'Purchase Return / Debit Note',
+                      'SETTLEMENT_RECEIPT': 'Settlement Receipt',
+                      'OLD_METAL_PURCHASE': 'Old Metal Purchase',
+                      'APPROVAL_MEMO': 'Approval Memo',
+                      'STOCK_TRANSFER': 'Stock Transfer',
+                      'JOB_WORK_VOUCHER': 'Job Work Voucher',
+                      'PARTY_STATEMENT': 'Party Statement',
+                    },
+                    onChanged: (v) => setState(() => _sourceType = v),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Document Source UUID',
+                    controller: _sourceId,
+                    options: sourceOptions,
+                    hint: 'Document Source UUID (e.g. Sales Invoice ID)',
+                  ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => setState(
+                        () => _showTemplateKeyOverride =
+                            !_showTemplateKeyOverride,
+                      ),
+                      icon: Icon(
+                        _showTemplateKeyOverride
+                            ? Icons.expand_less_rounded
+                            : Icons.tune_rounded,
+                        size: 15,
+                      ),
+                      label: Text(
+                        _showTemplateKeyOverride
+                            ? 'Hide template key override'
+                            : 'Specify template key override (optional)',
+                      ),
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Document Source UUID',
-                      controller: _sourceId,
-                      options: _sourceType == 'SALES_INVOICE' ? _lk.invoices : const [],
-                      hint: 'Document Source UUID (e.g. Sales Invoice ID)',
-                    ),
-                    const SizedBox(height: 10),
+                  ),
+                  if (_showTemplateKeyOverride) ...[
                     SaasField(
-                      label: 'Template key (optional)',
+                      label: 'Template Key (optional)',
                       controller: _renderTemplateKey,
                       mono: true,
                     ),
-                    const SizedBox(height: 12),
-                    GoldButton(
-                      label: _busy ? 'Rendering…' : 'Render Document',
-                      icon: Icons.visibility_outlined,
-                      busy: _busy,
-                      onPressed: _renderDoc,
-                    ),
-                    if (_renderedPreview != null) ...[
-                      const SizedBox(height: 12),
-                      SaasSubBox(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Document Preview · ${_renderedPreview!['documentNumber'] ?? ''}',
-                              style: T.body(13.8, w: FontWeight.w700),
-                            ),
-                            Text(
-                              'Reprint Count: ${_renderedPreview!['reprintCount'] ?? 0} · Hash: ${shortId('${_renderedPreview!['contentHash'] ?? ''}')}',
-                              style: T.mono(11.5, color: Pal.muted),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    const SizedBox(height: 10),
                   ],
-                ),
-              )
-            else if (_loading)
-              const Center(child: CircularProgressIndicator())
+                  const SizedBox(height: 6),
+                  RoyalGoldButton(
+                    label: 'Render Document',
+                    icon: Icons.visibility_outlined,
+                    busy: _busy,
+                    onPressed: _busy ? null : _renderDoc,
+                  ),
+                  if (_renderedPreview != null) ...[
+                    const SizedBox(height: 12),
+                    SaasSubBox(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Snapshot · ${_renderedPreview!['documentNumber'] ?? _sourceType}',
+                                  style: T.body(13.2, weight: FontWeight.w700),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Reprints: ${_renderedPreview!['reprintCount'] ?? 0} · Hash: ${shortId('${_renderedPreview!['contentHash'] ?? ''}')}',
+                                  style: T.mono(11.5, color: Pal.muted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          GoldButton(
+                            label: 'Open',
+                            compact: true,
+                            onPressed: () =>
+                                _openRenderedSnapshotSheet(_renderedPreview!),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // Card 2: Document Templates Table / List (`Template Key · Name · Layout · Version · State · Created` — `image-48.png`)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Pal.bgTint,
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Text(
+                'Template Key · Name · Layout · Version · State · Created',
+                style: T.body(11.5, weight: FontWeight.w700, color: Pal.ink),
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (_loading)
+              const Panel(child: Skeleton(height: 88))
             else if (fTemplates.isEmpty)
-              const SaasEmptyBox('No document templates found. Tap + to register a print template.')
+              const SaasEmptyBox('No document templates registered yet.')
             else
               for (final t in fTemplates)
                 LuxuryRecordCard(
                   icon: Icons.print_outlined,
-                  code: '${t['name'] ?? t['templateKey']}',
+                  code:
+                      '${t['templateKey'] ?? 'TEMPLATE'} · ${t['name'] ?? ''}',
                   status: '${t['state'] ?? 'ACTIVE'}',
+                  onTap: () {
+                    setState(() {
+                      _renderTemplateKey.text = '${t['templateKey'] ?? ''}';
+                      _showTemplateKeyOverride = true;
+                    });
+                  },
                   lines: [
-                    ('Key', '${t['templateKey'] ?? ''}'),
-                    ('Layout', '${t['layout'] ?? t['layoutType'] ?? 'A4'}'),
+                    (
+                      'Layout / Version',
+                      '${t['layout'] ?? t['layoutType'] ?? 'A4'} · v${t['version'] ?? 1}',
+                    ),
+                    if ('${t['createdAt'] ?? ''}'.isNotEmpty)
+                      ('Created', fmtDateTime('${t['createdAt']}')),
                   ],
                   amountLabel: 'Version',
                   amountValue: 'v${t['version'] ?? 1}',
+                  actions: [
+                    if ('${t['state'] ?? ''}'.toUpperCase() == 'DRAFT')
+                      GoldButton(
+                        label: 'Activate',
+                        compact: true,
+                        onPressed: _busy
+                            ? null
+                            : () => _governTemplateState(t, 'activate'),
+                      ),
+                    OutlinedButton(
+                      onPressed: () {
+                        setState(() {
+                          _renderTemplateKey.text =
+                              '${t['templateKey'] ?? ''}';
+                          _showTemplateKeyOverride = true;
+                        });
+                      },
+                      child: const Text('Use Key'),
+                    ),
+                  ],
                 ),
           ],
         ),
