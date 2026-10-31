@@ -6,6 +6,7 @@ import '../../core/api.dart';
 import '../../core/app_state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/workspace_lookup.dart';
 import '../customers/customers_screen.dart';
 import '../debug/api_inspector.dart';
 import '../finance/accounting_finance_screens.dart';
