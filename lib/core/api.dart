@@ -151,6 +151,91 @@ class ApiClient extends ChangeNotifier {
         idempotencyKey: idempotencyKey ?? (idempotent ? const Uuid().v4() : null),
       );
 
+  Future<dynamic> delete(
+    String path, {
+    Object? body,
+    String? idempotencyKey,
+    bool idempotent = false,
+  }) =>
+      _send(
+        'DELETE',
+        path,
+        body: body,
+        idempotencyKey: idempotencyKey ?? (idempotent ? const Uuid().v4() : null),
+      );
+
+  /// Fetches private binary bytes (e.g. `/organization/invoice-profile/logo`)
+  /// using the active session cookie jar. Returns `null` if 404 / no content.
+  Future<Uint8List?> getBytes(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
+    final headers = <String, dynamic>{
+      if (bearer != null) 'Authorization': 'Bearer $bearer',
+      'Accept': 'image/*, application/octet-stream, application/json',
+    };
+    try {
+      final res = await _dio.get<List<int>>(
+        path,
+        queryParameters: query,
+        options: Options(
+          headers: headers,
+          responseType: ResponseType.bytes,
+        ),
+      );
+      _learnFromHeaders(res.headers);
+      final data = res.data;
+      if (data == null || data.isEmpty) return null;
+      final ct = (res.headers.value('content-type') ?? '').toLowerCase();
+      if (ct.contains('application/json')) {
+        try {
+          final parsed = jsonDecode(utf8.decode(data));
+          final m = asMap(parsed is Map && parsed.containsKey('data') ? parsed['data'] : parsed);
+          final b64 = '${m['contentBase64'] ?? m['base64'] ?? m['dataUrl'] ?? ''}'.trim();
+          if (b64.isEmpty) return null;
+          final comma = b64.indexOf(',');
+          return base64Decode(comma >= 0 ? b64.substring(comma + 1) : b64);
+        } catch (_) {
+          return null;
+        }
+      }
+      return Uint8List.fromList(data);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404 || e.response?.statusCode == 204) {
+        return null;
+      }
+      return null;
+    }
+  }
+
+  /// Uploads a binary image/file (`PNG`, `JPEG`, `WebP`) via `multipart/form-data`
+  /// with full CSRF + Origin headers.
+  Future<dynamic> uploadBytes(
+    String method,
+    String path, {
+    required Uint8List bytes,
+    required String filename,
+    required String mimeType,
+    String fieldName = 'file',
+    Map<String, dynamic>? extraFields,
+    bool idempotent = true,
+  }) {
+    final form = FormData.fromMap({
+      if (extraFields != null) ...extraFields,
+      fieldName: MultipartFile.fromBytes(
+        bytes,
+        filename: filename,
+        contentType: DioMediaType.parse(mimeType),
+      ),
+    });
+    return _send(
+      method,
+      path,
+      body: form,
+      idempotencyKey: idempotent ? const Uuid().v4() : null,
+    );
+  }
+
   // ---- CSRF, Origin & diagnostics ----
 
   static final _csrfName = RegExp(r'csrf|xsrf', caseSensitive: false);

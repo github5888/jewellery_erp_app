@@ -5338,7 +5338,6 @@ class GstEInvoicesBillsScreen extends StatefulWidget {
       _GstEInvoicesBillsScreenState();
 }
 
-typedef CompanyInvoicePolicyScreen = GstEInvoicesBillsScreen;
 
 class _GstEInvoicesBillsScreenState extends State<GstEInvoicesBillsScreen> {
   final _search = TextEditingController();
@@ -8027,8 +8026,1377 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 8. SUPPORT & GOVERNANCE ALIASES
+// 8. COMPANY & INVOICE PROFILE (`/organization/invoice-profile`) — `image-59..61.png`
 // ---------------------------------------------------------------------------
 
+class CompanyInvoiceProfileScreen extends StatefulWidget {
+  const CompanyInvoiceProfileScreen({super.key});
+  @override
+  State<CompanyInvoiceProfileScreen> createState() =>
+      _CompanyInvoiceProfileScreenState();
+}
+
+class _CompanyInvoiceProfileScreenState
+    extends State<CompanyInvoiceProfileScreen> {
+  static const int _maxLogoBytes = 512 * 1024;
+
+  String _loadedBranchId = '';
+  Map<String, dynamic> _rawEnvelope = const {};
+  Map<String, dynamic> _profileMap = const {};
+  Uint8List? _logoBytes;
+  String _maskedBankAccount = '';
+
+  bool _loading = true;
+  bool _savingEntity = false;
+  bool _savingProfile = false;
+  bool _uploadingLogo = false;
+  String? _error;
+
+  // Card 1: `Legal entity identity` (`image-59.png`)
+  final _legalEntityName = TextEditingController();
+  final _entityChangeReason = TextEditingController(
+    text: 'Correct legal entity name for company billing profile.',
+  );
+
+  // Card 4: `Showroom identity` (`image-60.png`)
+  final _tradeStoreName = TextEditingController();
+  final _phone = TextEditingController();
+  final _email = TextEditingController();
+  final _addressLine1 = TextEditingController();
+  final _addressLine2 = TextEditingController();
+  final _city = TextEditingController();
+  final _stateUt = TextEditingController();
+  final _pinCode = TextEditingController();
+  final _country = TextEditingController(text: 'India');
+
+  // Card 5: `Bank and UPI collection` (`image-61.png`)
+  final _bankName = TextEditingController();
+  final _accountHolder = TextEditingController();
+  final _accountNumber = TextEditingController();
+  final _ifsc = TextEditingController();
+  final _businessUpi = TextEditingController();
+
+  // Card 6: `Invoice policy and signatory` (`image-61.png`)
+  final _signatoryName = TextEditingController();
+  final _signatoryTitle = TextEditingController(text: 'Authorised Signatory');
+  final _declarationTerms = TextEditingController();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final branchId = context.watch<AppState>().selectedBranchId;
+    if (_loadedBranchId != branchId || (_loadedBranchId.isEmpty && _loading)) {
+      _loadedBranchId = branchId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in [
+      _legalEntityName,
+      _entityChangeReason,
+      _tradeStoreName,
+      _phone,
+      _email,
+      _addressLine1,
+      _addressLine2,
+      _city,
+      _stateUt,
+      _pinCode,
+      _country,
+      _bankName,
+      _accountHolder,
+      _accountNumber,
+      _ifsc,
+      _businessUpi,
+      _signatoryName,
+      _signatoryTitle,
+      _declarationTerms,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  String _pickStr(Map<String, dynamic> m, List<String> keys, [String def = '']) {
+    for (final k in keys) {
+      final v = m[k];
+      if (v != null && '$v'.trim().isNotEmpty) {
+        return '$v'.trim();
+      }
+    }
+    return def;
+  }
+
+  String _pickExistingKey(
+    Map<String, dynamic> m,
+    List<String> candidates,
+    String fallback,
+  ) {
+    for (final k in candidates) {
+      if (m.containsKey(k)) return k;
+    }
+    return fallback;
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final api = context.read<ApiClient>();
+    final app = context.read<AppState>();
+    try {
+      final query = <String, dynamic>{
+        if (app.selectedBranchId.isNotEmpty) 'branchId': app.selectedBranchId,
+        if (app.selectedEntityId.isNotEmpty)
+          'legalEntityId': app.selectedEntityId,
+      };
+      final results = await Future.wait<dynamic>([
+        api.get('/organization/invoice-profile', query: query),
+        api.getBytes('/organization/invoice-profile/logo', query: query),
+      ]);
+      if (!mounted) return;
+
+      final env = asMap(results[0]);
+      final nestedProfile = asMap(
+        env['profile'] ?? env['invoiceProfile'] ?? env['branchProfile'],
+      );
+      final p = nestedProfile.isNotEmpty ? nestedProfile : env;
+      final entObj = asMap(env['legalEntity']);
+      final showroomObj = asMap(env['showroomIdentity'] ?? env['showroom']);
+      final bankObj = asMap(env['bankCollection'] ?? env['bank']);
+      final policyObj = asMap(env['invoicePolicy'] ?? env['signatory']);
+
+      final merged = <String, dynamic>{
+        ...p,
+        ...showroomObj,
+        ...bankObj,
+        ...policyObj,
+      };
+
+      final entityLegalName = _pickStr(
+        entObj.isNotEmpty ? entObj : env,
+        const ['legalName', 'legalEntityName', 'name'],
+        app.entityName,
+      );
+
+      String termsText = '';
+      final rawTerms = merged['declarationTerms'] ??
+          merged['invoiceTerms'] ??
+          merged['terms'] ??
+          merged['declarations'];
+      if (rawTerms is List) {
+        termsText = rawTerms
+            .map((e) => '$e'.trim())
+            .where((s) => s.isNotEmpty)
+            .join('\n');
+      } else if (rawTerms is String) {
+        termsText = rawTerms.trim();
+      }
+
+      Uint8List? logo = results[1] as Uint8List?;
+      if (logo == null) {
+        final inlineB64 = _pickStr(
+          merged,
+          const ['logoDataUrl', 'logoBase64', 'logoContentBase64'],
+        );
+        if (inlineB64.isNotEmpty) {
+          try {
+            final comma = inlineB64.indexOf(',');
+            logo = base64Decode(
+              comma >= 0 ? inlineB64.substring(comma + 1) : inlineB64,
+            );
+          } catch (_) {}
+        }
+      }
+
+      setState(() {
+        _rawEnvelope = env;
+        _profileMap = merged;
+        _logoBytes = logo;
+
+        _legalEntityName.text = entityLegalName;
+        _tradeStoreName.text = _pickStr(
+          merged,
+          const ['tradeName', 'storeName', 'tradeOrStoreName'],
+        );
+        _phone.text = _pickStr(merged, const ['phone', 'contactPhone']);
+        _email.text = _pickStr(merged, const ['email', 'contactEmail']);
+        _addressLine1.text = _pickStr(merged, const ['addressLine1']);
+        _addressLine2.text = _pickStr(merged, const ['addressLine2']);
+        _city.text = _pickStr(merged, const ['city']);
+        _stateUt.text = _pickStr(
+          merged,
+          const ['state', 'stateOrUnionTerritory', 'stateName'],
+        );
+        _pinCode.text = _pickStr(
+          merged,
+          const ['pinCode', 'postalCode', 'pincode'],
+        );
+        _country.text = _pickStr(merged, const ['country'], 'India');
+
+        _bankName.text = _pickStr(merged, const ['bankName']);
+        _accountHolder.text = _pickStr(
+          merged,
+          const ['accountHolder', 'accountHolderName'],
+        );
+        // Always leave accountNumber input blank so saved masked account stays intact unless edited (`image-61.png`)
+        _accountNumber.clear();
+        _maskedBankAccount = _pickStr(
+          merged,
+          const [
+            'maskedAccountNumber',
+            'accountNumberMasked',
+            'bankAccountMasked',
+          ],
+        );
+        _ifsc.text = _pickStr(merged, const ['ifsc', 'ifscCode']);
+        _businessUpi.text = _pickStr(
+          merged,
+          const ['upiId', 'businessUpiId', 'upiVpa'],
+        );
+
+        _signatoryName.text = _pickStr(
+          merged,
+          const [
+            'authorisedSignatoryName',
+            'authorizedSignatoryName',
+            'signatoryName',
+          ],
+        );
+        _signatoryTitle.text = _pickStr(
+          merged,
+          const ['signatoryTitle'],
+          'Authorised Signatory',
+        );
+        _declarationTerms.text = termsText;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      final appFallback = context.read<AppState>();
+      if (_legalEntityName.text.isEmpty && appFallback.entityName.isNotEmpty) {
+        _legalEntityName.text = appFallback.entityName;
+      }
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _saveLegalEntityName() async {
+    final name = _legalEntityName.text.trim();
+    final reason = _entityChangeReason.text.trim();
+    if (name.length < 2) {
+      setState(() => _error = 'Enter a valid Legal entity name.');
+      return;
+    }
+    if (reason.length < 5) {
+      setState(
+        () => _error =
+            'Provide Change reason (audit record) before updating legal entity identity.',
+      );
+      return;
+    }
+
+    final app = context.read<AppState>();
+    final api = context.read<ApiClient>();
+    final entObj = asMap(_rawEnvelope['legalEntity']);
+    final entityId = _pickStr(
+      entObj,
+      const ['id'],
+      app.selectedEntityId,
+    );
+
+    setState(() {
+      _savingEntity = true;
+      _error = null;
+    });
+    try {
+      final body = <String, dynamic>{
+        'legalName': name,
+        'reason': reason,
+      };
+      final attempts = <Future<dynamic> Function()>[
+        () => api.patch(
+              '/organization/invoice-profile/legal-entity',
+              idempotent: true,
+              body: body,
+            ),
+        () => api.put(
+              '/organization/invoice-profile/legal-entity',
+              idempotent: true,
+              body: body,
+            ),
+        if (entityId.isNotEmpty)
+          () => api.patch(
+                '/organization/legal-entities/$entityId',
+                idempotent: true,
+                body: body,
+              ),
+        if (entityId.isNotEmpty)
+          () => api.put(
+                '/organization/legal-entities/$entityId',
+                idempotent: true,
+                body: body,
+              ),
+        () => api.post(
+              '/organization/invoice-profile/legal-entity',
+              idempotent: true,
+              body: body,
+            ),
+      ];
+
+      ApiException? lastErr;
+      var ok = false;
+      for (var i = 0; i < attempts.length; i++) {
+        try {
+          await attempts[i]();
+          ok = true;
+          break;
+        } on ApiException catch (e) {
+          lastErr = e;
+          if ((e.status == 404 || e.status == 405) &&
+              i + 1 < attempts.length) {
+            continue;
+          }
+          rethrow;
+        }
+      }
+      if (!ok && lastErr != null) throw lastErr;
+
+      await app.refreshSession();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Legal entity name updated.')),
+      );
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _savingEntity = false);
+    }
+  }
+
+  String? _detectImageMime(Uint8List bytes) {
+    if (bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      return 'image/png';
+    }
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF) {
+      return 'image/jpeg';
+    }
+    if (bytes.length >= 12 &&
+        bytes[0] == 0x52 &&
+        bytes[1] == 0x49 &&
+        bytes[2] == 0x46 &&
+        bytes[3] == 0x46 &&
+        bytes[8] == 0x57 &&
+        bytes[9] == 0x45 &&
+        bytes[10] == 0x42 &&
+        bytes[11] == 0x50) {
+      return 'image/webp';
+    }
+    return null;
+  }
+
+  Future<void> _openUploadLogoModal() async {
+    final dataCtrl = TextEditingController();
+    Uint8List? stagedBytes;
+    String? stagedMime;
+    String? modalError;
+    bool modalBusy = false;
+
+    void parseInput(String raw, void Function(void Function()) setModal) {
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty) {
+        setModal(() {
+          stagedBytes = null;
+          stagedMime = null;
+          modalError = null;
+        });
+        return;
+      }
+      try {
+        final comma = trimmed.indexOf(',');
+        final b64Part = (trimmed.startsWith('data:') && comma >= 0)
+            ? trimmed.substring(comma + 1)
+            : trimmed;
+        final cleaned = b64Part.replaceAll(RegExp(r'\s+'), '');
+        final decoded = base64Decode(cleaned);
+        if (decoded.length > _maxLogoBytes) {
+          setModal(() {
+            stagedBytes = null;
+            stagedMime = null;
+            modalError =
+                'Image exceeds 512 KB limit (${(decoded.length / 1024).toStringAsFixed(1)} KB).';
+          });
+          return;
+        }
+        final mime = _detectImageMime(decoded);
+        if (mime == null) {
+          setModal(() {
+            stagedBytes = null;
+            stagedMime = null;
+            modalError = 'Only PNG, JPEG, or WebP images are permitted.';
+          });
+          return;
+        }
+        setModal(() {
+          stagedBytes = decoded;
+          stagedMime = mime;
+          modalError = null;
+        });
+      } catch (_) {
+        setModal(() {
+          stagedBytes = null;
+          stagedMime = null;
+          modalError =
+              'Paste a valid Data URL (data:image/png;base64,...) or Base64 encoded PNG/JPEG/WebP image.';
+        });
+      }
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) {
+          Future<void> uploadNow() async {
+            if (stagedBytes == null || stagedMime == null) {
+              setModal(
+                () => modalError =
+                    'Load a valid PNG, JPEG, or WebP image (up to 512 KB) first.',
+              );
+              return;
+            }
+            setModal(() {
+              modalBusy = true;
+              modalError = null;
+            });
+            final api = context.read<ApiClient>();
+            final ext = stagedMime == 'image/png'
+                ? 'png'
+                : (stagedMime == 'image/webp' ? 'webp' : 'jpg');
+            final filename = 'showroom-logo.$ext';
+            final b64 = base64Encode(stagedBytes!);
+            final dataUrl = 'data:$stagedMime;base64,$b64';
+
+            try {
+              final attempts = <Future<dynamic> Function()>[
+                () => api.uploadBytes(
+                      'PUT',
+                      '/organization/invoice-profile/logo',
+                      bytes: stagedBytes!,
+                      filename: filename,
+                      mimeType: stagedMime!,
+                      fieldName: 'logo',
+                    ),
+                () => api.uploadBytes(
+                      'POST',
+                      '/organization/invoice-profile/logo',
+                      bytes: stagedBytes!,
+                      filename: filename,
+                      mimeType: stagedMime!,
+                      fieldName: 'logo',
+                    ),
+                () => api.uploadBytes(
+                      'PUT',
+                      '/organization/invoice-profile/logo',
+                      bytes: stagedBytes!,
+                      filename: filename,
+                      mimeType: stagedMime!,
+                      fieldName: 'file',
+                    ),
+                () => api.put(
+                      '/organization/invoice-profile/logo',
+                      idempotent: true,
+                      body: {
+                        'mimeType': stagedMime,
+                        'contentBase64': b64,
+                        'dataUrl': dataUrl,
+                        'fileName': filename,
+                      },
+                    ),
+                () => api.post(
+                      '/organization/invoice-profile/logo',
+                      idempotent: true,
+                      body: {
+                        'mimeType': stagedMime,
+                        'contentBase64': b64,
+                        'dataUrl': dataUrl,
+                        'fileName': filename,
+                      },
+                    ),
+              ];
+
+              ApiException? lastErr;
+              var ok = false;
+              for (var i = 0; i < attempts.length; i++) {
+                try {
+                  await attempts[i]();
+                  ok = true;
+                  break;
+                } on ApiException catch (e) {
+                  lastErr = e;
+                  if ((e.status == 400 ||
+                          e.status == 404 ||
+                          e.status == 405 ||
+                          e.status == 415) &&
+                      i + 1 < attempts.length) {
+                    continue;
+                  }
+                  rethrow;
+                }
+              }
+              if (!ok && lastErr != null) throw lastErr;
+
+              if (!ctx.mounted) return;
+              Navigator.of(ctx).pop();
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Showroom logo uploaded privately.'),
+                ),
+              );
+              await _load();
+            } on ApiException catch (e) {
+              if (ctx.mounted) {
+                setModal(() {
+                  modalBusy = false;
+                  modalError = e.message;
+                });
+              }
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              18,
+              18,
+              18,
+              MediaQuery.of(ctx).viewInsets.bottom + 22,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Upload Showroom Logo',
+                              style: T.body(16.5, weight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'PNG, JPEG, or WebP · up to 512 KB. Stored privately in this tenant and branch\'s database scope.',
+                              style: T.body(11.8, color: Pal.muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (modalError != null) ...[
+                    ErrorBanner(modalError!),
+                    const SizedBox(height: 10),
+                  ],
+                  Row(
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final clip =
+                              await Clipboard.getData(Clipboard.kTextPlain);
+                          final txt = (clip?.text ?? '').trim();
+                          if (txt.isNotEmpty) {
+                            dataCtrl.text = txt;
+                            parseInput(txt, setModal);
+                          }
+                        },
+                        icon: const Icon(Icons.content_paste_rounded, size: 16),
+                        label: const Text('Paste Image Data / Base64'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Image Data URL or Base64 (PNG / JPEG / WebP ≤ 512 KB)',
+                    controller: dataCtrl,
+                    mono: true,
+                    maxLines: 3,
+                    onChanged: (v) => parseInput(v, setModal),
+                  ),
+                  if (stagedBytes != null) ...[
+                    const SizedBox(height: 12),
+                    SaasSubBox(
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.memory(
+                              stagedBytes!,
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              '$stagedMime · ${(stagedBytes!.length / 1024).toStringAsFixed(1)} KB ready',
+                              style: T.mono(12, weight: FontWeight.w700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Upload logo',
+                    busy: modalBusy,
+                    onPressed: modalBusy ? null : uploadNow,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    dataCtrl.dispose();
+  }
+
+  Future<void> _removeLogo() async {
+    setState(() {
+      _uploadingLogo = true;
+      _error = null;
+    });
+    try {
+      await context.read<ApiClient>().delete(
+        '/organization/invoice-profile/logo',
+        idempotent: true,
+      );
+      if (!mounted) return;
+      setState(() => _logoBytes = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Showroom logo removed.')),
+      );
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _uploadingLogo = false);
+    }
+  }
+
+  Future<void> _saveInvoiceProfile() async {
+    final termsLines = _declarationTerms.text
+        .split('\n')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (termsLines.length > 8) {
+      setState(
+        () => _error =
+            'Declaration / invoice terms permits at most 8 lines (currently ${termsLines.length}).',
+      );
+      return;
+    }
+
+    final tradeKey = _pickExistingKey(
+      _profileMap,
+      const ['tradeName', 'storeName', 'tradeOrStoreName'],
+      'tradeName',
+    );
+    final stateKey = _pickExistingKey(
+      _profileMap,
+      const ['state', 'stateOrUnionTerritory', 'stateName'],
+      'state',
+    );
+    final pinKey = _pickExistingKey(
+      _profileMap,
+      const ['pinCode', 'postalCode', 'pincode'],
+      'pinCode',
+    );
+    final holderKey = _pickExistingKey(
+      _profileMap,
+      const ['accountHolder', 'accountHolderName'],
+      'accountHolder',
+    );
+    final ifscKey = _pickExistingKey(
+      _profileMap,
+      const ['ifsc', 'ifscCode'],
+      'ifsc',
+    );
+    final upiKey = _pickExistingKey(
+      _profileMap,
+      const ['upiId', 'businessUpiId', 'upiVpa'],
+      'upiId',
+    );
+    final sigNameKey = _pickExistingKey(
+      _profileMap,
+      const [
+        'authorisedSignatoryName',
+        'authorizedSignatoryName',
+        'signatoryName',
+      ],
+      'authorisedSignatoryName',
+    );
+    final termsKey = _pickExistingKey(
+      _profileMap,
+      const ['declarationTerms', 'invoiceTerms', 'terms'],
+      'declarationTerms',
+    );
+    final termsWasString = _profileMap[termsKey] is String;
+
+    final payload = <String, dynamic>{
+      tradeKey: _tradeStoreName.text.trim(),
+      'phone': _phone.text.trim(),
+      'email': _email.text.trim(),
+      'addressLine1': _addressLine1.text.trim(),
+      'addressLine2': _addressLine2.text.trim(),
+      'city': _city.text.trim(),
+      stateKey: _stateUt.text.trim(),
+      pinKey: _pinCode.text.trim(),
+      'country': _country.text.trim().isEmpty ? 'India' : _country.text.trim(),
+      'bankName': _bankName.text.trim(),
+      holderKey: _accountHolder.text.trim(),
+      if (_accountNumber.text.trim().isNotEmpty)
+        'accountNumber': _accountNumber.text.trim(),
+      ifscKey: _ifsc.text.trim().toUpperCase(),
+      upiKey: _businessUpi.text.trim(),
+      sigNameKey: _signatoryName.text.trim(),
+      'signatoryTitle': _signatoryTitle.text.trim().isEmpty
+          ? 'Authorised Signatory'
+          : _signatoryTitle.text.trim(),
+      termsKey: termsWasString ? termsLines.join('\n') : termsLines,
+    };
+
+    setState(() {
+      _savingProfile = true;
+      _error = null;
+    });
+    final api = context.read<ApiClient>();
+    try {
+      final attempts = <Future<dynamic> Function()>[
+        () => api.put(
+              '/organization/invoice-profile',
+              idempotent: true,
+              body: payload,
+            ),
+        () => api.patch(
+              '/organization/invoice-profile',
+              idempotent: true,
+              body: payload,
+            ),
+        () => api.post(
+              '/organization/invoice-profile',
+              idempotent: true,
+              body: payload,
+            ),
+      ];
+
+      ApiException? lastErr;
+      var ok = false;
+      for (var i = 0; i < attempts.length; i++) {
+        try {
+          await attempts[i]();
+          ok = true;
+          break;
+        } on ApiException catch (e) {
+          lastErr = e;
+          if ((e.status == 404 || e.status == 405) &&
+              i + 1 < attempts.length) {
+            continue;
+          }
+          rethrow;
+        }
+      }
+      if (!ok && lastErr != null) throw lastErr;
+
+      if (!mounted) return;
+      _accountNumber.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Showroom invoice profile saved.')),
+      );
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _savingProfile = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+
+    final activeEntityTitle = app.entityName.trim().isNotEmpty
+        ? app.entityName.trim()
+        : (_legalEntityName.text.trim().isNotEmpty
+            ? _legalEntityName.text.trim()
+            : 'Active Legal Entity');
+    final activeBranchTitle = app.branchName.trim().isNotEmpty
+        ? app.branchName.trim()
+        : 'Active Showroom';
+    final workspaceSub = [
+      if (app.tenantName.trim().isNotEmpty) app.tenantName.trim(),
+      if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
+    ].join(' · ');
+
+    return LuxuryModuleScaffold(
+      title: 'Company & Invoice Profile',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
+      icon: Icons.request_quote_outlined,
+      actions: [
+        IconButton(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
+        ),
+      ],
+      body: RefreshIndicator(
+        color: Pal.gold,
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 44),
+          children: [
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header + Active Context + Blue Governance Banner (`image-59.png`)
+            Container(
+              padding: const EdgeInsets.all(15),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion rates: No published rate',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Company & Invoice Profile',
+                    style: T.body(17, weight: FontWeight.w800, color: Pal.ink),
+                  ),
+                  const SizedBox(height: 5),
+                  RichText(
+                    text: TextSpan(
+                      style: T.body(12.2, color: Pal.muted),
+                      children: [
+                        const TextSpan(text: 'Active legal entity: '),
+                        TextSpan(
+                          text: activeEntityTitle,
+                          style: T.body(
+                            12.2,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                        const TextSpan(text: ' · Active branch: '),
+                        TextSpan(
+                          text: '$activeBranchTitle.',
+                          style: T.body(
+                            12.2,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                        const TextSpan(
+                          text:
+                              ' Switch showroom from the dashboard header to edit another branch.',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ShowroomHierarchyScreen(),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Text(
+                          'Switch active showroom branch →',
+                          style: T.body(
+                            12,
+                            weight: FontWeight.w700,
+                            color: Pal.goldDeep,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0F9FF),
+                      borderRadius: BorderRadius.circular(11),
+                      border: Border.all(color: const Color(0xFFBAE6FD)),
+                    ),
+                    child: Text(
+                      'Legal entity identity is edited here. GSTIN and registered seller details are managed in the separately permissioned GST Compliance workspace.',
+                      style: T.body(12, color: const Color(0xFF0C4A6E)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            if (_loading)
+              const Panel(child: Skeleton(height: 140))
+            else ...[
+              // Card 1: `Legal entity identity` (`image-59.png`)
+              SaasFormCard(
+                title: 'Legal entity identity',
+                icon: Icons.domain_rounded,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SaasField(
+                      label: 'Legal entity name',
+                      controller: _legalEntityName,
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Change reason (audit record)',
+                      controller: _entityChangeReason,
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton(
+                        onPressed:
+                            _savingEntity ? null : _saveLegalEntityName,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 11,
+                          ),
+                          side: const BorderSide(color: Pal.border),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: Text(
+                          _savingEntity
+                              ? 'Saving…'
+                              : 'Save legal entity name',
+                          style: T.body(
+                            13,
+                            weight: FontWeight.w600,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Card 2: `GST registration` (`image-59.png`)
+              SaasFormCard(
+                title: 'GST registration',
+                subtitle:
+                    'GSTIN, registered name, effective dates, and approval history are managed in the dedicated GST Compliance workspace with its own permissions and maker-checker approval.',
+                icon: Icons.verified_user_outlined,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            const GstRegistrationTransportScreen(),
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 11,
+                      ),
+                      side: const BorderSide(color: Pal.border),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: Text(
+                      'Open GST compliance workspace',
+                      style: T.body(
+                        13,
+                        weight: FontWeight.w600,
+                        color: Pal.ink,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Card 3: `Showroom logo` (`image-60.png`)
+              SaasFormCard(
+                title: 'Showroom logo',
+                icon: Icons.image_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_logoBytes != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Pal.bgTint,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Pal.border),
+                        ),
+                        child: Row(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                _logoBytes!,
+                                width: 64,
+                                height: 64,
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Private showroom logo stored (${(_logoBytes!.length / 1024).toStringAsFixed(1)} KB)',
+                                style: T.body(12.2, color: Pal.ink),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _uploadingLogo ? null : _removeLogo,
+                              child: const Text('Remove'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    OutlinedButton(
+                      onPressed:
+                          _uploadingLogo ? null : _openUploadLogoModal,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 11,
+                        ),
+                        side: const BorderSide(color: Pal.border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: Text(
+                        'Upload logo',
+                        style: T.body(
+                          13,
+                          weight: FontWeight.w600,
+                          color: Pal.ink,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'PNG, JPEG, or WebP · up to 512 KB. Stored privately in this tenant and branch\'s database scope.',
+                      style: T.body(11.6, color: Pal.muted),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Card 4: `Showroom identity` (`image-60.png`)
+              SaasFormCard(
+                title: 'Showroom identity',
+                icon: Icons.storefront_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SaasField(
+                      label: 'Trade / store name',
+                      controller: _tradeStoreName,
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Phone',
+                            controller: _phone,
+                            keyboardType: TextInputType.phone,
+                            mono: true,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Email',
+                            controller: _email,
+                            keyboardType: TextInputType.emailAddress,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Address line 1',
+                      controller: _addressLine1,
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Address line 2',
+                      controller: _addressLine2,
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'City',
+                            controller: _city,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'State / Union Territory',
+                            controller: _stateUt,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'PIN code',
+                            controller: _pinCode,
+                            mono: true,
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Country',
+                            controller: _country,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Card 5: `Bank and UPI collection` (`image-61.png`)
+              SaasFormCard(
+                title: 'Bank and UPI collection',
+                subtitle:
+                    'Bank account is masked after saving. Leave the account field blank to keep the saved account number.',
+                icon: Icons.account_balance_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_maskedBankAccount.isNotEmpty) ...[
+                      SaasSubBox(
+                        child: Text(
+                          'Saved bank account: $_maskedBankAccount',
+                          style: T.mono(
+                            12,
+                            weight: FontWeight.w700,
+                            color: Pal.goldDeep,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Bank name',
+                            controller: _bankName,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Account holder',
+                            controller: _accountHolder,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Account number',
+                            controller: _accountNumber,
+                            mono: true,
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'IFSC',
+                            controller: _ifsc,
+                            mono: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label: 'Business UPI ID / VPA',
+                      controller: _businessUpi,
+                      mono: true,
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Card 6: `Invoice policy and signatory` (`image-61.png`)
+              SaasFormCard(
+                title: 'Invoice policy and signatory',
+                icon: Icons.draw_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SaasField(
+                            label: 'Authorised signatory name',
+                            controller: _signatoryName,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Signatory title',
+                            controller: _signatoryTitle,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SaasField(
+                      label:
+                          'Declaration / invoice terms (one per line, up to 8)',
+                      controller: _declarationTerms,
+                      maxLines: 5,
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Bottom Golden CTA (`Save invoice profile` — image-61.png)
+              RoyalGoldButton(
+                label: 'Save invoice profile',
+                busy: _savingProfile,
+                onPressed: _savingProfile ? null : _saveInvoiceProfile,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+typedef CompanyInvoicePolicyScreen = CompanyInvoiceProfileScreen;
+typedef DocumentsPolicyScreen = CompanyInvoiceProfileScreen;
 typedef AuditComplianceScreen = AccessControlScreen;
-typedef DocumentsPolicyScreen = CompanyInvoicePolicyScreen;

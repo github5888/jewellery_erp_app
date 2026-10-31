@@ -227,8 +227,8 @@ class _MoreScreenState extends State<MoreScreen> {
           ),
           _SidebarItem(
             Icons.request_quote_outlined,
-            'Company & Invoice Policy',
-            () => _open(context, const DocumentsPolicyScreen()),
+            'Company & Invoice Profile',
+            () => _open(context, const CompanyInvoiceProfileScreen()),
           ),
           _SidebarItem(
             Icons.monitor_heart_outlined,
