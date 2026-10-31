@@ -10,33 +10,29 @@ import '../../core/models.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
-import '../../core/workspace_lookup.dart';
-import '../billing/billing_controller.dart';
 import '../debug/api_inspector.dart';
-import '../finance/accounting_finance_screens.dart';
 import '../governance/tax_governance_screens.dart';
-import '../inventory/scanner_page.dart';
-import '../more/old_gold_screen.dart';
 import '../more/operations_screens.dart';
-import '../more/reports_screen.dart';
-import '../more/shift_screen.dart';
 import '../supply/supply_production_screens.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.onJump, this.onOpenDrawer});
+  const HomeScreen({super.key, required this.onJump});
   final ValueChanged<int> onJump;
-  final VoidCallback? onOpenDrawer;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool _perTenGram = false;
   Map<String, dynamic>? _stockSummary;
+  int _availableTaggedCount = 0;
+  Decimal _grossStockGrams = Decimal.zero;
   int _invoiceCount = 0;
   Decimal _salesTotal = Decimal.zero;
+  List<Map<String, dynamic>> _recentInvoices = const [];
   int _pendingOrders = 0;
+  Decimal _orderPipelineValue = Decimal.zero;
+  List<Map<String, dynamic>> _openOrderPreview = const [];
   int _activeBatches = 0;
   bool _kpiLoading = true;
 
@@ -60,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final results = await Future.wait<dynamic>([
         api.get('/reports/stock-valuation').catchError((_) => null),
+        api.get('/inventory').catchError((_) => null),
         api.get('/sales').catchError((_) => null),
         api.get('/procurement').catchError((_) => null),
         api.get('/custom-orders').catchError((_) => null),
@@ -71,7 +68,22 @@ class _HomeScreenState extends State<HomeScreen> {
       final valMap = asMap(results[0]);
       final summary = asMap(valMap['summary']);
 
-      final salesRaw = results[1];
+      final invRaw = results[1];
+      final articlesRaw = asList(invRaw, keys: const ['articles', 'taggedArticles', 'items']);
+      var availCount = 0;
+      var grossSum = Decimal.zero;
+      for (final raw in articlesRaw) {
+        final a = Article.fromJson(raw);
+        if (a.isAvailable) {
+          availCount++;
+          grossSum += decOrZero(a.grossWeight);
+        }
+      }
+      if (grossSum == Decimal.zero && summary['totalGrossWeightGrams'] != null) {
+        grossSum = decOrZero(summary['totalGrossWeightGrams']);
+      }
+
+      final salesRaw = results[2];
       final invList = salesRaw is Map
           ? asList(salesRaw, keys: const ['invoices', 'salesInvoices'])
           : asList(salesRaw);
@@ -82,37 +94,57 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
-      final procMap = asMap(results[2]);
+      final procMap = asMap(results[3]);
       final pos = asList(procMap, keys: const ['purchaseOrders']);
       final openPos = pos.where((p) {
         final s = '${p['state'] ?? p['status']}'.toUpperCase();
         return s != 'CLOSED' && s != 'CANCELLED';
-      }).length;
+      }).toList();
 
-      final coList = asList(results[3], keys: const ['customOrders', 'orders', 'items']);
+      final coList = asList(results[4], keys: const ['customOrders', 'orders', 'items']);
       final openCos = coList.where((o) {
         final s = '${o['state'] ?? o['status']}'.toUpperCase();
         return s != 'DELIVERED' && s != 'CANCELLED';
-      }).length;
+      }).toList();
 
-      final jwList = asList(results[4], keys: const ['workOrders', 'items']);
+      final jwList = asList(results[5], keys: const ['workOrders', 'items']);
       final activeJw = jwList.where((w) {
         final s = '${w['state'] ?? w['status']}'.toUpperCase();
         return s != 'COMPLETED' && s != 'CLOSED' && s != 'CANCELLED';
-      }).length;
+      }).toList();
 
-      final refList = asList(results[5], keys: const ['batches', 'refiningBatches', 'items']);
+      final refList = asList(results[6], keys: const ['batches', 'refiningBatches', 'items']);
       final activeRef = refList.where((b) {
         final s = '${b['state'] ?? b['status']}'.toUpperCase();
         return s != 'SETTLED' && s != 'POSTED' && s != 'CANCELLED';
       }).length;
 
+      var pipeline = Decimal.zero;
+      for (final o in openCos) {
+        pipeline += decOrZero(
+          o['estimatedAmount'] ?? o['quotedMakingAmount'] ?? o['advanceAmount'],
+        );
+      }
+      for (final p in openPos) {
+        pipeline += decOrZero(p['totalAmount'] ?? p['subtotalAmount']);
+      }
+
+      final orderPreview = <Map<String, dynamic>>[
+        ...openCos.take(2),
+        ...activeJw.take(2),
+      ].take(3).toList();
+
       setState(() {
         _stockSummary = summary.isEmpty ? null : summary;
+        _availableTaggedCount = availCount;
+        _grossStockGrams = grossSum;
         _invoiceCount = invList.length;
         _salesTotal = rev;
-        _pendingOrders = openPos + openCos;
-        _activeBatches = activeJw + activeRef;
+        _recentInvoices = invList.take(3).toList();
+        _pendingOrders = openCos.length + openPos.length;
+        _orderPipelineValue = pipeline;
+        _openOrderPreview = orderPreview;
+        _activeBatches = activeJw.length + activeRef;
         _kpiLoading = false;
       });
     } catch (_) {
@@ -121,28 +153,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _push(Widget w) => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => w));
-
-  Future<void> _quickScanToBill() async {
-    final code = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => const ScannerPage()),
-    );
-    if (code == null || !mounted) return;
-    final billing = context.read<BillingController>();
-    await billing.scanAndAdd(code);
-    if (!mounted) return;
-    widget.onJump(2);
-  }
-
-  void _openCalculator() {
-    showLuxuryFormSheet<void>(
-      context: context,
-      title: 'Counter Jewellery Estimator',
-      subtitle: 'Live showroom bullion valuation with making & 3% GST',
-      icon: Icons.calculate_outlined,
-      builder: (_) => const _MetalPriceCalculatorSheet(),
-    );
-  }
 
   String _greetingText() {
     final h = DateTime.now().hour;
@@ -160,12 +170,38 @@ class _HomeScreenState extends State<HomeScreen> {
     return first[0].toUpperCase() + first.substring(1);
   }
 
+  MetalRate? _exactRate(RatesController rates, String metal, List<String> purityTokens) {
+    final m = metal.toUpperCase();
+    for (final r in rates.rates) {
+      if (r.metal.toUpperCase() != m) continue;
+      final p = r.purity.toUpperCase();
+      final c = r.carat.toUpperCase();
+      for (final tok in purityTokens) {
+        final t = tok.toUpperCase();
+        if (p == t || c == t || c.contains(t)) return r;
+      }
+    }
+    return null;
+  }
+
+  String _spreadGoldQuote(Decimal base999, int targetFineness) {
+    if (base999 <= Decimal.zero) return '—';
+    final spread = decDiv(
+      base999 * Decimal.fromInt(targetFineness),
+      Decimal.fromInt(999),
+      scale: 6,
+    ).round(scale: 2);
+    return '${inr(spread.toStringAsFixed(2))} / g';
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final rates = context.watch<RatesController>();
 
-    final storeBrand = app.tenantName.trim().isNotEmpty ? app.tenantName.trim() : 'Jewellery ERP';
+    final storeBrand =
+        app.tenantName.trim().isNotEmpty ? app.tenantName.trim() : 'Jewellery ERP';
+    final branchCode = app.branchCode.trim().isNotEmpty ? app.branchCode.trim() : 'MAIN';
     final branchLabel = [
       if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
       if (app.entityName.trim().isNotEmpty) app.entityName.trim(),
@@ -178,13 +214,38 @@ class _HomeScreenState extends State<HomeScreen> {
         : '0.000 g';
     final avatarChar = _firstName(app)[0].toUpperCase();
 
+    // Live Bullion Rate Board quotes (`image-2.png` exact 4 rows + Purity auto-spread)
+    final gold24Obj =
+        _exactRate(rates, 'GOLD', const ['999', '24K', '24']) ?? rates.find('GOLD', '999');
+    final gold22Obj = _exactRate(rates, 'GOLD', const ['916', '22K', '22']);
+    final gold18Obj = _exactRate(rates, 'GOLD', const ['750', '18K', '18']);
+    final silverObj =
+        _exactRate(rates, 'SILVER', const ['999', 'FINE']) ?? rates.find('SILVER', '999');
+
+    final gold24Dec = decOrZero(gold24Obj?.sell);
+    final hasLiveRates = rates.rates.isNotEmpty &&
+        (gold24Dec > Decimal.zero || decOrZero(silverObj?.sell) > Decimal.zero);
+
+    final gold24Quote = gold24Dec > Decimal.zero
+        ? '${inr(gold24Obj!.sell)} / g'
+        : '—';
+    final gold22Quote = (gold22Obj != null && decOrZero(gold22Obj.sell) > Decimal.zero)
+        ? '${inr(gold22Obj.sell)} / g'
+        : _spreadGoldQuote(gold24Dec, 916);
+    final gold18Quote = (gold18Obj != null && decOrZero(gold18Obj.sell) > Decimal.zero)
+        ? '${inr(gold18Obj.sell)} / g'
+        : _spreadGoldQuote(gold24Dec, 750);
+    final silverQuote = (silverObj != null && decOrZero(silverObj.sell) > Decimal.zero)
+        ? '${inr(silverObj.sell)} / g'
+        : '—';
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: Pal.ink,
         body: Column(
           children: [
-            // 1. Dark Espresso-Bronze & 24K Gold Executive Header (Screen 2 of image-1.png)
+            // 1. Dark Espresso-Bronze & 24K Gold Executive Header
             Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
@@ -221,7 +282,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Top Brand + Notifications/Diagnostics + Avatar Row
+                          // Top Brand + Notifications + Avatar Row
                           Row(
                             children: [
                               const GemMark(size: 32, darkSurface: true),
@@ -247,7 +308,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               const SizedBox(width: 4),
                               InkWell(
                                 borderRadius: BorderRadius.circular(99),
-                                onTap: app.branchCount > 1 ? app.switchShowroom : () => widget.onJump(4),
+                                onTap: app.branchCount > 1
+                                    ? app.switchShowroom
+                                    : () => widget.onJump(4),
                                 child: Container(
                                   width: 34,
                                   height: 34,
@@ -268,7 +331,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                           const SizedBox(height: 14),
-                          // Greeting
                           Text(
                             '${_greetingText()}, ${_firstName(app)}',
                             maxLines: 1,
@@ -307,7 +369,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                     const SizedBox(width: 9),
                                     Expanded(
                                       child: Text(
-                                        branchLabel.isEmpty ? 'Active Showroom Context' : branchLabel,
+                                        branchLabel.isEmpty
+                                            ? 'Active Showroom Context'
+                                            : branchLabel,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: T.body(13.5, color: Pal.ink, w: FontWeight.w700),
@@ -315,7 +379,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                     if (app.branchCode.isNotEmpty) ...[
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 7,
+                                          vertical: 2,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: Pal.goldWash,
                                           borderRadius: BorderRadius.circular(6),
@@ -323,7 +390,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                         child: Text(
                                           app.branchCode,
-                                          style: T.mono(10.5, color: Pal.goldDeep, w: FontWeight.w700),
+                                          style: T.mono(
+                                            10.5,
+                                            color: Pal.goldDeep,
+                                            w: FontWeight.w700,
+                                          ),
                                         ),
                                       ),
                                       const SizedBox(width: 6),
@@ -362,7 +433,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
                       children: [
-                        // 2x2 Executive KPI Grid (matching Screen 2 of image-1.png)
+                        // 2x2 Executive KPI Grid
                         ResponsiveGrid2(
                           spacing: 11,
                           children: [
@@ -467,7 +538,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                         children: [
                                           Text(
                                             'Quick Actions',
-                                            style: T.body(14.5, color: Colors.white, w: FontWeight.w800),
+                                            style: T.body(
+                                              14.5,
+                                              color: Colors.white,
+                                              w: FontWeight.w800,
+                                            ),
                                           ),
                                           const SizedBox(height: 2),
                                           Text(
@@ -491,198 +566,625 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 15),
+                        const SizedBox(height: 16),
 
-                        // Exact 2x4 Module Icon Grid from Screen 2 of image-1.png
-                        _FeatureIconGrid(
-                          items: [
-                            _GridAction(
-                              icon: Icons.shopping_bag_outlined,
-                              label: 'Purchase\nOrders',
-                              onTap: () => _push(const ProcurementScreen(initialTab: 'PO')),
-                            ),
-                            _GridAction(
-                              icon: Icons.inventory_outlined,
-                              label: 'Goods\nReceipts',
-                              onTap: () => _push(const ProcurementScreen(initialTab: 'GRN')),
-                            ),
-                            _GridAction(
-                              icon: Icons.receipt_long_outlined,
-                              label: 'Supplier\nBills',
-                              onTap: () => _push(const ProcurementScreen(initialTab: 'BILLS')),
-                            ),
-                            _GridAction(
-                              icon: Icons.assignment_return_outlined,
-                              label: 'Returns /\nDebits',
-                              onTap: () => _push(const ProcurementScreen(initialTab: 'RETURNS')),
-                            ),
-                            _GridAction(
-                              icon: Icons.groups_outlined,
-                              label: 'Parties &\nKarigars',
-                              onTap: () => widget.onJump(3),
-                            ),
-                            _GridAction(
-                              icon: Icons.handyman_outlined,
-                              label: 'Karigar\nWork',
-                              onTap: () => _push(const JobWorkScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.local_fire_department_outlined,
-                              label: 'Refining &\nMelting',
-                              onTap: () => _push(const RefiningMeltingScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.more_horiz_rounded,
-                              label: 'More\nModules',
-                              onTap: () => widget.onJump(4),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
+                        // ===============================================================
+                        // BELOW QUICK ACTIONS: EXACT WEBSITE DASHBOARD CARDS (image-2.png)
+                        // ===============================================================
 
-                        // Enterprise Custody, Transfers, Finance & GST Strip
-                        SectionLabel(
-                          'Showroom, Custody & Finance',
-                          trailing: GestureDetector(
-                            onTap: _openCalculator,
-                            child: Text(
-                              'Price Estimator →',
-                              style: T.body(11.8, color: Pal.goldDeep, w: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                        _FeatureIconGrid(
-                          items: [
-                            _GridAction(
-                              icon: Icons.qr_code_scanner_rounded,
-                              label: 'Scan &\nPOS Bill',
-                              onTap: _quickScanToBill,
-                            ),
-                            _GridAction(
-                              icon: Icons.swap_horiz_rounded,
-                              label: 'Branch\nTransfers',
-                              onTap: () => _push(const InterBranchTransfersScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.fact_check_outlined,
-                              label: 'Approval &\nConsign.',
-                              onTap: () => _push(const ApprovalConsignmentScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.domain_rounded,
-                              label: 'Inter-Entity\nTrading',
-                              onTap: () => _push(const InterEntityTradingScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.lock_clock_rounded,
-                              label: 'Rate\nFixing',
-                              onTap: () => _push(const WholesaleRateFixingScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.account_balance_outlined,
-                              label: 'Double-Entry\nLedger',
-                              onTap: () => _push(const DoubleEntryAccountingScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.account_balance_wallet_outlined,
-                              label: 'Settlements\n& Cashup',
-                              onTap: () => _push(const SettlementsCashupScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.verified_outlined,
-                              label: 'GST, IRN &\n2B ITC',
-                              onTap: () => _push(const GstRegistrationTransportScreen()),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-
-                        // Live Bullion Rate Board
-                        SectionLabel(
-                          'Live Bullion Board',
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              GestureDetector(
-                                onTap: () => setState(() => _perTenGram = !_perTenGram),
-                                child: Chip2(_perTenGram ? 'Per 10 g' : 'Per 1 g', mono: true),
+                        // CARD 1: Live Bullion Rate Board (`image-2.png` left card)
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFEFA),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: const Color(0xFFE9DBB4), width: 1.2),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x0A1A140E),
+                                blurRadius: 12,
+                                offset: Offset(0, 4),
                               ),
-                              const SizedBox(width: 6),
-                              GestureDetector(
-                                onTap: () => _push(const MaterialsRatesScreen()),
-                                child: const Chip2('Manage', gold: false),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 34,
+                                    height: 34,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFBF3DC),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: const Color(0xFFE7CF8B)),
+                                    ),
+                                    child: const Icon(
+                                      Icons.toll_rounded,
+                                      size: 18,
+                                      color: Pal.goldDeep,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Live Bullion Rate Board',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: T.body(15, color: Pal.ink, w: FontWeight.w800),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: hasLiveRates
+                                          ? const Color(0xFFE6F6EC)
+                                          : const Color(0xFFFEF4E2),
+                                      borderRadius: BorderRadius.circular(99),
+                                      border: Border.all(
+                                        color: hasLiveRates
+                                            ? const Color(0xFFB7E4C7)
+                                            : const Color(0xFFF4D59A),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 6.5,
+                                          height: 6.5,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: hasLiveRates
+                                                ? const Color(0xFF15803D)
+                                                : Pal.warn,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          hasLiveRates ? 'Active' : 'Unpublished',
+                                          style: T.body(
+                                            11.2,
+                                            w: FontWeight.w700,
+                                            color: hasLiveRates
+                                                ? const Color(0xFF15803D)
+                                                : Pal.warn,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Daily showroom pricing basis for $branchCode.',
+                                style: T.body(12.2, color: Pal.muted),
+                              ),
+                              const SizedBox(height: 12),
+                              _BullionQuoteTile(
+                                title: 'Gold 24K (Fine 999)',
+                                subtitle: 'Pure Bullion Basis',
+                                quote: gold24Quote,
+                                highlighted: true,
+                              ),
+                              const SizedBox(height: 8),
+                              _BullionQuoteTile(
+                                title: 'Gold 22K (916 Hallmark)',
+                                subtitle: 'Standard Jewellery',
+                                quote: gold22Quote,
+                              ),
+                              const SizedBox(height: 8),
+                              _BullionQuoteTile(
+                                title: 'Gold 18K (750 Purity)',
+                                subtitle: 'Diamond Jewellery',
+                                quote: gold18Quote,
+                              ),
+                              const SizedBox(height: 8),
+                              _BullionQuoteTile(
+                                title: 'Silver (Fine 999)',
+                                subtitle: 'Pure Silver Spot',
+                                quote: silverQuote,
+                              ),
+                              const SizedBox(height: 14),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Purity auto-spread enabled',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: T.body(11.5, color: Pal.muted),
+                                    ),
+                                  ),
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: () => _push(const MaterialsRatesScreen()),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 2,
+                                      ),
+                                      child: Text(
+                                        'Configure Rates →',
+                                        style: T.body(
+                                          12.8,
+                                          color: Pal.goldDeep,
+                                          w: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ),
-                        if (rates.loading && rates.rates.isEmpty)
-                          const Panel(child: Skeleton(height: 68))
-                        else if (rates.rates.isEmpty)
-                          Panel(
-                            onTap: () => _push(const MaterialsRatesScreen()),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    color: Pal.goldWash,
-                                    borderRadius: BorderRadius.circular(11),
-                                  ),
-                                  child: const Icon(Icons.toll_rounded, color: Pal.goldDeep),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Publish Showroom Rate Version',
-                                        style: T.body(13.8, w: FontWeight.w800),
-                                      ),
-                                      Text(
-                                        'Tap to configure 24K / 22K / Silver live rates in Materials & Rates.',
-                                        style: T.body(12, color: Pal.muted),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const Icon(Icons.chevron_right_rounded, color: Pal.muted),
-                              ],
-                            ),
-                          )
-                        else
-                          for (final r in rates.rates)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 9),
-                              child: _RateRowCard(rateItem: r, perTenGram: _perTenGram),
-                            ),
+                        const SizedBox(height: 14),
 
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _push(const OldGoldScreen()),
-                                icon: const Icon(Icons.recycling_rounded, size: 17),
-                                label: const Text('Old Gold Buyback'),
+                        // CARD 2: Pending Orders (`image-2.png` middle card)
+                        Panel(
+                          radius: 18,
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 34,
+                                    height: 34,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFBF3DC),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: const Color(0xFFE7CF8B)),
+                                    ),
+                                    child: const Icon(
+                                      Icons.access_time_rounded,
+                                      size: 18,
+                                      color: Pal.goldDeep,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Pending Orders',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: T.body(15, color: Pal.ink, w: FontWeight.w800),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFDF5E3),
+                                      borderRadius: BorderRadius.circular(99),
+                                      border: Border.all(color: const Color(0xFFEBD49E)),
+                                    ),
+                                    child: Text(
+                                      '$_pendingOrders Active',
+                                      style: T.mono(
+                                        11.2,
+                                        w: FontWeight.w800,
+                                        color: Pal.goldDeep,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _push(const ShiftScreen()),
-                                icon: const Icon(Icons.point_of_sale_rounded, size: 17),
-                                label: const Text('Cashier Shift'),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Custom bookings, Karigar jobwork, and unfulfilled showroom orders.',
+                                style: T.body(12.2, color: Pal.muted),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(13),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8F8FA),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFECEAE4)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'ORDER PIPELINE VALUE',
+                                      style: T.caps(
+                                        10,
+                                        color: Pal.muted,
+                                        letterSpacing: 0.7,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      inr(
+                                        _orderPipelineValue.toStringAsFixed(2),
+                                        paise: false,
+                                      ),
+                                      style: T.mono(19, color: Pal.ink, w: FontWeight.w800),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '$_pendingOrders orders scheduled for delivery in this branch.',
+                                      style: T.body(11.8, color: Pal.muted),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              if (_openOrderPreview.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  child: Center(
+                                    child: Text(
+                                      'No pending orders in this showroom.',
+                                      textAlign: TextAlign.center,
+                                      style: T.body(12.2, color: Pal.muted),
+                                    ),
+                                  ),
+                                )
+                              else
+                                for (final o in _openOrderPreview)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.circle,
+                                          size: 6,
+                                          color: Pal.goldDeep,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            '${o['documentNumber'] ?? o['orderNumber'] ?? o['jobNumber'] ?? 'ORDER'} · ${asMap(o['customer'])['displayName'] ?? asMap(o['karigar'])['displayName'] ?? o['description'] ?? ''}',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: T.body(12.2, w: FontWeight.w600),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        StatusPill('${o['state'] ?? o['status'] ?? 'OPEN'}'),
+                                      ],
+                                    ),
+                                  ),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () => _push(const CustomOrdersScreen()),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 2,
+                                    ),
+                                    child: Text(
+                                      'View All Orders →',
+                                      style: T.body(
+                                        12.8,
+                                        color: Pal.goldDeep,
+                                        w: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: () => _push(const ReportsScreen()),
-                          icon: const Icon(Icons.bar_chart_rounded, size: 17),
-                          label: const Text('Financial, Stock Valuation & Ageing Reports'),
+                        const SizedBox(height: 14),
+
+                        // CARD 3: Low Stock Alert (`image-2.png` right card)
+                        Panel(
+                          radius: 18,
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 34,
+                                    height: 34,
+                                    decoration: BoxDecoration(
+                                      color: _availableTaggedCount < 5
+                                          ? const Color(0xFFFDECEC)
+                                          : const Color(0xFFEAF7F0),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: _availableTaggedCount < 5
+                                            ? const Color(0xFFF7C6C9)
+                                            : const Color(0xFFB7E4C7),
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      _availableTaggedCount < 5
+                                          ? Icons.warning_amber_rounded
+                                          : Icons.verified_outlined,
+                                      size: 18,
+                                      color: _availableTaggedCount < 5
+                                          ? const Color(0xFFC83E4D)
+                                          : Pal.ok,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Low Stock Alert',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: T.body(15, color: Pal.ink, w: FontWeight.w800),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _availableTaggedCount < 5
+                                          ? const Color(0xFFFDECEC)
+                                          : const Color(0xFFEAF7F0),
+                                      borderRadius: BorderRadius.circular(99),
+                                      border: Border.all(
+                                        color: _availableTaggedCount < 5
+                                            ? const Color(0xFFF7C6C9)
+                                            : const Color(0xFFB7E4C7),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      _availableTaggedCount < 5
+                                          ? 'Restock Warning'
+                                          : 'Stock Healthy',
+                                      style: T.body(
+                                        11.2,
+                                        w: FontWeight.w700,
+                                        color: _availableTaggedCount < 5
+                                            ? const Color(0xFFB42334)
+                                            : Pal.ok,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Showcase inventory levels & physical metal balances in $branchCode.',
+                                style: T.body(12.2, color: Pal.muted),
+                              ),
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(13),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8F8FA),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFECEAE4)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'AVAILABLE PIECES',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: T.caps(
+                                              10,
+                                              color: Pal.muted,
+                                              letterSpacing: 0.7,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '$_availableTaggedCount Tagged',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: T.mono(
+                                              16.5,
+                                              color: Pal.ink,
+                                              w: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            'GROSS WEIGHT',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: T.caps(
+                                              10,
+                                              color: Pal.muted,
+                                              letterSpacing: 0.7,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '${_grossStockGrams.toStringAsFixed(2)} g',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: T.mono(
+                                              16.5,
+                                              color: Pal.goldDeep,
+                                              w: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Center(
+                                  child: Text(
+                                    _availableTaggedCount == 0
+                                        ? 'No tagged inventory in this showroom location.'
+                                        : 'Active Fine 999 metal balance: $fineStockGrams',
+                                    textAlign: TextAlign.center,
+                                    style: T.body(12.2, color: Pal.muted),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () => widget.onJump(1),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 2,
+                                    ),
+                                    child: Text(
+                                      'Manage Inventory & Tags →',
+                                      style: T.body(
+                                        12.8,
+                                        color: Pal.goldDeep,
+                                        w: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // CARD 4: Recent Showroom Billing & Invoices (`image-2.png` bottom row)
+                        Panel(
+                          radius: 18,
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 34,
+                                    height: 34,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFBF3DC),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: const Color(0xFFE7CF8B)),
+                                    ),
+                                    child: const Icon(
+                                      Icons.receipt_long_outlined,
+                                      size: 18,
+                                      color: Pal.goldDeep,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Recent Showroom Billing & Invoices',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: T.body(15, color: Pal.ink, w: FontWeight.w800),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Chip2('$_invoiceCount Bills', mono: true),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              if (_recentInvoices.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  child: Center(
+                                    child: Text(
+                                      'No sales invoices posted in this showroom yet.',
+                                      textAlign: TextAlign.center,
+                                      style: T.body(12.2, color: Pal.muted),
+                                    ),
+                                  ),
+                                )
+                              else
+                                for (final inv in _recentInvoices)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '${inv['documentNumber'] ?? inv['invoiceNumber'] ?? shortId('${inv['id']}')}',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: T.mono(12.5, w: FontWeight.w700),
+                                              ),
+                                              Text(
+                                                '${asMap(inv['customer'])['displayName'] ?? 'Showroom Customer'} · ${fmtDate('${inv['invoiceDate'] ?? inv['createdAt'] ?? ''}')}',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: T.body(11.5, color: Pal.muted),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          inr(inv['totalAmount']),
+                                          style: T.mono(
+                                            13,
+                                            color: Pal.goldDeep,
+                                            w: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              const SizedBox(height: 6),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () => widget.onJump(2),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 2,
+                                    ),
+                                    child: Text(
+                                      'Open Sales & POS Billing →',
+                                      style: T.body(
+                                        12.8,
+                                        color: Pal.goldDeep,
+                                        w: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -692,6 +1194,70 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _BullionQuoteTile extends StatelessWidget {
+  const _BullionQuoteTile({
+    required this.title,
+    required this.subtitle,
+    required this.quote,
+    this.highlighted = false,
+  });
+
+  final String title;
+  final String subtitle;
+  final String quote;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+      decoration: BoxDecoration(
+        color: highlighted ? const Color(0xFFFFFDF5) : const Color(0xFFFAF9F6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: highlighted ? const Color(0xFFE7CE85) : const Color(0xFFEDEBE5),
+          width: highlighted ? 1.2 : 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: T.body(13.2, color: Pal.ink, w: FontWeight.w800),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: T.body(11.3, color: Pal.muted),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            quote,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: T.mono(
+              14,
+              color: highlighted ? Pal.goldDeep : Pal.ink,
+              w: FontWeight.w800,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -775,304 +1341,6 @@ class _OverviewKpiCard extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _GridAction {
-  const _GridAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-}
-
-class _FeatureIconGrid extends StatelessWidget {
-  const _FeatureIconGrid({required this.items});
-  final List<_GridAction> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, c) {
-        final cols = c.maxWidth >= 520 ? 4 : 4;
-        final spacing = 9.0;
-        final tileW = (c.maxWidth - spacing * (cols - 1)) / cols;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: [
-            for (final item in items)
-              SizedBox(
-                width: tileW,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Pal.card,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Pal.line),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x081A140B),
-                        blurRadius: 8,
-                        offset: Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Material(
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: item.onTap,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                color: Pal.goldWash,
-                                borderRadius: BorderRadius.circular(11),
-                                border: Border.all(
-                                  color: Pal.goldBorder.withValues(alpha: 0.7),
-                                ),
-                              ),
-                              child: Icon(item.icon, size: 19, color: Pal.goldDeep),
-                            ),
-                            const SizedBox(height: 7),
-                            Text(
-                              item.label,
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: T.body(11.0, color: Pal.textSoft, w: FontWeight.w700, height: 1.2),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _RateRowCard extends StatelessWidget {
-  const _RateRowCard({required this.rateItem, required this.perTenGram});
-  final MetalRate rateItem;
-  final bool perTenGram;
-
-  @override
-  Widget build(BuildContext context) {
-    final sellVal = perTenGram ? rateItem.sellPer10g : rateItem.sell;
-    final buyVal = perTenGram ? rateItem.buyPer10g : rateItem.buy;
-    final unitSuffix = perTenGram ? '/ 10g' : '/ g';
-
-    return Panel(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Pal.goldWash,
-              shape: BoxShape.circle,
-              border: Border.all(color: Pal.goldBorder),
-            ),
-            child: Text(
-              rateItem.carat,
-              style: T.mono(11, color: Pal.goldDeep, w: FontWeight.w800),
-            ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${rateItem.metalName} ${rateItem.karatLabel}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: T.body(14, w: FontWeight.w800),
-                ),
-                if (decOrZero(buyVal) > Decimal.zero)
-                  Text(
-                    'Buyback ${inr(buyVal, paise: false)} $unitSuffix',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: T.mono(11.3, color: Pal.muted),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(inr(sellVal, paise: false), style: T.mono(15.5, w: FontWeight.w800)),
-              Text('SELL $unitSuffix', style: T.caps(9, color: Pal.goldDeep)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Interactive Counter Price Estimator calling `RatesController.calculateMetalValue`.
-class _MetalPriceCalculatorSheet extends StatefulWidget {
-  const _MetalPriceCalculatorSheet();
-  @override
-  State<_MetalPriceCalculatorSheet> createState() => _MetalPriceCalculatorSheetState();
-}
-
-class _MetalPriceCalculatorSheetState extends State<_MetalPriceCalculatorSheet> {
-  String _metal = 'GOLD';
-  String _purity = '916';
-  final _weight = TextEditingController();
-  double _makingPct = 12;
-  Map<String, String>? _quote;
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _weight.dispose();
-    super.dispose();
-  }
-
-  Future<void> _recalc() async {
-    if (!isValidWeight(_weight.text)) {
-      setState(() => _quote = null);
-      return;
-    }
-    setState(() => _busy = true);
-    final q = await context.read<RatesController>().calculateMetalValue(
-          metal: _metal,
-          purity: _purity,
-          netWeightGrams: _weight.text,
-        );
-    if (mounted) {
-      setState(() {
-        _quote = q;
-        _busy = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final metalVal = decOrZero(_quote?['metalValue']);
-    final makingVal = (metalVal * Decimal.parse((_makingPct / 100).toStringAsFixed(4))).round(scale: 2);
-    final taxable = metalVal + makingVal;
-    final gst = (taxable * Decimal.parse('0.03')).round(scale: 2);
-    final grand = taxable + gst;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final opt in const [
-              ('GOLD', '999', 'Gold 24K'),
-              ('GOLD', '916', 'Gold 22K'),
-              ('GOLD', '750', 'Gold 18K'),
-              ('SILVER', '999', 'Silver 999'),
-            ])
-              ChoiceChip(
-                label: Text(opt.$3),
-                selected: _metal == opt.$1 && _purity == opt.$2,
-                showCheckmark: false,
-                selectedColor: Pal.goldWash,
-                onSelected: (_) {
-                  setState(() {
-                    _metal = opt.$1;
-                    _purity = opt.$2;
-                  });
-                  _recalc();
-                },
-              ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const FieldLabel('Net Metal Wt (g)'),
-                  TextField(
-                    controller: _weight,
-                    autofocus: true,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: T.mono(16, w: FontWeight.w700),
-                    decoration: const InputDecoration(hintText: '0.000', suffixText: 'g'),
-                    onChanged: (_) => _recalc(),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  FieldLabel('Making (${_makingPct.toStringAsFixed(0)}%)'),
-                  Slider(
-                    value: _makingPct,
-                    min: 0,
-                    max: 30,
-                    divisions: 30,
-                    activeColor: Pal.gold,
-                    onChanged: (v) => setState(() => _makingPct = v),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        LuxuryHeroCard(
-          child: _busy
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(14),
-                    child: CircularProgressIndicator(color: Pal.goldSoft),
-                  ),
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    KeyValue('Applied Rate / g', rate(_quote?['ratePerGram'] ?? '0'), mono: true, valueColor: Colors.white),
-                    KeyValue('Pure Fine 999 Wt', fineGrams(_quote?['fineWeightGrams'] ?? '0'), mono: true, valueColor: Colors.white),
-                    KeyValue('Bullion Metal Value', inr(metalVal.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
-                    KeyValue('Making (${_makingPct.toStringAsFixed(0)}%)', inr(makingVal.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
-                    KeyValue('GST (3.00%)', inr(gst.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
-                    Divider(color: Colors.white.withValues(alpha: 0.16)),
-                    Row(
-                      children: [
-                        Expanded(child: Text('ESTIMATED QUOTE', style: T.caps(10, color: Colors.white70))),
-                        Text(inr(grand.toStringAsFixed(2)), style: T.display(24, color: Pal.goldSoft)),
-                      ],
-                    ),
-                  ],
-                ),
-        ),
-      ],
     );
   }
 }
