@@ -3104,17 +3104,18 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 3. APPROVAL & CONSIGNMENT MEMOS (`/approval-memos`) — Screenshot (685)
+// 3. APPROVAL & CONSIGNMENT (`/approval-memos`) — `image-26.png`
 // ---------------------------------------------------------------------------
 
 class ApprovalConsignmentScreen extends StatefulWidget {
   const ApprovalConsignmentScreen({super.key});
   @override
-  State<ApprovalConsignmentScreen> createState() => _ApprovalConsignmentScreenState();
+  State<ApprovalConsignmentScreen> createState() =>
+      _ApprovalConsignmentScreenState();
 }
 
-class _MemoLine {
-  const _MemoLine({
+class _MemoDraftLine {
+  const _MemoDraftLine({
     required this.articleId,
     required this.articleLabel,
     required this.taxableAmount,
@@ -3129,26 +3130,27 @@ class _MemoLine {
 class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
   final _search = TextEditingController();
   String _filter = 'ALL';
-  bool _showForm = false;
+  bool _formExpanded = true;
   List<Map<String, dynamic>> _memos = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // Exact fields from `image-26.png` (`New approval memo`)
   String _direction = 'CUSTOMER_OUTBOUND';
   final _partyId = TextEditingController();
   final _custodyLocationId = TextEditingController();
-  final _memoSeriesId = TextEditingController();
+  final _seriesId = TextEditingController();
   final _memoDate = TextEditingController(text: todayIso());
   final _dueDate = TextEditingController(text: todayIso());
   final _currency = TextEditingController(text: 'INR');
   final _terms = TextEditingController();
 
-  final _eligibleArticleId = TextEditingController();
+  final _articleId = TextEditingController();
   final _taxableAmt = TextEditingController();
   final _taxAmt = TextEditingController(text: '0.00');
-  final List<_MemoLine> _lines = [];
+  final List<_MemoDraftLine> _lines = [];
 
   @override
   void initState() {
@@ -3159,8 +3161,17 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
   @override
   void dispose() {
     for (final c in [
-      _search, _partyId, _custodyLocationId, _memoSeriesId, _memoDate,
-      _dueDate, _currency, _terms, _eligibleArticleId, _taxableAmt, _taxAmt,
+      _search,
+      _partyId,
+      _custodyLocationId,
+      _seriesId,
+      _memoDate,
+      _dueDate,
+      _currency,
+      _terms,
+      _articleId,
+      _taxableAmt,
+      _taxAmt,
     ]) {
       c.dispose();
     }
@@ -3184,9 +3195,17 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
         ),
       ]);
       if (!mounted) return;
+      final lk = res[1] as WorkspaceLookup;
+      if (_seriesId.text.isEmpty) {
+        final s = lk.seriesFor(const ['APPROVAL', 'MEMO', 'CONSIGNMENT']);
+        if (s.isNotEmpty) _seriesId.text = s.first.id;
+      }
       setState(() {
-        _memos = asList(res[0], keys: const ['memos', 'approvalMemos', 'items']);
-        _lk = res[1] as WorkspaceLookup;
+        _memos = asList(
+          res[0],
+          keys: const ['memos', 'approvalMemos', 'items'],
+        );
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -3196,25 +3215,31 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
   }
 
   void _addLine() {
-    if (_eligibleArticleId.text.trim().isEmpty || _taxableAmt.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select eligible article and enter taxable amount.')),
+    if (_articleId.text.trim().isEmpty || !isValidAmount(_taxableAmt.text)) {
+      toast(
+        context,
+        'Select eligible article and enter taxable amount.',
+        error: true,
       );
       return;
     }
     final label = _lk.articles
-            .where((a) => a.id == _eligibleArticleId.text.trim())
+            .where((a) => a.id == _articleId.text.trim())
             .firstOrNull
             ?.label ??
-        _eligibleArticleId.text.trim();
+        _articleId.text.trim();
     setState(() {
-      _lines.add(_MemoLine(
-        articleId: _eligibleArticleId.text.trim(),
-        articleLabel: label,
-        taxableAmount: _taxableAmt.text.trim(),
-        taxAmount: _taxAmt.text.trim().isEmpty ? '0.00' : _taxAmt.text.trim(),
-      ));
-      _eligibleArticleId.clear();
+      _lines.add(
+        _MemoDraftLine(
+          articleId: _articleId.text.trim(),
+          articleLabel: label,
+          taxableAmount: normAmount(_taxableAmt.text),
+          taxAmount: _taxAmt.text.trim().isEmpty
+              ? '0.00'
+              : normAmount(_taxAmt.text),
+        ),
+      );
+      _articleId.clear();
       _taxableAmt.clear();
       _taxAmt.text = '0.00';
     });
@@ -3223,8 +3248,10 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
   Future<void> _createMemo() async {
     if (_partyId.text.trim().isEmpty ||
         _custodyLocationId.text.trim().isEmpty ||
-        _memoSeriesId.text.trim().isEmpty) {
-      setState(() => _error = 'Select Party, Custody location, and Memo series.');
+        _seriesId.text.trim().isEmpty) {
+      setState(
+        () => _error = 'Select Party, Custody location, and Memo series.',
+      );
       return;
     }
     if (_lines.isEmpty) {
@@ -3243,28 +3270,26 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
           'direction': _direction,
           'partyId': _partyId.text.trim(),
           'custodyLocationId': _custodyLocationId.text.trim(),
-          'documentSeriesId': _memoSeriesId.text.trim(),
+          'documentSeriesId': _seriesId.text.trim(),
           'memoDate': _memoDate.text.trim(),
           'dueDate': _dueDate.text.trim(),
           'currency': _currency.text.trim().toUpperCase(),
           if (_terms.text.trim().isNotEmpty) 'terms': _terms.text.trim(),
           'lines': _lines
-              .map((l) => {
-                    'articleId': l.articleId,
-                    'taxableAmount': l.taxableAmount,
-                    'taxAmount': l.taxAmount,
-                  })
+              .map(
+                (l) => {
+                  'articleId': l.articleId,
+                  'taxableAmount': l.taxableAmount,
+                  'taxAmount': l.taxAmount,
+                },
+              )
               .toList(),
         },
       );
       if (!mounted) return;
-      setState(() {
-        _lines.clear();
-        _showForm = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Approval / consignment memo created.')),
-      );
+      setState(() => _lines.clear());
+      _terms.clear();
+      toast(context, 'Approval / consignment memo created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -3273,26 +3298,387 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
     }
   }
 
+  Future<void> _openMemoLifecycleSheet(Map<String, dynamic> memo) async {
+    var actionTab = 'ISSUE';
+    final issueReasonCtrl = TextEditingController();
+
+    final convDateCtrl = TextEditingController(text: todayIso());
+    final invSeriesCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['INVOICE', 'SALE', 'BILL']).isNotEmpty
+          ? _lk.seriesFor(const ['INVOICE', 'SALE', 'BILL']).first.id
+          : '',
+    );
+    final convPeriodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final convJrnCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final convArticleCtrl = TextEditingController();
+    final convReasonCtrl = TextEditingController();
+
+    final retDateCtrl = TextEditingController(text: todayIso());
+    final retLocCtrl = TextEditingController(
+      text: _lk.locations.isNotEmpty ? _lk.locations.first.id : '',
+    );
+    final retArticleCtrl = TextEditingController();
+    final retReasonCtrl = TextEditingController();
+
+    final memoLines = asList(memo['lines']);
+    final memoArticleOptions = [
+      for (final l in memoLines)
+        if ('${l['articleId'] ?? asMap(l['article'])['id'] ?? ''}'.isNotEmpty)
+          LookupOption(
+            id: '${l['articleId'] ?? asMap(l['article'])['id']}',
+            label:
+                '${asMap(l['article'])['tagNumber'] ?? asMap(l['article'])['description'] ?? shortId('${l['articleId'] ?? asMap(l['article'])['id']}')} · ${inr(l['taxableAmount'])}',
+            raw: l,
+          ),
+    ];
+
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Manage Memo · ${memo['documentNumber'] ?? memo['memoNumber'] ?? shortId('${memo['id']}')}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${memo['state'] ?? memo['status'] ?? 'OPEN'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: actionTab,
+                  onChanged: (v) => setSheet(() {
+                    actionTab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('ISSUE', 'Issue Memo'),
+                    ('CONVERT', 'Partial Convert'),
+                    ('RETURN', 'Return Custody'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (actionTab == 'ISSUE') ...[
+                  SaasField(
+                    label: 'Custody handover / approval note',
+                    controller: issueReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Issue Ownership-Safe Approval Memo',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/approval-memos/${memo['id']}/issue',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(memo['version'], fallback: 1),
+                                  if (issueReasonCtrl.text.trim().isNotEmpty)
+                                    'notes': issueReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Approval memo issued.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else if (actionTab == 'CONVERT') ...[
+                  DatePickField(
+                    label: 'Conversion date',
+                    controller: convDateCtrl,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Article to convert (blank = all open lines)',
+                    controller: convArticleCtrl,
+                    options: memoArticleOptions.isNotEmpty
+                        ? memoArticleOptions
+                        : _lk.articles,
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Invoice / Purchase Series UUID',
+                    controller: invSeriesCtrl,
+                    options: _lk.seriesFor(
+                      const ['INVOICE', 'SALE', 'BILL', 'PURCHASE'],
+                    ),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Posting Period UUID',
+                    controller: convPeriodCtrl,
+                    options: _lk.openPeriods(),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Journal Series UUID',
+                    controller: convJrnCtrl,
+                    options: _lk.seriesFor(const ['JOURNAL']),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Conversion audit reason (min 10 chars)',
+                    controller: convReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Convert Approved Item(s)',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (convReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter a conversion reason of at least 10 characters.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/approval-memos/${memo['id']}/convert',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(memo['version'], fallback: 1),
+                                  'conversionDate': convDateCtrl.text.trim(),
+                                  if (convArticleCtrl.text.trim().isNotEmpty)
+                                    'articleIds': [convArticleCtrl.text.trim()],
+                                  if (invSeriesCtrl.text.trim().isNotEmpty)
+                                    'documentSeriesId':
+                                        invSeriesCtrl.text.trim(),
+                                  if (convPeriodCtrl.text.trim().isNotEmpty)
+                                    'postingPeriodId':
+                                        convPeriodCtrl.text.trim(),
+                                  if (convJrnCtrl.text.trim().isNotEmpty)
+                                    'journalSeriesId': convJrnCtrl.text.trim(),
+                                  'reason': convReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Memo conversion recorded.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else ...[
+                  DatePickField(
+                    label: 'Return date',
+                    controller: retDateCtrl,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Return vault / showroom location',
+                    controller: retLocCtrl,
+                    options: _lk.locations,
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Returned article (blank = all remaining)',
+                    controller: retArticleCtrl,
+                    options: memoArticleOptions.isNotEmpty
+                        ? memoArticleOptions
+                        : _lk.articles,
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Return inspection / audit reason (min 10 chars)',
+                    controller: retReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Record Custody Return',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (retLocCtrl.text.trim().isEmpty ||
+                                retReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select return location and enter a reason of at least 10 characters.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/approval-memos/${memo['id']}/return',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(memo['version'], fallback: 1),
+                                  'returnDate': retDateCtrl.text.trim(),
+                                  'returnLocationId': retLocCtrl.text.trim(),
+                                  if (retArticleCtrl.text.trim().isNotEmpty)
+                                    'articleIds': [retArticleCtrl.text.trim()],
+                                  'reason': retReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Custody return recorded.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final c in [
+      issueReasonCtrl,
+      convDateCtrl,
+      invSeriesCtrl,
+      convPeriodCtrl,
+      convJrnCtrl,
+      convArticleCtrl,
+      convReasonCtrl,
+      retDateCtrl,
+      retLocCtrl,
+      retArticleCtrl,
+      retReasonCtrl,
+    ]) {
+      c.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final roleFilter = _direction == 'CUSTOMER_OUTBOUND' ? 'CUSTOMER' : 'SUPPLIER';
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final q = _search.text.trim().toLowerCase();
-    final approvalsCount = _memos.where((m) => '${m['direction']}'.contains('OUTBOUND')).length;
-    final consignCount = _memos.where((m) => '${m['direction']}'.contains('INBOUND')).length;
+    bool isClosed(Map<String, dynamic> m) {
+      final s = '${m['state'] ?? m['status'] ?? ''}'.toUpperCase();
+      return s == 'CLOSED' || s == 'CONVERTED' || s == 'RETURNED';
+    }
+
+    bool isOverdue(Map<String, dynamic> m) {
+      if (isClosed(m)) return false;
+      final due = '${m['dueDate'] ?? ''}';
+      if (due.isEmpty) return false;
+      final dt = DateTime.tryParse(due);
+      return dt != null && dt.isBefore(DateTime.now());
+    }
+
+    final openCnt = _memos.where((m) => !isClosed(m)).length;
+    final overCnt = _memos.where(isOverdue).length;
+    final closedCnt = _memos.where(isClosed).length;
 
     final filtered = _memos.where((m) {
-      if (_filter == 'APPROVALS' && !'${m['direction']}'.contains('OUTBOUND')) return false;
-      if (_filter == 'CONSIGNMENTS' && !'${m['direction']}'.contains('INBOUND')) return false;
+      if (_filter == 'OPEN' && isClosed(m)) return false;
+      if (_filter == 'OVERDUE' && !isOverdue(m)) return false;
+      if (_filter == 'CLOSED' && !isClosed(m)) return false;
       if (q.isEmpty) return true;
-      final hay = '${m['documentNumber'] ?? ''} ${m['memoNumber'] ?? ''} ${asMap(m['party'])['displayName'] ?? ''} ${m['direction'] ?? ''}'.toLowerCase();
+      final hay =
+          '${m['documentNumber'] ?? ''} ${m['memoNumber'] ?? ''} ${asMap(m['party'])['displayName'] ?? ''}'
+              .toLowerCase();
       return hay.contains(q);
     }).toList();
 
+    final roleFilter = _direction == 'CUSTOMER_OUTBOUND'
+        ? const ['CUSTOMER', 'WHOLESALE']
+        : const ['SUPPLIER', 'VENDOR', 'CONSIGNOR'];
+
     return LuxuryModuleScaffold(
       title: 'Approval & Consignment',
-      icon: Icons.fact_check_outlined,
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
+      icon: Icons.verified_user_outlined,
       searchController: _search,
-      searchHint: 'Search by Memo No. / Party...',
+      searchHint: 'Search by Party / Memo No...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -3305,175 +3691,327 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
         onChanged: (v) => setState(() => _filter = v),
         tabs: [
           ('ALL', 'All (${_memos.length})'),
-          ('APPROVALS', 'Approvals ($approvalsCount)'),
-          ('CONSIGNMENTS', 'Consignments ($consignCount)'),
+          ('OPEN', 'Open ($openCnt)'),
+          ('OVERDUE', 'Overdue ($overCnt)'),
+          ('CLOSED', 'Closed ($closedCnt)'),
         ],
-      ),
-      floatingActionButton: GoldAddFab(
-        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'New Approval / Consignment Memo',
-        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-            if (_showForm) ...[
-              SaasFormCard(
-                title: 'New approval memo',
-                subtitle: 'Outbound customer approval or inbound supplier consignment.',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showForm = false),
-                  child: const Text('Close'),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SaasDropdown(
-                      label: 'Direction',
-                      value: _direction,
-                      options: const {
-                        'CUSTOMER_OUTBOUND': 'Customer outbound approval',
-                        'SUPPLIER_INBOUND': 'Supplier inbound consignment',
-                      },
-                      onChanged: (v) => setState(() {
-                        _direction = v;
-                        _partyId.clear();
-                      }),
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header Card (`Approval & Consignment Memos` — image-26.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Party',
-                      controller: _partyId,
-                      options: _lk.partiesByRole(roleFilter),
-                      hint: 'Select',
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Custody location',
-                      controller: _custodyLocationId,
-                      options: _lk.locationsByType(const ['CUSTOMER_CUSTODY', 'EXTERNAL_CUSTODY', 'VAULT']),
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Memo series',
-                      controller: _memoSeriesId,
-                      options: _lk.seriesFor(const ['APPROVAL', 'MEMO', 'CONSIGNMENT']),
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Expanded(child: DatePickField(label: 'Memo date', controller: _memoDate)),
-                        const SizedBox(width: 10),
-                        Expanded(child: DatePickField(label: 'Due date', controller: _dueDate)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: SaasField(label: 'Currency', controller: _currency, mono: true)),
-                        const SizedBox(width: 10),
-                        Expanded(child: SaasField(label: 'Terms', controller: _terms)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    SaasSubBox(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          LookupField(
-                            label: 'Eligible article',
-                            controller: _eligibleArticleId,
-                            options: _lk.articles,
-                            hint: 'Select',
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
                           ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SaasField(
-                                  label: 'Taxable amount',
-                                  controller: _taxableAmt,
-                                  mono: true,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: SaasField(
-                                  label: 'Tax amount',
-                                  controller: _taxAmt,
-                                  mono: true,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                ),
-                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.verified_user_outlined,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Approval & Consignment Memos',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Ownership-safe customer approvals, supplier consignments, partial conversion, returns and overdue exposure.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // `New approval memo` card (exact fields from image-26.png)
+            SaasFormCard(
+              title: 'New approval memo',
+              trailing: TextButton(
+                onPressed: () => setState(() => _formExpanded = !_formExpanded),
+                child: Text(_formExpanded ? 'Hide' : 'Show'),
+              ),
+              child: !_formExpanded
+                  ? Text(
+                      'Tap Show to create a customer approval or supplier consignment memo.',
+                      style: T.body(12.2, color: Pal.muted),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SaasDropdown(
+                          label: 'Direction',
+                          value: _direction,
+                          options: const {
+                            'CUSTOMER_OUTBOUND': 'Customer outbound approval',
+                            'SUPPLIER_INBOUND':
+                                'Supplier inbound consignment',
+                          },
+                          onChanged: (v) => setState(() {
+                            _direction = v;
+                            _partyId.clear();
+                          }),
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Party',
+                          controller: _partyId,
+                          options: _lk.partiesByRole(roleFilter),
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Custody location',
+                          controller: _custodyLocationId,
+                          options: _lk.locationsByType(
+                            const [
+                              'CUSTOMER_CUSTODY',
+                              'EXTERNAL_CUSTODY',
+                              'VAULT',
                             ],
                           ),
-                          const SizedBox(height: 10),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: OutlinedButton(
-                              onPressed: _addLine,
-                              child: const Text('+ Add line'),
-                            ),
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Memo series',
+                          controller: _seriesId,
+                          options: _lk.seriesFor(
+                            const ['APPROVAL', 'MEMO', 'CONSIGNMENT'],
                           ),
-                          for (var i = 0; i < _lines.length; i++) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    '${_lines[i].articleLabel} · Taxable ₹${_lines[i].taxableAmount} + Tax ₹${_lines[i].taxAmount}',
-                                    style: T.body(12.2, w: FontWeight.w600),
-                                  ),
-                                ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
-                                  onPressed: () => setState(() => _lines.removeAt(i)),
-                                ),
-                              ],
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Memo date',
+                                controller: _memoDate,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Due date',
+                                controller: _dueDate,
+                              ),
                             ),
                           ],
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SaasField(
+                                label: 'Currency',
+                                controller: _currency,
+                                mono: true,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              flex: 2,
+                              child: SaasField(
+                                label: 'Terms',
+                                controller: _terms,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SaasSubBox(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              LookupField(
+                                label: 'Eligible article',
+                                controller: _articleId,
+                                options: _lk.articles,
+                                hint: 'Select...',
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const FieldLabel('Taxable amount'),
+                                        TextField(
+                                          controller: _taxableAmt,
+                                          style: T.mono(13.5),
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(decimal: true),
+                                          onChanged: (v) {
+                                            final t = tryDec(v);
+                                            if (t != null) {
+                                              _taxAmt.text = (t *
+                                                      Decimal.parse('0.03'))
+                                                  .toStringAsFixed(2);
+                                            }
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: SaasField(
+                                      label: 'Tax amount',
+                                      controller: _taxAmt,
+                                      mono: true,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: OutlinedButton(
+                                  onPressed: _addLine,
+                                  child: const Text('Add line'),
+                                ),
+                              ),
+                              for (var i = 0; i < _lines.length; i++) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${_lines[i].articleLabel} · ₹${_lines[i].taxableAmount}',
+                                        style: T.body(12.2, w: FontWeight.w600),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(
+                                        Icons.close_rounded,
+                                        size: 17,
+                                        color: Pal.err,
+                                      ),
+                                      onPressed: () =>
+                                          setState(() => _lines.removeAt(i)),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        RoyalGoldButton(
+                          label: 'Create memo',
+                          busy: _busy,
+                          onPressed: _busy ? null : _createMemo,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 14),
-                    GoldButton(
-                      label: _busy ? 'Saving…' : 'Create Memo',
-                      busy: _busy,
-                      onPressed: _createMemo,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-            ],
+            ),
+
+            const SizedBox(height: 14),
+
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const Panel(child: Skeleton(height: 92))
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No approval or consignment memos found. Tap + to create a memo.')
+              const SaasEmptyBox('No approval or consignment memos yet.')
             else
               for (final m in filtered)
                 LuxuryRecordCard(
                   icon: Icons.verified_user_outlined,
-                  code: '${m['documentNumber'] ?? m['memoNumber'] ?? shortId('${m['id']}')}',
-                  status: '${m['state'] ?? m['status'] ?? 'OPEN'}',
+                  code:
+                      '${asMap(m['party'])['displayName'] ?? m['documentNumber'] ?? shortId('${m['id']}')}',
+                  status: isOverdue(m)
+                      ? 'OVERDUE'
+                      : '${m['state'] ?? m['status'] ?? 'OPEN'}',
                   lines: [
-                    ('Party', '${asMap(m['party'])['displayName'] ?? '—'}'),
-                    ('Direction', '${m['direction'] ?? ''}'),
-                    ('Date', '${fmtDate('${m['memoDate'] ?? ''}')} → ${fmtDate('${m['dueDate'] ?? ''}')}'),
+                    (
+                      'Memo No.',
+                      '${m['documentNumber'] ?? m['memoNumber'] ?? shortId('${m['id']}')}',
+                    ),
+                    ('Direction', '${m['direction'] ?? 'CUSTOMER_OUTBOUND'}'),
+                    (
+                      'Date → Due',
+                      '${fmtDate('${m['memoDate'] ?? ''}')} → ${fmtDate('${m['dueDate'] ?? ''}')}',
+                    ),
                   ],
-                  amountLabel: 'Amount',
+                  amountLabel: 'Value',
                   amountValue: inr(m['totalAmount'] ?? m['taxableAmount']),
+                  actions: [
+                    GoldButton(
+                      label: 'Manage Memo',
+                      compact: true,
+                      onPressed: () => _openMemoLifecycleSheet(m),
+                    ),
+                  ],
                 ),
           ],
         ),
@@ -3483,26 +4021,28 @@ class _ApprovalConsignmentScreenState extends State<ApprovalConsignmentScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 4. WHOLESALE & METAL RATE FIXING (`/rate-fixing`) — Screenshot (682)
+// 4. WHOLESALE RATE FIXING (`/rate-fixing`) — `image-28.png`
 // ---------------------------------------------------------------------------
 
 class WholesaleRateFixingScreen extends StatefulWidget {
   const WholesaleRateFixingScreen({super.key});
   @override
-  State<WholesaleRateFixingScreen> createState() => _WholesaleRateFixingScreenState();
+  State<WholesaleRateFixingScreen> createState() =>
+      _WholesaleRateFixingScreenState();
 }
 
 class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
   final _search = TextEditingController();
   String _filter = 'ALL';
-  bool _showForm = false;
-  Map<String, dynamic> _ws = const {};
+  bool _formExpanded = true;
   List<Map<String, dynamic>> _contracts = [];
+  Map<String, dynamic> _summary = {};
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // Exact 15 fields from `image-28.png` (`New metal-denominated contract`)
   String _direction = 'CUSTOMER_SALE';
   final _partyId = TextEditingController();
   final _metalId = TextEditingController();
@@ -3514,7 +4054,7 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
   final _deliveryDeadline = TextEditingController(text: todayIso());
   final _contractQty = TextEditingController();
   final _exactFineGrams = TextEditingController();
-  final _toleranceGrams = TextEditingController(text: '0');
+  final _fineTolerance = TextEditingController(text: '0');
   final _settlementDueDays = TextEditingController(text: '7');
   final _currency = TextEditingController(text: 'INR');
   final _terms = TextEditingController();
@@ -3528,10 +4068,21 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
   @override
   void dispose() {
     for (final c in [
-      _search, _partyId, _metalId, _purityId, _unitId, _seriesId,
-      _contractDate, _fixingDeadline, _deliveryDeadline,
-      _contractQty, _exactFineGrams, _toleranceGrams,
-      _settlementDueDays, _currency, _terms,
+      _search,
+      _partyId,
+      _metalId,
+      _purityId,
+      _unitId,
+      _seriesId,
+      _contractDate,
+      _fixingDeadline,
+      _deliveryDeadline,
+      _contractQty,
+      _exactFineGrams,
+      _fineTolerance,
+      _settlementDueDays,
+      _currency,
+      _terms,
     ]) {
       c.dispose();
     }
@@ -3550,15 +4101,27 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
         WorkspaceLookup.load(
           api,
           includeParties: true,
-          includeMaterials: true,
+          includeInventory: true,
           includeAccounting: true,
+          includeMaterials: true,
         ),
       ]);
       if (!mounted) return;
+      final m = asMap(res[0]);
+      final lk = res[1] as WorkspaceLookup;
+      if (_seriesId.text.isEmpty) {
+        final s = lk.seriesFor(
+          const ['RATE_FIXING', 'CONTRACT', 'WHOLESALE'],
+        );
+        if (s.isNotEmpty) _seriesId.text = s.first.id;
+      }
       setState(() {
-        _ws = asMap(res[0]);
-        _contracts = asList(res[0], keys: const ['contracts', 'rateFixingContracts', 'items']);
-        _lk = res[1] as WorkspaceLookup;
+        _summary = asMap(m['summary']).isNotEmpty ? asMap(m['summary']) : m;
+        _contracts = asList(
+          res[0],
+          keys: const ['contracts', 'rateFixingContracts', 'items'],
+        );
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -3567,14 +4130,18 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
     }
   }
 
-  void _recalcExactFine() {
-    final qty = dParse(_contractQty.text.trim());
-    if (qty <= Decimal.zero) return;
-    final pg = _lk.purityGrades.where((p) => p.id == _purityId.text.trim()).firstOrNull;
-    final finePerK = dParse(pg?.raw['finenessPerThousand'] ?? '999');
-    if (finePerK > Decimal.zero) {
-      final exact = ((qty * finePerK) / Decimal.fromInt(1000)).toDecimal(scaleOnInfinitePrecision: 6);
-      _exactFineGrams.text = dStr6(exact);
+  void _recalcFine() {
+    final qty = dParse(_contractQty.text);
+    final purity =
+        _lk.purities.where((p) => p.id == _purityId.text.trim()).firstOrNull;
+    if (qty > Decimal.zero && purity != null) {
+      final ppt = dParse(purity.raw['finenessPpt'] ?? purity.raw['fineness']);
+      if (ppt > Decimal.zero) {
+        final fine = (qty * ppt / Decimal.fromInt(1000)).toDecimal(
+          scaleOnInfinitePrecision: 6,
+        );
+        _exactFineGrams.text = dStr6(fine);
+      }
     }
   }
 
@@ -3586,7 +4153,10 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
         _seriesId.text.trim().isEmpty ||
         _contractQty.text.trim().isEmpty ||
         _exactFineGrams.text.trim().isEmpty) {
-      setState(() => _error = 'Complete Party, Metal, Purity, Contract unit, Document series, Contract quantity, and Exact fine grams.');
+      setState(
+        () => _error =
+            'Select Party, Metal, Purity, Contract unit, Document series, and enter Contract quantity & Exact fine grams.',
+      );
       return;
     }
     setState(() {
@@ -3607,22 +4177,23 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
           'contractDate': _contractDate.text.trim(),
           'fixingDeadline': _fixingDeadline.text.trim(),
           'deliveryDeadline': _deliveryDeadline.text.trim(),
-          'contractQuantity': _contractQty.text.trim(),
-          'exactFineWeightGrams': _exactFineGrams.text.trim(),
-          'fineToleranceGrams': _toleranceGrams.text.trim().isEmpty ? '0' : _toleranceGrams.text.trim(),
-          'settlementDueDays': int.tryParse(_settlementDueDays.text.trim()) ?? 7,
+          'contractQuantity': normWeight6(_contractQty.text),
+          'exactFineWeightGrams': normWeight6(_exactFineGrams.text),
+          'fineToleranceGrams': normWeight6(
+            _fineTolerance.text.trim().isEmpty ? '0' : _fineTolerance.text,
+          ),
+          'settlementDueDays':
+              int.tryParse(_settlementDueDays.text.trim()) ?? 7,
           'currency': _currency.text.trim().toUpperCase(),
-          if (_terms.text.trim().isNotEmpty) 'terms': _terms.text.trim(),
+          if (_terms.text.trim().isNotEmpty)
+            'commercialTerms': _terms.text.trim(),
         },
       );
       if (!mounted) return;
       _contractQty.clear();
       _exactFineGrams.clear();
       _terms.clear();
-      setState(() => _showForm = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Draft metal-denominated contract created.')),
-      );
+      toast(context, 'Draft metal-denominated contract created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -3631,31 +4202,539 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
     }
   }
 
+  Future<void> _openContractLifecycleSheet(Map<String, dynamic> c) async {
+    final rates = context.read<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+
+    var actionTab = 'APPROVE';
+    final approveReasonCtrl = TextEditingController();
+
+    final fixDateCtrl = TextEditingController(text: todayIso());
+    final fixFineCtrl = TextEditingController(
+      text: '${c['unfixedFineWeightGrams'] ?? c['exactFineWeightGrams'] ?? ''}',
+    );
+    final fixRateCtrl = TextEditingController(
+      text: gold999 != null ? gold999.sell.toStringAsFixed(2) : '',
+    );
+    final fixRefCtrl = TextEditingController();
+    final fixNotesCtrl = TextEditingController();
+
+    final delDateCtrl = TextEditingController(text: todayIso());
+    final delLocCtrl = TextEditingController(
+      text: _lk.locations.isNotEmpty ? _lk.locations.first.id : '',
+    );
+    final delBalCtrl = TextEditingController();
+    final delQtyCtrl = TextEditingController(
+      text: '${c['contractQuantity'] ?? ''}',
+    );
+    final delFineCtrl = TextEditingController(
+      text:
+          '${c['undeliveredFineWeightGrams'] ?? c['exactFineWeightGrams'] ?? ''}',
+    );
+    final delEvidenceCtrl = TextEditingController();
+
+    final setDateCtrl = TextEditingController(text: todayIso());
+    final setAmtCtrl = TextEditingController(
+      text: '${c['unsettledMatchedValue'] ?? c['matchedValue'] ?? ''}',
+    );
+    final setPeriodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final setJrnCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final setPartyAcctCtrl = TextEditingController();
+    final setOffsetAcctCtrl = TextEditingController();
+    final setReasonCtrl = TextEditingController();
+
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Manage Contract · ${c['documentNumber'] ?? c['contractNumber'] ?? shortId('${c['id']}')}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${c['state'] ?? c['status'] ?? 'DRAFT'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: actionTab,
+                  onChanged: (v) => setSheet(() {
+                    actionTab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('APPROVE', 'Approve'),
+                    ('FIX', 'Fix Rate'),
+                    ('DELIVER', 'Physical Delivery'),
+                    ('SETTLE', 'GL Settlement'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (actionTab == 'APPROVE') ...[
+                  SaasField(
+                    label: 'Contract approval note / commercial sign-off',
+                    controller: approveReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Approve & Activate Contract',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/rate-fixing/contracts/${c['id']}/approve',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(c['version'], fallback: 1),
+                                  if (approveReasonCtrl.text.trim().isNotEmpty)
+                                    'reason': approveReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Metal contract approved.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else if (actionTab == 'FIX') ...[
+                  DatePickField(
+                    label: 'Fixing date',
+                    controller: fixDateCtrl,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Fixed fine wt g',
+                          controller: fixFineCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Rate / fine gram (INR)',
+                          controller: fixRateCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Board / counterparty deal ref',
+                    controller: fixRefCtrl,
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Fixing notes (optional)',
+                    controller: fixNotesCtrl,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Record Rate Fixing Tranche',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (!isValidWeight(fixFineCtrl.text) ||
+                                !isValidAmount(fixRateCtrl.text)) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter valid fixed fine grams and rate per fine gram.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/rate-fixing/contracts/${c['id']}/fixings',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(c['version'], fallback: 1),
+                                  'fixingDate': fixDateCtrl.text.trim(),
+                                  'fixedFineWeightGrams':
+                                      normWeight6(fixFineCtrl.text),
+                                  'agreedRatePerFineGram':
+                                      normAmount(fixRateCtrl.text),
+                                  if (fixRefCtrl.text.trim().isNotEmpty)
+                                    'rateReference': fixRefCtrl.text.trim(),
+                                  if (fixNotesCtrl.text.trim().isNotEmpty)
+                                    'notes': fixNotesCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Rate fixing tranche recorded.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else if (actionTab == 'DELIVER') ...[
+                  DatePickField(
+                    label: 'Physical delivery date',
+                    controller: delDateCtrl,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Vault / custody location',
+                    controller: delLocCtrl,
+                    options: _lk.locations,
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Lot balance UUID (optional)',
+                    controller: delBalCtrl,
+                    options: _lk.lotBalances,
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Delivered quantity',
+                          controller: delQtyCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Delivered fine wt g',
+                          controller: delFineCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Delivery challan / assay evidence ref',
+                    controller: delEvidenceCtrl,
+                    mono: true,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Record Evidenced Physical Delivery',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (delLocCtrl.text.trim().isEmpty ||
+                                !isValidWeight(delFineCtrl.text)) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select custody location and enter delivered fine grams.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/rate-fixing/contracts/${c['id']}/deliveries',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(c['version'], fallback: 1),
+                                  'deliveryDate': delDateCtrl.text.trim(),
+                                  'locationId': delLocCtrl.text.trim(),
+                                  if (delBalCtrl.text.trim().isNotEmpty)
+                                    'balanceId': delBalCtrl.text.trim(),
+                                  if (delQtyCtrl.text.trim().isNotEmpty)
+                                    'deliveredQuantity':
+                                        normWeight6(delQtyCtrl.text),
+                                  'deliveredFineWeightGrams':
+                                      normWeight6(delFineCtrl.text),
+                                  if (delEvidenceCtrl.text.trim().isNotEmpty)
+                                    'evidenceReference':
+                                        delEvidenceCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(
+                                context,
+                                'Evidenced physical delivery recorded.',
+                              );
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else ...[
+                  DatePickField(
+                    label: 'Settlement date',
+                    controller: setDateCtrl,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Matched settlement amount (INR)',
+                    controller: setAmtCtrl,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Posting Period UUID',
+                    controller: setPeriodCtrl,
+                    options: _lk.openPeriods(),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Journal Series UUID',
+                    controller: setJrnCtrl,
+                    options: _lk.seriesFor(const ['JOURNAL']),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'AR / AP Control Account UUID (optional)',
+                    controller: setPartyAcctCtrl,
+                    options: _lk.accountsByType(const ['ASSET', 'LIABILITY']),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Revenue / Bullion Inventory Account (optional)',
+                    controller: setOffsetAcctCtrl,
+                    options: _lk.accounts,
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Settlement audit reason (min 10 chars)',
+                    controller: setReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Post GL-Backed Settlement Reconciliation',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (setPeriodCtrl.text.trim().isEmpty ||
+                                setJrnCtrl.text.trim().isEmpty ||
+                                setReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select Posting Period & Journal Series and enter a reason of at least 10 characters.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/rate-fixing/contracts/${c['id']}/settle',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(c['version'], fallback: 1),
+                                  'settlementDate': setDateCtrl.text.trim(),
+                                  if (setAmtCtrl.text.trim().isNotEmpty)
+                                    'settledAmount':
+                                        normAmount(setAmtCtrl.text),
+                                  'postingPeriodId': setPeriodCtrl.text.trim(),
+                                  'journalSeriesId': setJrnCtrl.text.trim(),
+                                  if (setPartyAcctCtrl.text.trim().isNotEmpty)
+                                    'partyControlAccountId':
+                                        setPartyAcctCtrl.text.trim(),
+                                  if (setOffsetAcctCtrl.text.trim().isNotEmpty)
+                                    'offsetAccountId':
+                                        setOffsetAcctCtrl.text.trim(),
+                                  'reason': setReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(
+                                context,
+                                'Contract GL settlement reconciled.',
+                              );
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final ctrl in [
+      approveReasonCtrl,
+      fixDateCtrl,
+      fixFineCtrl,
+      fixRateCtrl,
+      fixRefCtrl,
+      fixNotesCtrl,
+      delDateCtrl,
+      delLocCtrl,
+      delBalCtrl,
+      delQtyCtrl,
+      delFineCtrl,
+      delEvidenceCtrl,
+      setDateCtrl,
+      setAmtCtrl,
+      setPeriodCtrl,
+      setJrnCtrl,
+      setPartyAcctCtrl,
+      setOffsetAcctCtrl,
+      setReasonCtrl,
+    ]) {
+      ctrl.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sum = asMap(_ws['summary'] ?? _ws);
-    final activeCount = '${sum['activeContracts'] ?? _contracts.length}';
-    final unfixedFine = grams(sum['unfixedFineExposureGrams'] ?? sum['unfixedFineGrams'] ?? '0');
-    final undeliveredFine = grams(sum['undeliveredFineGrams'] ?? '0');
-    final unsettledVal = inr(sum['unsettledMatchedValue'] ?? '0.00');
-    final roleFilter = _direction == 'CUSTOMER_SALE' ? 'CUSTOMER' : 'SUPPLIER';
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
 
     final q = _search.text.trim().toLowerCase();
-    final salesCount = _contracts.where((c) => '${c['direction']}'.contains('SALE')).length;
-    final purchCount = _contracts.where((c) => '${c['direction']}'.contains('PURCHASE')).length;
+    bool isSettled(Map<String, dynamic> c) {
+      final s = '${c['state'] ?? c['status'] ?? ''}'.toUpperCase();
+      return s == 'SETTLED' || s == 'CLOSED' || s == 'COMPLETED';
+    }
+
+    final activeCnt = _contracts.where((c) => !isSettled(c)).length;
+    final settledCnt = _contracts.where(isSettled).length;
     final filtered = _contracts.where((c) {
-      if (_filter == 'SALE' && !'${c['direction']}'.contains('SALE')) return false;
-      if (_filter == 'PURCHASE' && !'${c['direction']}'.contains('PURCHASE')) return false;
+      if (_filter == 'ACTIVE' && isSettled(c)) return false;
+      if (_filter == 'SETTLED' && !isSettled(c)) return false;
       if (q.isEmpty) return true;
-      final hay = '${c['documentNumber'] ?? ''} ${c['contractNumber'] ?? ''} ${asMap(c['party'])['displayName'] ?? ''}'.toLowerCase();
+      final hay =
+          '${c['documentNumber'] ?? ''} ${c['contractNumber'] ?? ''} ${asMap(c['party'])['displayName'] ?? ''}'
+              .toLowerCase();
       return hay.contains(q);
     }).toList();
 
+    final unfixedFine = dParse(
+      _summary['unfixedFineExposureGrams'] ??
+          _summary['unfixedFineGrams'] ??
+          '0',
+    );
+    final undeliveredFine = dParse(
+      _summary['undeliveredFineGrams'] ?? '0',
+    );
+    final unsettledVal =
+        _summary['unsettledMatchedValue'] ?? _summary['unsettledAmount'] ?? 0;
+
+    final roleFilter = _direction == 'CUSTOMER_SALE'
+        ? const ['CUSTOMER', 'WHOLESALE']
+        : const ['SUPPLIER', 'VENDOR', 'BULLION_DEALER'];
+
     return LuxuryModuleScaffold(
       title: 'Wholesale Rate Fixing',
-      icon: Icons.lock_clock_rounded,
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
+      icon: Icons.monetization_on_outlined,
       searchController: _search,
-      searchHint: 'Search by Contract No. / Party...',
+      searchHint: 'Search by Party / Contract No...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -3668,188 +4747,341 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
         onChanged: (v) => setState(() => _filter = v),
         tabs: [
           ('ALL', 'All (${_contracts.length})'),
-          ('SALE', 'Sales ($salesCount)'),
-          ('PURCHASE', 'Purchases ($purchCount)'),
+          ('ACTIVE', 'Active ($activeCnt)'),
+          ('SETTLED', 'Settled ($settledCnt)'),
         ],
-      ),
-      floatingActionButton: GoldAddFab(
-        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'New Unfixed Contract',
-        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header Card (`Wholesale Rate Fixing` — image-28.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.monetization_on_outlined,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Wholesale Rate Fixing',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Metal-denominated sale and purchase contracts with partial fixing, independently evidenced physical delivery and GL-backed settlement reconciliation.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Exact 4 KPI Cards from `image-28.png`
             SaasKpiGrid(
               items: [
-                (label: 'ACTIVE CONTRACTS', value: activeCount),
-                (label: 'UNFIXED FINE EXPOSURE', value: unfixedFine),
-                (label: 'UNDELIVERED FINE', value: undeliveredFine),
-                (label: 'UNSETTLED MATCHED', value: unsettledVal),
+                (
+                  'ACTIVE CONTRACTS',
+                  '${_summary['activeContracts'] ?? activeCnt}',
+                ),
+                ('UNFIXED FINE EXPOSURE', '${dStr6(unfixedFine)} g'),
+                ('UNDELIVERED FINE', '${dStr6(undeliveredFine)} g'),
+                ('UNSETTLED MATCHED VALUE', inr(unsettledVal)),
               ],
             ),
+
             const SizedBox(height: 12),
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-            if (_showForm) ...[
-              SaasFormCard(
-                title: 'New metal-denominated contract',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showForm = false),
-                  child: const Text('Close'),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SaasDropdown(
-                      label: 'Direction',
-                      value: _direction,
-                      options: const {
-                        'CUSTOMER_SALE': 'Wholesale customer sale',
-                        'SUPPLIER_PURCHASE': 'Bullion supplier purchase',
-                      },
-                      onChanged: (v) => setState(() {
-                        _direction = v;
-                        _partyId.clear();
-                      }),
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Party',
-                      controller: _partyId,
-                      options: _lk.partiesByRole(roleFilter),
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Metal',
-                      controller: _metalId,
-                      options: _lk.metals,
-                      hint: 'Select',
-                      onSelected: (_) => setState(() => _purityId.clear()),
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Purity / agreed fineness',
-                      controller: _purityId,
-                      options: _lk.puritiesForMetal(_metalId.text.trim()),
-                      hint: 'Select',
-                      onSelected: (_) => setState(_recalcExactFine),
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Contract unit',
-                      controller: _unitId,
-                      options: _lk.units,
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Document series',
-                      controller: _seriesId,
-                      options: _lk.seriesFor(const ['RATE_FIXING', 'CONTRACT', 'WHOLESALE']),
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    DatePickField(label: 'Contract date', controller: _contractDate),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: DatePickField(label: 'Fixing deadline', controller: _fixingDeadline)),
-                        const SizedBox(width: 10),
-                        Expanded(child: DatePickField(label: 'Delivery deadline', controller: _deliveryDeadline)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const FieldLabel('Contract quantity'),
-                              TextField(
-                                controller: _contractQty,
-                                style: T.mono(13),
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                onChanged: (_) => _recalcExactFine(),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasField(
-                            label: 'Exact fine grams',
-                            controller: _exactFineGrams,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SaasField(
-                            label: 'Fine tolerance grams',
-                            controller: _toleranceGrams,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasField(
-                            label: 'Settlement due days',
-                            controller: _settlementDueDays,
-                            mono: true,
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: SaasField(label: 'Currency', controller: _currency, mono: true)),
-                        const SizedBox(width: 10),
-                        Expanded(child: SaasField(label: 'Commercial terms', controller: _terms)),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    GoldButton(
-                      label: _busy ? 'Saving…' : 'Create Draft Contract',
-                      busy: _busy,
-                      onPressed: _createContract,
-                    ),
-                  ],
-                ),
+
+            // `New metal-denominated contract` card (exact 15 fields from image-28.png)
+            SaasFormCard(
+              title: 'New metal-denominated contract',
+              trailing: TextButton(
+                onPressed: () => setState(() => _formExpanded = !_formExpanded),
+                child: Text(_formExpanded ? 'Hide' : 'Show'),
               ),
-              const SizedBox(height: 14),
-            ],
+              child: !_formExpanded
+                  ? Text(
+                      'Tap Show to create a draft metal-denominated contract.',
+                      style: T.body(12.2, color: Pal.muted),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SaasDropdown(
+                          label: 'Direction',
+                          value: _direction,
+                          options: const {
+                            'CUSTOMER_SALE': 'Wholesale customer sale',
+                            'SUPPLIER_PURCHASE': 'Bullion supplier purchase',
+                          },
+                          onChanged: (v) => setState(() {
+                            _direction = v;
+                            _partyId.clear();
+                          }),
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Party',
+                          controller: _partyId,
+                          options: _lk.partiesByRole(roleFilter),
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Metal',
+                          controller: _metalId,
+                          options: _lk.metals,
+                          hint: 'Select...',
+                          onSelected: (_) =>
+                              setState(() => _purityId.clear()),
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Purity / agreed fineness',
+                          controller: _purityId,
+                          options: _lk.puritiesForMetal(
+                            _metalId.text.trim().isEmpty
+                                ? null
+                                : _metalId.text.trim(),
+                          ),
+                          hint: 'Select...',
+                          onSelected: (_) => setState(_recalcFine),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: LookupField(
+                                label: 'Contract unit',
+                                controller: _unitId,
+                                options: _lk.units,
+                                hint: 'Select...',
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: LookupField(
+                                label: 'Document series',
+                                controller: _seriesId,
+                                options: _lk.seriesFor(
+                                  const [
+                                    'RATE_FIXING',
+                                    'CONTRACT',
+                                    'WHOLESALE',
+                                  ],
+                                ),
+                                hint: 'Select...',
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        DatePickField(
+                          label: 'Contract date',
+                          controller: _contractDate,
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Fixing deadline',
+                                controller: _fixingDeadline,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Delivery deadline',
+                                controller: _deliveryDeadline,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const FieldLabel('Contract quantity'),
+                                  TextField(
+                                    controller: _contractQty,
+                                    style: T.mono(13.5),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    onChanged: (_) => setState(_recalcFine),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: SaasField(
+                                label: 'Exact fine grams',
+                                controller: _exactFineGrams,
+                                mono: true,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SaasField(
+                                label: 'Fine tolerance grams',
+                                controller: _fineTolerance,
+                                mono: true,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: SaasField(
+                                label: 'Settlement due days',
+                                controller: _settlementDueDays,
+                                mono: true,
+                                keyboardType: TextInputType.number,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: SaasField(
+                                label: 'Currency',
+                                controller: _currency,
+                                mono: true,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        SaasField(
+                          label: 'Commercial terms',
+                          controller: _terms,
+                        ),
+                        const SizedBox(height: 14),
+                        RoyalGoldButton(
+                          label: 'Create draft contract',
+                          busy: _busy,
+                          onPressed: _busy ? null : _createContract,
+                        ),
+                      ],
+                    ),
+            ),
+
+            const SizedBox(height: 14),
+
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const Panel(child: Skeleton(height: 92))
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No wholesale metal contracts found. Tap + to create a contract.')
+              const SaasEmptyBox('No wholesale metal contracts yet.')
             else
               for (final c in filtered)
                 LuxuryRecordCard(
-                  icon: Icons.lock_clock_rounded,
-                  code: '${c['documentNumber'] ?? c['contractNumber'] ?? shortId('${c['id']}')}',
+                  icon: Icons.monetization_on_outlined,
+                  code:
+                      '${asMap(c['party'])['displayName'] ?? c['documentNumber'] ?? shortId('${c['id']}')}',
                   status: '${c['state'] ?? c['status'] ?? 'DRAFT'}',
                   lines: [
-                    ('Party', '${asMap(c['party'])['displayName'] ?? c['direction'] ?? '—'}'),
-                    ('Deadlines', '${fmtDate('${c['fixingDeadline'] ?? ''}')} / ${fmtDate('${c['deliveryDeadline'] ?? ''}')}'),
+                    (
+                      'Contract No.',
+                      '${c['documentNumber'] ?? c['contractNumber'] ?? shortId('${c['id']}')}',
+                    ),
+                    ('Direction', '${c['direction'] ?? 'CUSTOMER_SALE'}'),
+                    (
+                      'Exact Fine Wt',
+                      '${grams(c['exactFineWeightGrams'] ?? c['fineWeightGrams'])} g',
+                    ),
+                    (
+                      'Fixing / Delivery',
+                      '${fmtDate('${c['fixingDeadline'] ?? ''}')} / ${fmtDate('${c['deliveryDeadline'] ?? ''}')}',
+                    ),
                   ],
-                  amountLabel: 'Fine Wt',
-                  amountValue: grams(c['exactFineWeightGrams'] ?? c['fineWeightGrams']),
+                  amountLabel: 'Matched Value',
+                  amountValue: inr(c['matchedValue'] ?? c['totalAmount']),
+                  actions: [
+                    GoldButton(
+                      label: 'Manage Contract',
+                      compact: true,
+                      onPressed: () => _openContractLifecycleSheet(c),
+                    ),
+                  ],
                 ),
           ],
         ),

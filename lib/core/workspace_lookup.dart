@@ -34,6 +34,7 @@ class WorkspaceLookup {
   List<LookupOption> accounts = const [];
   List<LookupOption> metals = const [];
   List<LookupOption> purityGrades = const [];
+  List<LookupOption> get purities => purityGrades;
   List<LookupOption> units = const [];
   List<LookupOption> legalEntities = const [];
   List<LookupOption> branches = const [];
@@ -394,12 +395,17 @@ class WorkspaceLookup {
     return w;
   }
 
-  List<LookupOption> partiesByRole(String role) {
+  List<LookupOption> partiesByRole(Object roleOrRoles) {
+    final wanted = roleOrRoles is Iterable
+        ? roleOrRoles.map((e) => '$e'.toUpperCase()).toList()
+        : <String>['$roleOrRoles'.toUpperCase()];
     final matches = parties.where((p) {
       final roles = p.raw['roles'];
       if (roles is List) {
-        return roles.any((r) =>
-            (r is Map ? '${r['role']}' : '$r').toUpperCase() == role.toUpperCase());
+        return roles.any((r) {
+          final code = (r is Map ? '${r['role']}' : '$r').toUpperCase();
+          return wanted.contains(code);
+        });
       }
       return false;
     }).toList();
@@ -435,11 +441,14 @@ class WorkspaceLookup {
     if (controls.isEmpty) return accounts;
     final matches = accounts.where((a) {
       final c = '${a.raw['controlType'] ?? ''}'.toUpperCase();
-      final g = '${a.raw['group'] ?? ''}'.toUpperCase();
+      final g = '${a.raw['group'] ?? a.raw['accountType'] ?? ''}'.toUpperCase();
       return controls.any((k) => c == k.toUpperCase() || g == k.toUpperCase());
     }).toList();
     return matches.isNotEmpty ? matches : accounts;
   }
+
+  List<LookupOption> accountsByType(List<String> types) =>
+      accountsByControl(types);
 
   List<LookupOption> puritiesForMetal(String? metalId) {
     if (metalId == null || metalId.isEmpty) return purityGrades;
@@ -1120,6 +1129,7 @@ class LuxuryModuleScaffold extends StatelessWidget {
   const LuxuryModuleScaffold({
     super.key,
     required this.title,
+    this.subtitle,
     this.icon,
     this.searchController,
     this.searchHint,
@@ -1134,6 +1144,7 @@ class LuxuryModuleScaffold extends StatelessWidget {
   });
 
   final String title;
+  final String? subtitle;
   final IconData? icon;
   final TextEditingController? searchController;
   final String? searchHint;
@@ -1234,11 +1245,35 @@ class LuxuryModuleScaffold extends StatelessWidget {
                                 const SizedBox(width: 9),
                               ],
                               Expanded(
-                                child: Text(
-                                  title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: T.body(18.5, color: Colors.white, w: FontWeight.w700),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: T.body(
+                                        18.5,
+                                        color: Colors.white,
+                                        w: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if (subtitle != null &&
+                                        subtitle!.trim().isNotEmpty)
+                                      Text(
+                                        subtitle!,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: T.body(
+                                          11.2,
+                                          color: Pal.goldSoft.withValues(
+                                            alpha: 0.85,
+                                          ),
+                                          w: FontWeight.w500,
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                               if (actions != null) ...actions!,

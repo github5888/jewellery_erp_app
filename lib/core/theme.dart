@@ -19,10 +19,12 @@ class Pal {
   static const pearl = Color(0xFFFAF7F1);
   static const surfaceAlt = Color(0xFFF3ECE0);
   static const surfaceTint = surfaceAlt;
+  static const bgTint = surfaceAlt;
   static const card = Color(0xFFFFFFFF);
   static const line = Color(0xFFE7DEC9);
   static const lineStrong = Color(0xFFD6C6A9);
   static const border = line;
+  static const divider = line;
   static const borderStrong = lineStrong;
 
   // Warm Espresso Typography Inks
@@ -36,7 +38,9 @@ class Pal {
   static const goldSoft = Color(0xFFF3D892);
   static const goldDeep = Color(0xFF7A5608);
   static const goldWash = Color(0xFFFBF3DF);
+  static const goldTint = goldWash;
   static const goldBorder = Color(0xFFE7CE92);
+  static const borderGold = goldBorder;
 
   // Sovereign Burnished Gold action tokens (replaces cold teal/mint across all screens)
   static const teal = Color(0xFFA67814);
@@ -68,13 +72,15 @@ class T {
     double size, {
     Color color = Pal.text,
     FontWeight w = FontWeight.w600,
+    FontWeight? weight,
+    double height = 1.15,
     double letterSpacing = -0.3,
   }) =>
       GoogleFonts.fraunces(
         fontSize: size,
-        fontWeight: w,
+        fontWeight: weight ?? w,
         color: color,
-        height: 1.15,
+        height: height,
         letterSpacing: letterSpacing,
         fontFeatures: _tab,
       );
@@ -83,12 +89,13 @@ class T {
     double size, {
     Color color = Pal.text,
     FontWeight w = FontWeight.w500,
+    FontWeight? weight,
     double height = 1.38,
     double? letterSpacing,
   }) =>
       GoogleFonts.plusJakartaSans(
         fontSize: size,
-        fontWeight: w,
+        fontWeight: weight ?? w,
         color: color,
         height: height,
         letterSpacing: letterSpacing,
@@ -99,12 +106,16 @@ class T {
     double size, {
     Color color = Pal.text,
     FontWeight w = FontWeight.w600,
+    FontWeight? weight,
+    double height = 1.32,
+    double? letterSpacing,
   }) =>
       GoogleFonts.jetBrainsMono(
         fontSize: size,
-        fontWeight: w,
+        fontWeight: weight ?? w,
         color: color,
-        height: 1.32,
+        height: height,
+        letterSpacing: letterSpacing,
         fontFeatures: _tab,
       );
 
@@ -112,13 +123,15 @@ class T {
     double size, {
     Color color = Pal.muted,
     FontWeight w = FontWeight.w700,
+    FontWeight? weight,
+    double height = 1.2,
     double letterSpacing = 1.05,
   }) =>
       GoogleFonts.plusJakartaSans(
         fontSize: size,
-        fontWeight: w,
+        fontWeight: weight ?? w,
         color: color,
-        height: 1.2,
+        height: height,
         letterSpacing: letterSpacing,
         fontFeatures: _tab,
       );

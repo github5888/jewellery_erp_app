@@ -4493,13 +4493,14 @@ class _RefiningMeltingScreenState extends State<RefiningMeltingScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 5. INTER-BRANCH TRANSFERS (`/stock-transfers`) — Screenshot (681)
+// 5. INTER-BRANCH TRANSFERS (`/stock-transfers`) — `image-25.png`
 // ---------------------------------------------------------------------------
 
 class InterBranchTransfersScreen extends StatefulWidget {
   const InterBranchTransfersScreen({super.key});
   @override
-  State<InterBranchTransfersScreen> createState() => _InterBranchTransfersScreenState();
+  State<InterBranchTransfersScreen> createState() =>
+      _InterBranchTransfersScreenState();
 }
 
 class _TransferDraftLine {
@@ -4519,16 +4520,18 @@ class _TransferDraftLine {
   final String quantityGrams;
 }
 
-class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen> {
+class _InterBranchTransfersScreenState
+    extends State<InterBranchTransfersScreen> {
   final _search = TextEditingController();
   String _filter = 'ALL';
-  bool _showForm = false;
+  bool _formExpanded = true;
   List<Map<String, dynamic>> _transfers = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // Exact fields from `image-25.png` (`New transfer request`)
   final _destBranchId = TextEditingController();
   final _sourceTransitId = TextEditingController();
   final _seriesId = TextEditingController();
@@ -4551,8 +4554,16 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
   @override
   void dispose() {
     for (final c in [
-      _search, _destBranchId, _sourceTransitId, _seriesId, _businessDate,
-      _expectedReceipt, _description, _stockId, _destCustodyId, _qtyGrams,
+      _search,
+      _destBranchId,
+      _sourceTransitId,
+      _seriesId,
+      _businessDate,
+      _expectedReceipt,
+      _description,
+      _stockId,
+      _destCustodyId,
+      _qtyGrams,
     ]) {
       c.dispose();
     }
@@ -4577,9 +4588,17 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
         ),
       ]);
       if (!mounted) return;
+      final lk = res[1] as WorkspaceLookup;
+      if (_seriesId.text.isEmpty) {
+        final s = lk.seriesFor(const ['TRANSFER', 'STOCK_TRANSFER']);
+        if (s.isNotEmpty) _seriesId.text = s.first.id;
+      }
       setState(() {
-        _transfers = asList(res[0], keys: const ['transfers', 'stockTransfers', 'items']);
-        _lk = res[1] as WorkspaceLookup;
+        _transfers = asList(
+          res[0],
+          keys: const ['transfers', 'stockTransfers', 'items'],
+        );
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -4590,23 +4609,40 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
 
   void _addLine() {
     if (_stockId.text.trim().isEmpty || _destCustodyId.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select available stock and destination custody.')),
+      toast(
+        context,
+        'Select available stock and destination custody.',
+        error: true,
       );
       return;
     }
-    final pool = _stockKind == 'TAGGED_ARTICLE' ? _lk.articles : _lk.lotBalances;
-    final sLabel = pool.where((o) => o.id == _stockId.text.trim()).firstOrNull?.label ?? _stockId.text.trim();
-    final dLabel = _lk.locations.where((o) => o.id == _destCustodyId.text.trim()).firstOrNull?.label ?? _destCustodyId.text.trim();
+    if (_stockKind == 'MATERIAL_LOT' && !isValidWeight(_qtyGrams.text)) {
+      toast(context, 'Enter valid quantity in grams for material lot.', error: true);
+      return;
+    }
+    final pool =
+        _stockKind == 'TAGGED_ARTICLE' ? _lk.articles : _lk.lotBalances;
+    final sLabel = pool
+            .where((o) => o.id == _stockId.text.trim())
+            .firstOrNull
+            ?.label ??
+        _stockId.text.trim();
+    final dLabel = _lk.locations
+            .where((o) => o.id == _destCustodyId.text.trim())
+            .firstOrNull
+            ?.label ??
+        _destCustodyId.text.trim();
     setState(() {
-      _lines.add(_TransferDraftLine(
-        stockKind: _stockKind,
-        stockId: _stockId.text.trim(),
-        stockLabel: sLabel,
-        destinationLocationId: _destCustodyId.text.trim(),
-        destinationLabel: dLabel,
-        quantityGrams: _qtyGrams.text.trim(),
-      ));
+      _lines.add(
+        _TransferDraftLine(
+          stockKind: _stockKind,
+          stockId: _stockId.text.trim(),
+          stockLabel: sLabel,
+          destinationLocationId: _destCustodyId.text.trim(),
+          destinationLabel: dLabel,
+          quantityGrams: _qtyGrams.text.trim(),
+        ),
+      );
       _stockId.clear();
       _qtyGrams.clear();
     });
@@ -4616,7 +4652,10 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
     if (_destBranchId.text.trim().isEmpty ||
         _sourceTransitId.text.trim().isEmpty ||
         _seriesId.text.trim().isEmpty) {
-      setState(() => _error = 'Select Destination branch, Source transit custody, and Transfer series.');
+      setState(
+        () => _error =
+            'Select Destination branch, Source transit custody, and Transfer series.',
+      );
       return;
     }
     if (_lines.isEmpty) {
@@ -4637,32 +4676,31 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
           'documentSeriesId': _seriesId.text.trim(),
           'businessDate': _businessDate.text.trim(),
           'expectedReceiptDate': _expectedReceipt.text.trim(),
-          if (_description.text.trim().isNotEmpty) 'description': _description.text.trim(),
+          if (_description.text.trim().isNotEmpty)
+            'description': _description.text.trim(),
           'lines': _lines
-              .map((l) => l.stockKind == 'TAGGED_ARTICLE'
-                  ? {
-                      'stockKind': 'TAGGED_ARTICLE',
-                      'articleId': l.stockId,
-                      'destinationLocationId': l.destinationLocationId,
-                    }
-                  : {
-                      'stockKind': 'MATERIAL_LOT',
-                      'balanceId': l.stockId,
-                      'destinationLocationId': l.destinationLocationId,
-                      if (l.quantityGrams.isNotEmpty) 'quantityGrams': l.quantityGrams,
-                    })
+              .map(
+                (l) => l.stockKind == 'TAGGED_ARTICLE'
+                    ? {
+                        'stockKind': 'TAGGED_ARTICLE',
+                        'articleId': l.stockId,
+                        'destinationLocationId': l.destinationLocationId,
+                      }
+                    : {
+                        'stockKind': 'MATERIAL_LOT',
+                        'balanceId': l.stockId,
+                        'destinationLocationId': l.destinationLocationId,
+                        if (l.quantityGrams.isNotEmpty)
+                          'quantityGrams': normWeight6(l.quantityGrams),
+                      },
+              )
               .toList(),
         },
       );
       if (!mounted) return;
-      setState(() {
-        _lines.clear();
-        _showForm = false;
-      });
+      setState(() => _lines.clear());
       _description.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Inter-branch transfer created.')),
-      );
+      toast(context, 'Inter-branch transfer created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -4671,8 +4709,349 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
     }
   }
 
+  Future<void> _openTransferLifecycleSheet(Map<String, dynamic> tr) async {
+    var actionTab = 'DISPATCH';
+    final dispatchDateCtrl = TextEditingController(text: todayIso());
+    final courierCtrl = TextEditingController();
+    final sealCtrl = TextEditingController();
+    final dispatchNotesCtrl = TextEditingController();
+
+    final recvDateCtrl = TextEditingController(text: todayIso());
+    final measuredWtCtrl = TextEditingController();
+    final shortageWtCtrl = TextEditingController(text: '0.000000');
+    final recvNotesCtrl = TextEditingController();
+
+    var resolutionMode = 'WRITE_OFF';
+    final periodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final jrnSeriesCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final shortageReasonCtrl = TextEditingController();
+
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Manage Transfer · ${tr['documentNumber'] ?? tr['transferNumber'] ?? shortId('${tr['id']}')}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${tr['state'] ?? tr['status'] ?? 'DRAFT'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: actionTab,
+                  onChanged: (v) => setSheet(() {
+                    actionTab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('DISPATCH', 'Dispatch Transit'),
+                    ('RECEIVE', 'Destination Receipt'),
+                    ('SHORTAGE', 'Resolve Shortage'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (actionTab == 'DISPATCH') ...[
+                  DatePickField(
+                    label: 'Dispatch date',
+                    controller: dispatchDateCtrl,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Armoured / courier ref',
+                          controller: courierCtrl,
+                          mono: true,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Tamper seal number',
+                          controller: sealCtrl,
+                          mono: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Transit custody notes (optional)',
+                    controller: dispatchNotesCtrl,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Dispatch to Controlled Transit',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/stock-transfers/${tr['id']}/dispatch',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(tr['version'], fallback: 1),
+                                  'dispatchDate': dispatchDateCtrl.text.trim(),
+                                  if (courierCtrl.text.trim().isNotEmpty)
+                                    'courierReference': courierCtrl.text.trim(),
+                                  if (sealCtrl.text.trim().isNotEmpty)
+                                    'sealNumber': sealCtrl.text.trim(),
+                                  if (dispatchNotesCtrl.text.trim().isNotEmpty)
+                                    'notes': dispatchNotesCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Transfer dispatched to transit.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else if (actionTab == 'RECEIVE') ...[
+                  DatePickField(
+                    label: 'Receipt date',
+                    controller: recvDateCtrl,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Measured gross wt g',
+                          controller: measuredWtCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Shortage fine wt g',
+                          controller: shortageWtCtrl,
+                          mono: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Destination verification notes',
+                    controller: recvNotesCtrl,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Record Measured Destination Receipt',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/stock-transfers/${tr['id']}/receive',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(tr['version'], fallback: 1),
+                                  'receiptDate': recvDateCtrl.text.trim(),
+                                  if (measuredWtCtrl.text.trim().isNotEmpty)
+                                    'measuredGrossWeightGrams':
+                                        normWeight6(measuredWtCtrl.text),
+                                  'shortageFineWeightGrams': normWeight6(
+                                    shortageWtCtrl.text.trim().isEmpty
+                                        ? '0'
+                                        : shortageWtCtrl.text,
+                                  ),
+                                  if (recvNotesCtrl.text.trim().isNotEmpty)
+                                    'notes': recvNotesCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Destination receipt recorded.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else ...[
+                  SaasDropdown(
+                    label: 'Shortage resolution mode',
+                    value: resolutionMode,
+                    options: const {
+                      'WRITE_OFF': 'Approved loss write-off',
+                      'RECOVERY_CLAIM': 'Insurance / carrier recovery claim',
+                      'RETURN_TO_SOURCE': 'Return variance to source branch',
+                    },
+                    onChanged: (v) => setSheet(() => resolutionMode = v),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Posting Period UUID',
+                    controller: periodCtrl,
+                    options: _lk.openPeriods(),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Journal Series UUID',
+                    controller: jrnSeriesCtrl,
+                    options: _lk.seriesFor(const ['JOURNAL']),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Resolution audit reason (min 10 chars)',
+                    controller: shortageReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Resolve Shortage',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (shortageReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter a resolution audit reason of at least 10 characters.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/stock-transfers/${tr['id']}/resolve-shortage',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(tr['version'], fallback: 1),
+                                  'resolutionMode': resolutionMode,
+                                  if (periodCtrl.text.trim().isNotEmpty)
+                                    'postingPeriodId': periodCtrl.text.trim(),
+                                  if (jrnSeriesCtrl.text.trim().isNotEmpty)
+                                    'journalSeriesId': jrnSeriesCtrl.text.trim(),
+                                  'reason': shortageReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Shortage resolution recorded.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final c in [
+      dispatchDateCtrl,
+      courierCtrl,
+      sealCtrl,
+      dispatchNotesCtrl,
+      recvDateCtrl,
+      measuredWtCtrl,
+      shortageWtCtrl,
+      recvNotesCtrl,
+      periodCtrl,
+      jrnSeriesCtrl,
+      shortageReasonCtrl,
+    ]) {
+      c.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final q = _search.text.trim().toLowerCase();
     bool isRecv(Map<String, dynamic> t) {
       final s = '${t['state'] ?? t['status'] ?? ''}'.toUpperCase();
@@ -4685,12 +5064,15 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
       if (_filter == 'TRANSIT' && isRecv(t)) return false;
       if (_filter == 'RECEIVED' && !isRecv(t)) return false;
       if (q.isEmpty) return true;
-      final hay = '${t['documentNumber'] ?? ''} ${t['transferNumber'] ?? ''} ${asMap(t['destinationBranch'])['name'] ?? ''} ${t['description'] ?? ''}'.toLowerCase();
+      final hay =
+          '${t['documentNumber'] ?? ''} ${t['transferNumber'] ?? ''} ${asMap(t['destinationBranch'])['name'] ?? ''} ${t['description'] ?? ''}'
+              .toLowerCase();
       return hay.contains(q);
     }).toList();
 
     return LuxuryModuleScaffold(
       title: 'Inter-Branch Transfers',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.swap_horiz_rounded,
       searchController: _search,
       searchHint: 'Search by Transfer No. / Branch...',
@@ -4710,160 +5092,282 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
           ('RECEIVED', 'Received ($recvCnt)'),
         ],
       ),
-      floatingActionButton: GoldAddFab(
-        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'New Transfer Request',
-        onPressed: () => setState(() => _showForm = !_showForm),
-      ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-            if (_showForm) ...[
-              SaasFormCard(
-                title: 'New transfer request',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showForm = false),
-                  child: const Text('Close'),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LookupField(
-                      label: 'Destination branch',
-                      controller: _destBranchId,
-                      options: _lk.branches,
-                      hint: 'Select',
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header Card (`Inter-Branch Transfers` — image-25.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Source transit custody',
-                      controller: _sourceTransitId,
-                      options: _lk.locationsByType(const ['TRANSIT', 'VAULT']),
-                      hint: 'Select',
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Transfer series',
-                      controller: _seriesId,
-                      options: _lk.seriesFor(const ['TRANSFER', 'STOCK_TRANSFER']),
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Expanded(child: DatePickField(label: 'Business date', controller: _businessDate)),
-                        const SizedBox(width: 10),
-                        Expanded(child: DatePickField(label: 'Expected receipt', controller: _expectedReceipt)),
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    SaasField(label: 'Description', controller: _description),
-                    const SizedBox(height: 12),
-                    SaasSubBox(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SaasDropdown(
-                            label: 'Stock kind',
-                            value: _stockKind,
-                            options: const {
-                              'TAGGED_ARTICLE': 'Tagged article',
-                              'MATERIAL_LOT': 'Material lot',
-                            },
-                            onChanged: (v) => setState(() {
-                              _stockKind = v;
-                              _stockId.clear();
-                            }),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.swap_horiz_rounded,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Inter-Branch Transfers',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
                           ),
-                          const SizedBox(height: 10),
-                          LookupField(
-                            label: 'Available stock',
-                            controller: _stockId,
-                            options: _stockKind == 'TAGGED_ARTICLE' ? _lk.articles : _lk.lotBalances,
-                            hint: 'Select',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Source reservation, controlled transit custody, measured destination receipt and shortage resolution.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // `New transfer request` card (exact fields from image-25.png)
+            SaasFormCard(
+              title: 'New transfer request',
+              trailing: TextButton(
+                onPressed: () => setState(() => _formExpanded = !_formExpanded),
+                child: Text(_formExpanded ? 'Hide' : 'Show'),
+              ),
+              child: !_formExpanded
+                  ? Text(
+                      'Tap Show to create an inter-branch stock transfer request.',
+                      style: T.body(12.2, color: Pal.muted),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LookupField(
+                          label: 'Destination branch',
+                          controller: _destBranchId,
+                          options: _lk.branches,
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Source transit custody',
+                          controller: _sourceTransitId,
+                          options:
+                              _lk.locationsByType(const ['TRANSIT', 'VAULT']),
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Transfer series',
+                          controller: _seriesId,
+                          options: _lk.seriesFor(
+                            const ['TRANSFER', 'STOCK_TRANSFER'],
                           ),
-                          const SizedBox(height: 10),
-                          LookupField(
-                            label: 'Destination custody',
-                            controller: _destCustodyId,
-                            options: _lk.locations,
-                            hint: 'Select',
-                          ),
-                          if (_stockKind == 'MATERIAL_LOT') ...[
-                            const SizedBox(height: 10),
-                            SaasField(
-                              label: 'Quantity grams',
-                              controller: _qtyGrams,
-                              mono: true,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Business date',
+                                controller: _businessDate,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Expected receipt',
+                                controller: _expectedReceipt,
+                              ),
                             ),
                           ],
-                          const SizedBox(height: 10),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: OutlinedButton(
-                              onPressed: _addLine,
-                              child: const Text('+ Add transfer line'),
-                            ),
-                          ),
-                          for (var i = 0; i < _lines.length; i++) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    '${_lines[i].stockLabel} → ${_lines[i].destinationLabel}',
-                                    style: T.body(12.2, w: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 10),
+                        SaasField(
+                          label: 'Description',
+                          controller: _description,
+                        ),
+                        const SizedBox(height: 12),
+                        SaasSubBox(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SaasDropdown(
+                                label: 'Stock kind',
+                                value: _stockKind,
+                                options: const {
+                                  'TAGGED_ARTICLE': 'Tagged article',
+                                  'MATERIAL_LOT': 'Material lot',
+                                },
+                                onChanged: (v) => setState(() {
+                                  _stockKind = v;
+                                  _stockId.clear();
+                                }),
+                              ),
+                              const SizedBox(height: 10),
+                              LookupField(
+                                label: 'Available stock',
+                                controller: _stockId,
+                                options: _stockKind == 'TAGGED_ARTICLE'
+                                    ? _lk.articles
+                                    : _lk.lotBalances,
+                                hint: 'Select...',
+                              ),
+                              const SizedBox(height: 10),
+                              LookupField(
+                                label: 'Destination custody',
+                                controller: _destCustodyId,
+                                options: _lk.locations,
+                                hint: 'Select...',
+                              ),
+                              if (_stockKind == 'MATERIAL_LOT') ...[
+                                const SizedBox(height: 10),
+                                SaasField(
+                                  label: 'Quantity grams',
+                                  controller: _qtyGrams,
+                                  mono: true,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
                                   ),
                                 ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
-                                  onPressed: () => setState(() => _lines.removeAt(i)),
+                              ],
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: OutlinedButton(
+                                  onPressed: _addLine,
+                                  child: const Text('Add transfer line'),
+                                ),
+                              ),
+                              for (var i = 0; i < _lines.length; i++) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${_lines[i].stockLabel} → ${_lines[i].destinationLabel}${_lines[i].quantityGrams.isNotEmpty ? ' (${_lines[i].quantityGrams} g)' : ''}',
+                                        style: T.body(12.2, w: FontWeight.w600),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(
+                                        Icons.close_rounded,
+                                        size: 17,
+                                        color: Pal.err,
+                                      ),
+                                      onPressed: () =>
+                                          setState(() => _lines.removeAt(i)),
+                                    ),
+                                  ],
                                 ),
                               ],
-                            ),
-                          ],
-                        ],
-                      ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        RoyalGoldButton(
+                          label: 'Create transfer',
+                          busy: _busy,
+                          onPressed: _busy ? null : _createTransfer,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 14),
-                    GoldButton(
-                      label: _busy ? 'Saving…' : 'Create Transfer',
-                      busy: _busy,
-                      onPressed: _createTransfer,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-            ],
+            ),
+
+            const SizedBox(height: 14),
+
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const Panel(child: Skeleton(height: 92))
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No inter-branch transfers found. Tap + to create a transfer.')
+              const SaasEmptyBox('No inter-branch transfers yet.')
             else
               for (final t in filtered)
                 LuxuryRecordCard(
                   icon: Icons.storefront_outlined,
-                  code: '${t['documentNumber'] ?? t['transferNumber'] ?? shortId('${t['id']}')}',
+                  code:
+                      '${t['documentNumber'] ?? t['transferNumber'] ?? shortId('${t['id']}')}',
                   status: '${t['state'] ?? t['status'] ?? 'DRAFT'}',
                   lines: [
                     if ('${asMap(t['sourceBranch'])['name'] ?? ''}'.isNotEmpty)
                       ('From', '${asMap(t['sourceBranch'])['name']}'),
-                    ('To', '${asMap(t['destinationBranch'])['name'] ?? 'Destination Branch'}'),
-                    ('Date', '${fmtDate('${t['businessDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}'),
-                    if ('${t['description'] ?? ''}'.isNotEmpty) ('Notes', '${t['description']}'),
+                    (
+                      'Destination',
+                      '${asMap(t['destinationBranch'])['name'] ?? 'Destination Branch'}',
+                    ),
+                    (
+                      'Date → Expected',
+                      '${fmtDate('${t['businessDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}',
+                    ),
+                    if ('${t['description'] ?? ''}'.isNotEmpty)
+                      ('Description', '${t['description']}'),
                   ],
-                  amountLabel: 'Status',
-                  amountValue: statusLabel('${t['state'] ?? t['status'] ?? 'DRAFT'}'),
+                  amountLabel: 'Lines',
+                  amountValue: '${asList(t['lines']).length} item(s)',
+                  actions: [
+                    GoldButton(
+                      label: 'Manage Transfer',
+                      compact: true,
+                      onPressed: () => _openTransferLifecycleSheet(t),
+                    ),
+                  ],
                 ),
           ],
         ),
@@ -4873,13 +5377,14 @@ class _InterBranchTransfersScreenState extends State<InterBranchTransfersScreen>
 }
 
 // ---------------------------------------------------------------------------
-// 6. INTER-ENTITY TRADING (`/inter-entity-trades`) — Screenshot (684)
+// 6. INTER-ENTITY TRADING (`/inter-entity-trades`) — `image-27.png`
 // ---------------------------------------------------------------------------
 
 class InterEntityTradingScreen extends StatefulWidget {
   const InterEntityTradingScreen({super.key});
   @override
-  State<InterEntityTradingScreen> createState() => _InterEntityTradingScreenState();
+  State<InterEntityTradingScreen> createState() =>
+      _InterEntityTradingScreenState();
 }
 
 class _TradeDraftLine {
@@ -4902,13 +5407,14 @@ class _TradeDraftLine {
 class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
   final _search = TextEditingController();
   String _filter = 'ALL';
-  bool _showForm = false;
+  bool _formExpanded = true;
   List<Map<String, dynamic>> _trades = [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // Exact fields from `image-27.png` (`New related-entity trade`)
   final _destEntityId = TextEditingController();
   final _destBranchId = TextEditingController();
   final _sourceTransitId = TextEditingController();
@@ -4935,9 +5441,20 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
   @override
   void dispose() {
     for (final c in [
-      _search, _destEntityId, _destBranchId, _sourceTransitId, _seriesId,
-      _currency, _requestDate, _expectedReceipt, _terms,
-      _sourceArticleId, _destLocationId, _newDestTag, _taxableVal, _igstAmt,
+      _search,
+      _destEntityId,
+      _destBranchId,
+      _sourceTransitId,
+      _seriesId,
+      _currency,
+      _requestDate,
+      _expectedReceipt,
+      _terms,
+      _sourceArticleId,
+      _destLocationId,
+      _newDestTag,
+      _taxableVal,
+      _igstAmt,
     ]) {
       c.dispose();
     }
@@ -4962,9 +5479,17 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
         ),
       ]);
       if (!mounted) return;
+      final lk = res[1] as WorkspaceLookup;
+      if (_seriesId.text.isEmpty) {
+        final s = lk.seriesFor(const ['TRADE', 'INTER_ENTITY']);
+        if (s.isNotEmpty) _seriesId.text = s.first.id;
+      }
       setState(() {
-        _trades = asList(res[0], keys: const ['trades', 'interEntityTrades', 'items']);
-        _lk = res[1] as WorkspaceLookup;
+        _trades = asList(
+          res[0],
+          keys: const ['trades', 'interEntityTrades', 'items'],
+        );
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -4977,9 +5502,11 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
     if (_sourceArticleId.text.trim().isEmpty ||
         _destLocationId.text.trim().isEmpty ||
         _newDestTag.text.trim().isEmpty ||
-        _taxableVal.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Complete source article, destination location, new tag, and taxable value.')),
+        !isValidAmount(_taxableVal.text)) {
+      toast(
+        context,
+        'Complete source article, destination location, new destination tag, and taxable value.',
+        error: true,
       );
       return;
     }
@@ -4989,14 +5516,18 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
             ?.label ??
         _sourceArticleId.text.trim();
     setState(() {
-      _lines.add(_TradeDraftLine(
-        sourceArticleId: _sourceArticleId.text.trim(),
-        articleLabel: label,
-        destinationLocationId: _destLocationId.text.trim(),
-        newDestinationTag: _newDestTag.text.trim().toUpperCase(),
-        taxableValue: _taxableVal.text.trim(),
-        igstAmount: _igstAmt.text.trim().isEmpty ? '0.00' : _igstAmt.text.trim(),
-      ));
+      _lines.add(
+        _TradeDraftLine(
+          sourceArticleId: _sourceArticleId.text.trim(),
+          articleLabel: label,
+          destinationLocationId: _destLocationId.text.trim(),
+          newDestinationTag: _newDestTag.text.trim().toUpperCase(),
+          taxableValue: normAmount(_taxableVal.text),
+          igstAmount: _igstAmt.text.trim().isEmpty
+              ? '0.00'
+              : normAmount(_igstAmt.text),
+        ),
+      );
       _sourceArticleId.clear();
       _newDestTag.clear();
       _taxableVal.clear();
@@ -5009,7 +5540,10 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
         _destBranchId.text.trim().isEmpty ||
         _sourceTransitId.text.trim().isEmpty ||
         _seriesId.text.trim().isEmpty) {
-      setState(() => _error = 'Select Destination entity, Destination branch, Source transit, and Trade series.');
+      setState(
+        () => _error =
+            'Select Destination entity, Destination branch, Source transit, and Trade series.',
+      );
       return;
     }
     if (_lines.isEmpty) {
@@ -5035,24 +5569,22 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
           'expectedReceiptDate': _expectedReceipt.text.trim(),
           if (_terms.text.trim().isNotEmpty) 'terms': _terms.text.trim(),
           'lines': _lines
-              .map((l) => {
-                    'sourceArticleId': l.sourceArticleId,
-                    'destinationLocationId': l.destinationLocationId,
-                    'newDestinationTag': l.newDestinationTag,
-                    'taxableAmount': l.taxableValue,
-                    'igstAmount': l.igstAmount,
-                  })
+              .map(
+                (l) => {
+                  'sourceArticleId': l.sourceArticleId,
+                  'destinationLocationId': l.destinationLocationId,
+                  'newDestinationTag': l.newDestinationTag,
+                  'taxableAmount': l.taxableValue,
+                  'igstAmount': l.igstAmount,
+                },
+              )
               .toList(),
         },
       );
       if (!mounted) return;
-      setState(() {
-        _lines.clear();
-        _showForm = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Related-entity jewellery trade created.')),
-      );
+      setState(() => _lines.clear());
+      _terms.clear();
+      toast(context, 'Related-entity jewellery trade created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -5061,18 +5593,369 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
     }
   }
 
+  Future<void> _openTradeLifecycleSheet(Map<String, dynamic> tr) async {
+    var actionTab = 'DISPATCH';
+    final dispDateCtrl = TextEditingController(text: todayIso());
+    final dispPeriodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final dispJrnCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final ewayCtrl = TextEditingController();
+    final dispReasonCtrl = TextEditingController();
+
+    final accDateCtrl = TextEditingController(text: todayIso());
+    final accPeriodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final accJrnCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final accReasonCtrl = TextEditingController();
+
+    final settleRefCtrl = TextEditingController();
+    final settleAmtCtrl = TextEditingController(
+      text: '${tr['totalAmount'] ?? tr['taxableAmount'] ?? ''}',
+    );
+    final recReasonCtrl = TextEditingController();
+
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Manage Trade · ${tr['documentNumber'] ?? tr['tradeNumber'] ?? shortId('${tr['id']}')}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${tr['state'] ?? tr['status'] ?? 'DRAFT'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: actionTab,
+                  onChanged: (v) => setSheet(() {
+                    actionTab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('DISPATCH', 'Dispatch'),
+                    ('ACCEPT', 'Destination Accept'),
+                    ('RECONCILE', 'Reconcile Balance'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (actionTab == 'DISPATCH') ...[
+                  DatePickField(
+                    label: 'Dispatch date',
+                    controller: dispDateCtrl,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Source Posting Period UUID',
+                    controller: dispPeriodCtrl,
+                    options: _lk.openPeriods(),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Source Journal Series UUID',
+                    controller: dispJrnCtrl,
+                    options: _lk.seriesFor(const ['JOURNAL']),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'E-Way Bill / GST dispatch ref (optional)',
+                    controller: ewayCtrl,
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Dispatch audit reason (min 10 chars)',
+                    controller: dispReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Dispatch & Post Sale Journal',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (dispReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter a dispatch audit reason of at least 10 characters.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/inter-entity-trades/${tr['id']}/dispatch',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(tr['version'], fallback: 1),
+                                  'dispatchDate': dispDateCtrl.text.trim(),
+                                  if (dispPeriodCtrl.text.trim().isNotEmpty)
+                                    'postingPeriodId':
+                                        dispPeriodCtrl.text.trim(),
+                                  if (dispJrnCtrl.text.trim().isNotEmpty)
+                                    'journalSeriesId': dispJrnCtrl.text.trim(),
+                                  if (ewayCtrl.text.trim().isNotEmpty)
+                                    'ewayBillReference': ewayCtrl.text.trim(),
+                                  'reason': dispReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Inter-entity trade dispatched.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else if (actionTab == 'ACCEPT') ...[
+                  DatePickField(
+                    label: 'Acceptance date',
+                    controller: accDateCtrl,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Destination Posting Period UUID',
+                    controller: accPeriodCtrl,
+                    options: _lk.openPeriods(),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Destination Journal Series UUID',
+                    controller: accJrnCtrl,
+                    options: _lk.seriesFor(const ['JOURNAL']),
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Acceptance audit reason (min 10 chars)',
+                    controller: accReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Accept, Clone Tags & Post Purchase Journal',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (accReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter an acceptance reason of at least 10 characters.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/inter-entity-trades/${tr['id']}/accept',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(tr['version'], fallback: 1),
+                                  'acceptanceDate': accDateCtrl.text.trim(),
+                                  if (accPeriodCtrl.text.trim().isNotEmpty)
+                                    'postingPeriodId':
+                                        accPeriodCtrl.text.trim(),
+                                  if (accJrnCtrl.text.trim().isNotEmpty)
+                                    'journalSeriesId': accJrnCtrl.text.trim(),
+                                  'reason': accReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(
+                                context,
+                                'Destination acceptance & cloned tags posted.',
+                              );
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else ...[
+                  SaasField(
+                    label: 'Intercompany settlement ref',
+                    controller: settleRefCtrl,
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Settled amount (INR)',
+                    controller: settleAmtCtrl,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Reconciliation audit reason (min 10 chars)',
+                    controller: recReasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Reconcile Intercompany Balance',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (recReasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter a reconciliation reason of at least 10 characters.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/inter-entity-trades/${tr['id']}/reconcile',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(tr['version'], fallback: 1),
+                                  if (settleRefCtrl.text.trim().isNotEmpty)
+                                    'settlementReference':
+                                        settleRefCtrl.text.trim(),
+                                  if (settleAmtCtrl.text.trim().isNotEmpty)
+                                    'settledAmount':
+                                        normAmount(settleAmtCtrl.text),
+                                  'reason': recReasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Intercompany balance reconciled.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final c in [
+      dispDateCtrl,
+      dispPeriodCtrl,
+      dispJrnCtrl,
+      ewayCtrl,
+      dispReasonCtrl,
+      accDateCtrl,
+      accPeriodCtrl,
+      accJrnCtrl,
+      accReasonCtrl,
+      settleRefCtrl,
+      settleAmtCtrl,
+      recReasonCtrl,
+    ]) {
+      c.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final destBranches = _destEntityId.text.trim().isEmpty
         ? _lk.branches
         : _lk.branches
-            .where((b) => '${b.raw['legalEntityId'] ?? ''}' == _destEntityId.text.trim())
+            .where(
+              (b) => '${b.raw['legalEntityId'] ?? ''}' == _destEntityId.text.trim(),
+            )
             .toList();
 
     final q = _search.text.trim().toLowerCase();
     bool isDone(Map<String, dynamic> t) {
       final s = '${t['state'] ?? t['status'] ?? ''}'.toUpperCase();
-      return s == 'SETTLED' || s == 'RECEIVED' || s == 'COMPLETED';
+      return s == 'SETTLED' ||
+          s == 'RECEIVED' ||
+          s == 'COMPLETED' ||
+          s == 'RECONCILED';
     }
 
     final pendCnt = _trades.where((t) => !isDone(t)).length;
@@ -5081,12 +5964,15 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
       if (_filter == 'PENDING' && isDone(t)) return false;
       if (_filter == 'COMPLETED' && !isDone(t)) return false;
       if (q.isEmpty) return true;
-      final hay = '${t['documentNumber'] ?? ''} ${t['tradeNumber'] ?? ''} ${asMap(t['destinationLegalEntity'])['legalName'] ?? ''}'.toLowerCase();
+      final hay =
+          '${t['documentNumber'] ?? ''} ${t['tradeNumber'] ?? ''} ${asMap(t['destinationLegalEntity'])['legalName'] ?? ''}'
+              .toLowerCase();
       return hay.contains(q);
     }).toList();
 
     return LuxuryModuleScaffold(
       title: 'Inter-Entity Trading',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.domain_rounded,
       searchController: _search,
       searchHint: 'Search by Entity / Trade No...',
@@ -5106,192 +5992,338 @@ class _InterEntityTradingScreenState extends State<InterEntityTradingScreen> {
           ('COMPLETED', 'Completed ($doneCnt)'),
         ],
       ),
-      floatingActionButton: GoldAddFab(
-        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'New Inter-Entity Trade',
-        onPressed: () => setState(() => _showForm = !_showForm),
-      ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-            if (_showForm) ...[
-              SaasFormCard(
-                title: 'New related-entity trade',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showForm = false),
-                  child: const Text('Close'),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LookupField(
-                      label: 'Destination entity',
-                      controller: _destEntityId,
-                      options: _lk.legalEntities,
-                      hint: 'Select',
-                      onSelected: (_) => setState(() => _destBranchId.clear()),
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header Card (`Inter-Entity Trading` — image-27.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Destination branch',
-                      controller: _destBranchId,
-                      options: destBranches.isNotEmpty ? destBranches : _lk.branches,
-                      hint: 'Select',
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Source transit',
-                      controller: _sourceTransitId,
-                      options: _lk.locationsByType(const ['TRANSIT', 'VAULT']),
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Trade series',
-                      controller: _seriesId,
-                      options: _lk.seriesFor(const ['TRADE', 'INTER_ENTITY']),
-                      hint: 'Select',
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Expanded(
-                          flex: 2,
-                          child: SaasDropdown(
-                            label: 'Tax treatment',
-                            value: _taxTreatment,
-                            options: const {
-                              'INTER_STATE_IGST': 'Inter-state IGST',
-                              'INTRA_STATE_CGST_SGST': 'Intra-state CGST+SGST',
-                            },
-                            onChanged: (v) => setState(() => _taxTreatment = v),
-                          ),
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasField(label: 'Currency', controller: _currency, mono: true),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: DatePickField(label: 'Request date', controller: _requestDate)),
-                        const SizedBox(width: 10),
-                        Expanded(child: DatePickField(label: 'Expected receipt', controller: _expectedReceipt)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    SaasField(label: 'Terms', controller: _terms),
-                    const SizedBox(height: 12),
-                    SaasSubBox(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          LookupField(
-                            label: 'Source article',
-                            controller: _sourceArticleId,
-                            options: _lk.articles,
-                            hint: 'Select',
-                          ),
-                          const SizedBox(height: 10),
-                          LookupField(
-                            label: 'Destination location',
-                            controller: _destLocationId,
-                            options: _lk.locations,
-                            hint: 'Select',
-                          ),
-                          const SizedBox(height: 10),
-                          SaasField(
-                            label: 'New destination tag',
-                            controller: _newDestTag,
-                            mono: true,
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SaasField(
-                                  label: 'Taxable value',
-                                  controller: _taxableVal,
-                                  mono: true,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: SaasField(
-                                  label: 'IGST',
-                                  controller: _igstAmt,
-                                  mono: true,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: OutlinedButton(
-                              onPressed: _addLine,
-                              child: const Text('+ Add line'),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
                             ),
                           ),
-                          for (var i = 0; i < _lines.length; i++) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    '${_lines[i].articleLabel} → ${_lines[i].newDestinationTag} · ₹${_lines[i].taxableValue}',
-                                    style: T.body(12.2, w: FontWeight.w600),
-                                  ),
-                                ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
-                                  onPressed: () => setState(() => _lines.removeAt(i)),
-                                ),
-                              ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.domain_rounded,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Inter-Entity Trading',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Separate-GST-entity dispatch, destination acceptance, paired sale/purchase journals, cloned tags and reconciled intercompany balances.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // `New related-entity trade` card (exact fields from image-27.png)
+            SaasFormCard(
+              title: 'New related-entity trade',
+              trailing: TextButton(
+                onPressed: () => setState(() => _formExpanded = !_formExpanded),
+                child: Text(_formExpanded ? 'Hide' : 'Show'),
+              ),
+              child: !_formExpanded
+                  ? Text(
+                      'Tap Show to create a related-entity jewellery trade.',
+                      style: T.body(12.2, color: Pal.muted),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LookupField(
+                          label: 'Destination entity',
+                          controller: _destEntityId,
+                          options: _lk.legalEntities,
+                          hint: 'Select...',
+                          onSelected: (_) =>
+                              setState(() => _destBranchId.clear()),
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Destination branch',
+                          controller: _destBranchId,
+                          options: destBranches.isNotEmpty
+                              ? destBranches
+                              : _lk.branches,
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Source transit',
+                          controller: _sourceTransitId,
+                          options:
+                              _lk.locationsByType(const ['TRANSIT', 'VAULT']),
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        LookupField(
+                          label: 'Trade series',
+                          controller: _seriesId,
+                          options: _lk.seriesFor(
+                            const ['TRADE', 'INTER_ENTITY'],
+                          ),
+                          hint: 'Select...',
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: SaasDropdown(
+                                label: 'Tax treatment',
+                                value: _taxTreatment,
+                                options: const {
+                                  'INTER_STATE_IGST': 'Inter-state IGST',
+                                  'INTRA_STATE_CGST_SGST':
+                                      'Intra-state CGST+SGST',
+                                },
+                                onChanged: (v) =>
+                                    setState(() => _taxTreatment = v),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: SaasField(
+                                label: 'Currency',
+                                controller: _currency,
+                                mono: true,
+                              ),
                             ),
                           ],
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Request date',
+                                controller: _requestDate,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: DatePickField(
+                                label: 'Expected receipt',
+                                controller: _expectedReceipt,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        SaasField(
+                          label: 'Terms',
+                          controller: _terms,
+                        ),
+                        const SizedBox(height: 12),
+                        SaasSubBox(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              LookupField(
+                                label: 'Source article',
+                                controller: _sourceArticleId,
+                                options: _lk.articles,
+                                hint: 'Select...',
+                              ),
+                              const SizedBox(height: 10),
+                              LookupField(
+                                label: 'Destination location',
+                                controller: _destLocationId,
+                                options: _lk.locations,
+                                hint: 'Select...',
+                              ),
+                              const SizedBox(height: 10),
+                              SaasField(
+                                label: 'New destination tag',
+                                controller: _newDestTag,
+                                mono: true,
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const FieldLabel('Taxable value'),
+                                        TextField(
+                                          controller: _taxableVal,
+                                          style: T.mono(13.5),
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(decimal: true),
+                                          onChanged: (v) {
+                                            final t = tryDec(v);
+                                            if (t != null) {
+                                              _igstAmt.text = (t *
+                                                      Decimal.parse('0.03'))
+                                                  .toStringAsFixed(2);
+                                            }
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: SaasField(
+                                      label: 'IGST',
+                                      controller: _igstAmt,
+                                      mono: true,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: OutlinedButton(
+                                  onPressed: _addLine,
+                                  child: const Text('Add line'),
+                                ),
+                              ),
+                              for (var i = 0; i < _lines.length; i++) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${_lines[i].articleLabel} → ${_lines[i].newDestinationTag} · ₹${_lines[i].taxableValue}',
+                                        style: T.body(12.2, w: FontWeight.w600),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(
+                                        Icons.close_rounded,
+                                        size: 17,
+                                        color: Pal.err,
+                                      ),
+                                      onPressed: () =>
+                                          setState(() => _lines.removeAt(i)),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        RoyalGoldButton(
+                          label: 'Create trade',
+                          busy: _busy,
+                          onPressed: _busy ? null : _createTrade,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 14),
-                    GoldButton(
-                      label: _busy ? 'Saving…' : 'Create Trade',
-                      busy: _busy,
-                      onPressed: _createTrade,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-            ],
+            ),
+
+            const SizedBox(height: 14),
+
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const Panel(child: Skeleton(height: 92))
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No related-entity jewellery trades found. Tap + to create a trade.')
+              const SaasEmptyBox('No inter-entity trades yet.')
             else
               for (final t in filtered)
                 LuxuryRecordCard(
                   icon: Icons.domain_rounded,
-                  code: '${asMap(t['destinationLegalEntity'])['legalName'] ?? t['documentNumber'] ?? shortId('${t['id']}')}',
+                  code:
+                      '${asMap(t['destinationLegalEntity'])['legalName'] ?? t['documentNumber'] ?? shortId('${t['id']}')}',
                   status: '${t['state'] ?? t['status'] ?? 'DRAFT'}',
                   lines: [
-                    ('Ref', '${t['documentNumber'] ?? t['tradeNumber'] ?? shortId('${t['id']}')}'),
-                    ('Date', '${fmtDate('${t['requestDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}'),
+                    (
+                      'Trade Ref',
+                      '${t['documentNumber'] ?? t['tradeNumber'] ?? shortId('${t['id']}')}',
+                    ),
+                    (
+                      'Request → Expected',
+                      '${fmtDate('${t['requestDate'] ?? ''}')} → ${fmtDate('${t['expectedReceiptDate'] ?? ''}')}',
+                    ),
+                    if ('${t['taxTreatment'] ?? ''}'.isNotEmpty)
+                      ('Tax Treatment', '${t['taxTreatment']}'),
                   ],
                   amountLabel: 'Amount',
                   amountValue: inr(t['totalAmount'] ?? t['taxableAmount']),
+                  actions: [
+                    GoldButton(
+                      label: 'Manage Trade',
+                      compact: true,
+                      onPressed: () => _openTradeLifecycleSheet(t),
+                    ),
+                  ],
                 ),
           ],
         ),
