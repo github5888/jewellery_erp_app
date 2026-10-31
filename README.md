@@ -1,84 +1,40 @@
-# Jewellery ERP - Flutter app
+# Jewellery ERP Enterprise — Flutter Mobile SaaS Suite
 
-Native Flutter client for the shared NestJS API described in
-`MOBILE_APP_DEVELOPER_HANDOFF_REPORT.md`.
+Mobile-native **Royal 24K Gold** enterprise client for **Jewellery ERP** (`https://pos.hrpocket.in`), providing 1:1 SaaS workflow parity across Showroom POS, Fine 999 Vault, Supply & Production, Double-Entry Financials, GST Compliance, and Multi-Entity Governance.
 
-## Run it
+---
+
+## Gateway Configuration
+
+| Setting | Value |
+| --- | --- |
+| **Web Portal** | `https://pos.hrpocket.in` |
+| **Production API Base URL** | `https://pos.hrpocket.in/api/v1` (configured by default) |
+
+---
+
+## Quick Start
 
 ```bash
-flutter create . --project-name jewellery_erp --org com.yourcompany   # generates android/ and ios/
 flutter pub get
+flutter test
 flutter run
 ```
 
-Set the server on the login screen (tap the address at the bottom):
-- Android emulator: `http://10.0.2.2:3000/api/v1` (default)
-- iOS simulator: `http://localhost:3000/api/v1`
-- Real phone: `http://<your-laptop-wifi-ip>:3000/api/v1`
+---
 
-### Platform setup (after `flutter create .`)
+## Enterprise SaaS Module Coverage
 
-**Android** - `android/app/src/main/AndroidManifest.xml`, inside `<manifest>`:
-```xml
-<uses-permission android:name="android.permission.INTERNET"/>
-<uses-permission android:name="android.permission.CAMERA"/>
-```
-and on `<application>` for local HTTP testing only: `android:usesCleartextTraffic="true"`.
-Set `minSdkVersion 23` in `android/app/build.gradle`.
+1. **Showroom & Patron Desk**: Live Bullion 24K Fine 999 Board, Vault & Tagged Stock, Camera Tag/QR Scanner, Counter POS Billing, POS Shifts, Old Metal Exchange, Custom Orders (`/custom-orders`), and Repairs & Custody (`/repairs`).
+2. **Supply & Production**: Materials & Bullion Rate Books (`/materials`, `/rates`), Procurement & Intake with Controlled Posting Config (`/procurement`), Parties & Karigars with Protected KYC & Credit Policy (`/parties`), Karigar & Internal Job Work (`/job-work`), Refining & Melting (`/refining`), Inter-Branch Stock Transfers (`/stock-transfers`), Approval & Consignment (`/approval-memos`), Inter-Entity Trading (`/inter-entity-trades`), and Wholesale Rate Fixing (`/rate-fixing`).
+3. **Financials & Ledgers**: Double-Entry Accounting (`/accounting/workspace` — Manual Balanced Journals, P&L / Balance Sheet Statements, Periods & COA, Opening Data & Annual Close), Settlements & Cashup (`/payments`), Banking & CSV Reconciliation (`/banking`), Consolidated Chain Analytics (`/chain-analytics`), and Valuation / Margin / Trial Balance / AR-AP Ageing Reports (`/reports/*`).
+4. **Integrations, Tax & Governance**: Provider Integrations (`/integrations`), GST Registration & Transport (`/gst-compliance` — GSTIN Profiles, IRN E-Invoicing & E-Way Bills), GST Returns & ITC Review (`/gst-returns` — GSTR-2B Import/Reconciliation & Working Papers), Customer Messaging (`/messaging`), Company & Invoice Print Policy (`/documents/templates`, `/documents/render`), Showroom Hierarchy (`/organization`), Access Control & RBAC Roles (`/access`), and Support Grant Audit Governance (`/support-grants`).
 
-**iOS** - `ios/Runner/Info.plist`:
-```xml
-<key>NSCameraUsageDescription</key>
-<string>The camera scans barcodes on jewellery tags.</string>
-```
-For local HTTP testing add an `NSAppTransportSecurity` exception (remove for production).
+---
 
-## Structure
+## Financial & Bullion Integrity Guarantees
 
-```
-lib/
-  main.dart                  app root + auth gate
-  core/
-    theme.dart               palette + type (Fraunces / Manrope)
-    api.dart                 Dio + persistent cookie jar, envelope unwrapping, error mapping
-    app_state.dart           login -> MFA -> showroom -> ready
-    rates.dart               live bullion board (60 s refresh)
-    format.dart              string-only INR / gram formatting
-    widgets.dart             Panel, StatusPill, skeletons, gem mark...
-  features/
-    auth/                    login, 2FA, showroom picker
-    home/                    rate plate, today strip, quick actions
-    inventory/               barcode scanner, stock lookup
-    billing/                 POS cart, payments, idempotent checkout, receipt
-    customers/               list, search, create, picker
-    more/                    old gold, counter shift, records viewer, account
-```
-
-## Rules from the API guide, and where they live
-
-| Rule | Implementation |
-| --- | --- |
-| No float/double for weights or money | Values stay strings; `format.dart` is string-only; `Decimal` for the old-gold preview |
-| `Idempotency-Key` on billing POST | `BillingController` - new UUID whenever the bill changes, reused on retry |
-| Envelope `{data, meta}` / `{error}` | `ApiClient._send` |
-| Session cookie persistence | `PersistCookieJar` |
-| Pessimistic barcode lock | `addArticle` calls `POST /inventory/articles/:id/reserve` |
-| Tenant/branch context | `AppState.selectContext` |
-
-## Confirm with the backend team
-
-The guide gives full payloads for login, session, rates, barcode lookup, quick-bill and
-purchase vouchers. These were **assumed** and should be checked against
-`packages/contracts/src/index.ts`:
-
-1. **Client-guard header** - `ApiClient.clientHeaders` sends `X-Client: mobile`. Replace with whatever the CSRF / API-client guard expects.
-2. **`GET /inventory` (no barcode)** list shape, **`GET /parties`** list shape, and whether they paginate (the app filters customers locally).
-3. **`POST /parties`** body fields: `name`, `phone`, `pan`, `gstin`.
-4. **Shift bodies**: `openingCash` / `closingCash`, and the `GET /pos-shifts/current` response (404 treated as "no shift").
-5. **Old-metal voucher** `payoutMode: "CASH"` value, and the response id field (`voucherId` or `id`).
-6. **Payment modes** beyond `CASH` and `UPI` (`CARD`, `BANK_TRANSFER` are guesses).
-7. **A bill-total preview endpoint.** The app deliberately does no billing maths, so the cashier types payment amounts and sees the server's totals only after "Create invoice". A preview endpoint would let the app show the amount due before payment.
-8. **A release endpoint** for reserved pieces removed from a bill.
-9. Approval memos, job work, procurement, rate fixing and the two reports use a generic read-only viewer (`records_screen.dart`) until their response shapes are final.
-
-Not built yet because the backend isn't ready: PDF/thermal printing, WhatsApp share, push notifications.
+1. **Zero Floating-Point Drift**: All currency values (`2` decimal places, e.g. `"115400.00"`) and precious metal weights (`6` decimal places, e.g. `"14.250000"`) are transmitted as strings and computed exclusively with `Decimal`.
+2. **Idempotent Financial Writes**: Every mutation attaches a cryptographic `Idempotency-Key` UUID v4 header.
+3. **CSRF & Session Hardening**: Persistent `jewellery_session` + `jewellery_csrf` cookie jar with automatic `x-csrf-token` and `Origin` header compliance for `CsrfGuard`.
+4. **Full 4-Step Tenant & Branch Context**: `POST /auth/login` → optional `POST /auth/mfa/login` → `GET /session` → `POST /session/context`.

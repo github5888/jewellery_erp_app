@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/rates.dart';
+import '../../core/theme.dart';
 import '../billing/billing_controller.dart';
 import '../billing/billing_screen.dart';
 import '../customers/customers_screen.dart';
@@ -12,52 +13,80 @@ import '../more/more_screen.dart';
 class Shell extends StatefulWidget {
   const Shell({super.key});
   @override
-  State<Shell> createState() => ShellState();
+  State<Shell> createState() => _ShellState();
 }
 
-class ShellState extends State<Shell> {
+class _ShellState extends State<Shell> {
   int _index = 0;
-  late final RatesController _rates;
 
   @override
   void initState() {
     super.initState();
-    _rates = context.read<RatesController>()..start();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<RatesController>().start();
+    });
   }
-
-  @override
-  void dispose() {
-    _rates.stop();
-    super.dispose();
-  }
-
-  void go(int i) => setState(() => _index = i);
 
   @override
   Widget build(BuildContext context) {
-    final count = context.select<BillingController, int>((b) => b.lines.length);
+    final cartCount = context.select<BillingController, int>((b) => b.lines.length);
+    final pages = <Widget>[
+      HomeScreen(onJump: (i) => setState(() => _index = i)),
+      InventoryScreen(onJumpToBilling: () => setState(() => _index = 2)),
+      const BillingScreen(),
+      const CustomersScreen(),
+      MoreScreen(onJump: (i) => setState(() => _index = i)),
+    ];
     return Scaffold(
-      body: IndexedStack(index: _index, children: [
-        HomeScreen(onNavigate: go),
-        const InventoryScreen(),
-        const BillingScreen(),
-        const CustomersScreen(),
-        const MoreScreen(),
-      ]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: go,
-        destinations: [
-          const NavigationDestination(icon: Icon(Icons.diamond_outlined), selectedIcon: Icon(Icons.diamond), label: 'Rates'),
-          const NavigationDestination(icon: Icon(Icons.qr_code_scanner_rounded), selectedIcon: Icon(Icons.qr_code_scanner_rounded), label: 'Stock'),
-          NavigationDestination(
-            icon: Badge(isLabelVisible: count > 0, label: Text('$count'), child: const Icon(Icons.receipt_long_outlined)),
-            selectedIcon: Badge(isLabelVisible: count > 0, label: Text('$count'), child: const Icon(Icons.receipt_long)),
-            label: 'Bill',
-          ),
-          const NavigationDestination(icon: Icon(Icons.people_outline_rounded), selectedIcon: Icon(Icons.people_rounded), label: 'Customers'),
-          const NavigationDestination(icon: Icon(Icons.grid_view_rounded), selectedIcon: Icon(Icons.grid_view_rounded), label: 'More'),
-        ],
+      body: IndexedStack(index: _index, children: pages),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: Pal.ink,
+          border: Border(top: BorderSide(color: Color(0xFF3A2B17), width: 1)),
+        ),
+        child: NavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: (i) => setState(() => _index = i),
+          destinations: [
+            const NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home_rounded),
+              label: 'Home',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.diamond_outlined),
+              selectedIcon: Icon(Icons.diamond_rounded),
+              label: 'Vault',
+            ),
+            NavigationDestination(
+              icon: Badge(
+                isLabelVisible: cartCount > 0,
+                backgroundColor: Pal.goldBright,
+                textColor: Pal.obsidian,
+                label: Text('$cartCount'),
+                child: const Icon(Icons.point_of_sale_outlined),
+              ),
+              selectedIcon: Badge(
+                isLabelVisible: cartCount > 0,
+                backgroundColor: Pal.goldBright,
+                textColor: Pal.obsidian,
+                label: Text('$cartCount'),
+                child: const Icon(Icons.point_of_sale_rounded),
+              ),
+              label: 'POS',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.people_outline_rounded),
+              selectedIcon: Icon(Icons.people_rounded),
+              label: 'Clients',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.grid_view_outlined),
+              selectedIcon: Icon(Icons.grid_view_rounded),
+              label: 'More',
+            ),
+          ],
+        ),
       ),
     );
   }

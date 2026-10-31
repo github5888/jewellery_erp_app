@@ -7,7 +7,9 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Jewellery Erp</string>
+	<string>Jewellery ERP</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Camera access is used to scan jewellery ornament barcodes and HUID tags at the showroom counter.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

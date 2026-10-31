@@ -3,66 +3,154 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Palette: deep bottle-green "vault" tones, pearl surfaces, one gold accent.
-/// Gold is reserved for money and metal - never decoration.
+/// Royal Haute Joaillerie & Sovereign 24K Bullion Design System:
+/// - Deep Espresso-Onyx velvet (`ink`) paired with 24K Sovereign Gold (`goldBright` / `gold`)
+/// - Warm Royal Ivory (`pearl`) workspace canvas & pure white cards (`card`) with sand-gold hairlines
+/// - Zero cold hospital greens: every accent, focus border, wash, and primary CTA radiates luxury gold
 class Pal {
-  static const ink = Color(0xFF0E2B27);
-  static const inkSoft = Color(0xFF16403A);
-  static const inkLine = Color(0xFF2D5A53);
-  static const pearl = Color(0xFFF5F4F0);
-  static const card = Colors.white;
-  static const line = Color(0xFFE4E2DB);
-  static const text = Color(0xFF14201E);
-  static const muted = Color(0xFF68736F);
-  static const gold = Color(0xFFB58A3C);
-  static const goldSoft = Color(0xFFE2C27C);
-  static const goldWash = Color(0xFFF3E9D2);
-  static const danger = Color(0xFFB3402F);
-  static const dangerWash = Color(0xFFF7E3DF);
-  static const ok = Color(0xFF2F7D5B);
-  static const okWash = Color(0xFFDDEFE6);
-  static const warn = Color(0xFF9A6A12);
-  static const warnWash = Color(0xFFF6EBCF);
+  // Deep Royal Espresso-Onyx velvet surfaces
+  static const ink = Color(0xFF16110B);
+  static const obsidian = ink;
+  static const inkSoft = Color(0xFF251C12);
+  static const inkElevated = Color(0xFF342719);
+  static const inkLine = Color(0xFF4A3824);
+
+  // Warm Royal Ivory & Champagne Linen light surfaces
+  static const pearl = Color(0xFFFAF7F1);
+  static const surfaceAlt = Color(0xFFF3ECE0);
+  static const surfaceTint = surfaceAlt;
+  static const bgTint = surfaceAlt;
+  static const card = Color(0xFFFFFFFF);
+  static const line = Color(0xFFE7DEC9);
+  static const lineStrong = Color(0xFFD6C6A9);
+  static const border = line;
+  static const divider = line;
+  static const borderStrong = lineStrong;
+
+  // Warm Espresso Typography Inks
+  static const text = Color(0xFF1A140E);
+  static const textSoft = Color(0xFF3D3124);
+  static const muted = Color(0xFF756756);
+
+  // 24K Sovereign Royal Gold Palette
+  static const gold = Color(0xFFB8860B);
+  static const goldBright = Color(0xFFD4AF37);
+  static const goldSoft = Color(0xFFF3D892);
+  static const goldDeep = Color(0xFF7A5608);
+  static const goldWash = Color(0xFFFBF3DF);
+  static const goldTint = goldWash;
+  static const goldBorder = Color(0xFFE7CE92);
+  static const borderGold = goldBorder;
+
+  // Sovereign Burnished Gold action tokens (replaces cold teal/mint across all screens)
+  static const teal = Color(0xFFA67814);
+  static const tealDark = Color(0xFF7D580A);
+  static const tealWash = Color(0xFFF9EFE0);
+
+  // Imperial Ruby / Burgundy secondary accent
+  static const ruby = Color(0xFF6E1E32);
+  static const rubyWash = Color(0xFFFAF0F3);
+
+  // Refined Jewel-Tone Status Semantics
+  static const ok = Color(0xFF1E6B47);
+  static const okWash = Color(0xFFEDF7F1);
+  static const warn = Color(0xFFB4690E);
+  static const warnWash = Color(0xFFFEF5E7);
+  static const danger = Color(0xFF9E2A2B);
+  static const err = danger;
+  static const dangerWash = Color(0xFFFDF0F0);
+  static const violet = Color(0xFF5C2D68);
+  static const violetWash = Color(0xFFF6EFF8);
 }
 
-/// Fraunces carries money and headlines; Manrope carries everything else.
+/// Editorial Haute Joaillerie serif (Fraunces) + Clean Luxury Sans
+/// (Plus Jakarta Sans) + Tabular precision monospace (JetBrains Mono).
 class T {
   static const _tab = [FontFeature.tabularFigures()];
 
-  static TextStyle display(double size,
-          {Color color = Pal.text, FontWeight w = FontWeight.w500}) =>
+  static TextStyle display(
+    double size, {
+    Color color = Pal.text,
+    FontWeight w = FontWeight.w600,
+    FontWeight? weight,
+    double height = 1.15,
+    double letterSpacing = -0.3,
+  }) =>
       GoogleFonts.fraunces(
         fontSize: size,
-        fontWeight: w,
+        fontWeight: weight ?? w,
         color: color,
-        height: 1.1,
-        letterSpacing: -0.4,
+        height: height,
+        letterSpacing: letterSpacing,
         fontFeatures: _tab,
       );
 
-  static TextStyle body(double size,
-          {Color color = Pal.text, FontWeight w = FontWeight.w500}) =>
-      GoogleFonts.manrope(
+  static TextStyle body(
+    double size, {
+    Color color = Pal.text,
+    FontWeight w = FontWeight.w500,
+    FontWeight? weight,
+    double height = 1.38,
+    double? letterSpacing,
+  }) =>
+      GoogleFonts.plusJakartaSans(
         fontSize: size,
-        fontWeight: w,
+        fontWeight: weight ?? w,
         color: color,
-        height: 1.35,
+        height: height,
+        letterSpacing: letterSpacing,
+        fontFeatures: _tab,
+      );
+
+  static TextStyle mono(
+    double size, {
+    Color color = Pal.text,
+    FontWeight w = FontWeight.w600,
+    FontWeight? weight,
+    double height = 1.32,
+    double? letterSpacing,
+  }) =>
+      GoogleFonts.jetBrainsMono(
+        fontSize: size,
+        fontWeight: weight ?? w,
+        color: color,
+        height: height,
+        letterSpacing: letterSpacing,
+        fontFeatures: _tab,
+      );
+
+  static TextStyle caps(
+    double size, {
+    Color color = Pal.muted,
+    FontWeight w = FontWeight.w700,
+    FontWeight? weight,
+    double height = 1.2,
+    double letterSpacing = 1.05,
+  }) =>
+      GoogleFonts.plusJakartaSans(
+        fontSize: size,
+        fontWeight: weight ?? w,
+        color: color,
+        height: height,
+        letterSpacing: letterSpacing,
         fontFeatures: _tab,
       );
 }
 
 ThemeData buildTheme() {
-  final base = GoogleFonts.manropeTextTheme();
+  final base = GoogleFonts.plusJakartaSansTextTheme();
   const scheme = ColorScheme.light(
-    primary: Pal.ink,
+    primary: Pal.gold,
     onPrimary: Colors.white,
-    secondary: Pal.gold,
+    secondary: Pal.ink,
+    onSecondary: Colors.white,
+    tertiary: Pal.goldBright,
     surface: Pal.pearl,
     onSurface: Pal.text,
     error: Pal.danger,
   );
   OutlineInputBorder border(Color c, [double w = 1]) => OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(13),
         borderSide: BorderSide(color: c, width: w),
       );
   return ThemeData(
@@ -71,73 +159,103 @@ ThemeData buildTheme() {
     scaffoldBackgroundColor: Pal.pearl,
     textTheme: base.apply(bodyColor: Pal.text, displayColor: Pal.text),
     appBarTheme: AppBarTheme(
-      backgroundColor: Pal.pearl,
+      backgroundColor: Pal.ink,
+      foregroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
-      titleTextStyle: T.display(22),
-      iconTheme: const IconThemeData(color: Pal.text),
-      systemOverlayStyle: SystemUiOverlayStyle.dark,
+      titleTextStyle: T.body(18.5, color: Colors.white, w: FontWeight.w700),
+      iconTheme: const IconThemeData(color: Pal.goldSoft, size: 22),
+      actionsIconTheme: const IconThemeData(color: Pal.goldSoft, size: 21),
+      systemOverlayStyle: SystemUiOverlayStyle.light,
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      border: border(Pal.line),
-      enabledBorder: border(Pal.line),
-      focusedBorder: border(Pal.ink, 1.6),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: border(Pal.lineStrong),
+      enabledBorder: border(Pal.lineStrong),
+      focusedBorder: border(Pal.gold, 1.8),
       errorBorder: border(Pal.danger),
-      focusedErrorBorder: border(Pal.danger, 1.6),
-      labelStyle: T.body(14, color: Pal.muted),
-      hintStyle: T.body(14, color: Pal.muted),
+      focusedErrorBorder: border(Pal.danger, 1.8),
+      labelStyle: T.body(13.5, color: Pal.muted),
+      hintStyle: T.body(13.5, color: Pal.muted.withValues(alpha: 0.78)),
+      helperStyle: T.body(12, color: Pal.muted),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: Pal.ink,
+        backgroundColor: Pal.gold,
         foregroundColor: Colors.white,
-        minimumSize: const Size.fromHeight(54),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        textStyle: T.body(15.5, w: FontWeight.w700),
+        disabledBackgroundColor: Pal.line,
+        disabledForegroundColor: Pal.muted,
+        minimumSize: const Size.fromHeight(50),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+        textStyle: T.body(14.5, w: FontWeight.w700),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Pal.gold,
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: Pal.line,
+        disabledForegroundColor: Pal.muted,
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+        textStyle: T.body(13.5, w: FontWeight.w700),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: Pal.ink,
-        minimumSize: const Size.fromHeight(50),
-        side: const BorderSide(color: Pal.line, width: 1.2),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        textStyle: T.body(15, w: FontWeight.w700),
+        foregroundColor: Pal.goldDeep,
+        backgroundColor: Colors.white,
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        side: const BorderSide(color: Pal.goldBorder, width: 1.1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+        textStyle: T.body(13.5, w: FontWeight.w700),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: Pal.ink,
-        textStyle: T.body(14, w: FontWeight.w700),
+        foregroundColor: Pal.goldDeep,
+        textStyle: T.body(13.5, w: FontWeight.w700),
       ),
     ),
+    floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      backgroundColor: Pal.gold,
+      foregroundColor: Colors.white,
+      elevation: 4,
+      shape: CircleBorder(),
+    ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: Colors.white,
+      backgroundColor: Pal.ink,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
-      height: 68,
-      indicatorColor: Pal.goldWash,
+      height: 66,
+      indicatorColor: const Color(0x33D4AF37),
       labelTextStyle: WidgetStateProperty.resolveWith(
-        (s) => T.body(11.5,
-            w: s.contains(WidgetState.selected) ? FontWeight.w800 : FontWeight.w600,
-            color: s.contains(WidgetState.selected) ? Pal.ink : Pal.muted),
+        (s) => T.body(
+          11.0,
+          w: s.contains(WidgetState.selected) ? FontWeight.w800 : FontWeight.w600,
+          color: s.contains(WidgetState.selected) ? Pal.goldSoft : const Color(0xFFA79882),
+        ),
       ),
       iconTheme: WidgetStateProperty.resolveWith(
         (s) => IconThemeData(
-            size: 24,
-            color: s.contains(WidgetState.selected) ? Pal.ink : Pal.muted),
+          size: 22,
+          color: s.contains(WidgetState.selected) ? Pal.goldBright : const Color(0xFFA79882),
+        ),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       backgroundColor: Pal.ink,
-      contentTextStyle: T.body(14, color: Colors.white),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      contentTextStyle: T.body(13.5, color: Colors.white, w: FontWeight.w600),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
     dividerTheme: const DividerThemeData(color: Pal.line, thickness: 1, space: 1),
     bottomSheetTheme: const BottomSheetThemeData(
@@ -145,7 +263,7 @@ ThemeData buildTheme() {
       surfaceTintColor: Colors.transparent,
       showDragHandle: true,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
     ),
   );
