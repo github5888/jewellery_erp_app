@@ -2110,33 +2110,16 @@ class _RateLineDraft {
 
 class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
   final _search = TextEditingController();
-  String _tab = 'BOOKS';
   Map<String, dynamic> _materials = const {};
   List<Map<String, dynamic>> _rateBooks = [];
   bool _loading = true;
-  bool _busy = false;
+  bool _calcBusy = false;
   String? _error;
-  String? _openPanel; // null | 'METAL' | 'PURITY' | 'BOOK'
-
-  // Add metal / purity / rate book
-  final _metalCode = TextEditingController();
-  final _metalName = TextEditingController();
-  final _gradeMetalId = TextEditingController();
-  final _gradeCode = TextEditingController();
-  final _gradeKarat = TextEditingController();
-  final _gradeFineness = TextEditingController();
-  final _bookCode = TextEditingController();
-  final _bookName = TextEditingController();
-  final _bookCurrency = TextEditingController(text: 'INR');
-
-  // Create complete rate version (`POST /rate-books/:id/versions`)
-  Map<String, dynamic>? _versionTargetBook;
-  final List<_RateLineDraft> _versionLines = [_RateLineDraft()];
 
   // Authoritative metal-price check (`POST /pricing/calculate-metal`)
-  final _calcRateVersionId = TextEditingController();
-  final _calcMetalId = TextEditingController();
-  final _calcPurityId = TextEditingController();
+  String? _calcRateVersionId;
+  String? _calcMetalId;
+  String? _calcPurityId;
   final _calcWeight = TextEditingController();
   String _calcSide = 'SELL';
   Map<String, dynamic>? _priceResult;
@@ -2149,13 +2132,8 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
 
   @override
   void dispose() {
-    for (final c in [
-      _search, _metalCode, _metalName, _gradeMetalId, _gradeCode, _gradeKarat,
-      _gradeFineness, _bookCode, _bookName, _bookCurrency,
-      _calcRateVersionId, _calcMetalId, _calcPurityId, _calcWeight,
-    ]) {
-      c.dispose();
-    }
+    _search.dispose();
+    _calcWeight.dispose();
     super.dispose();
   }
 
@@ -2172,9 +2150,11 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
       ]);
       if (!mounted) return;
       context.read<RatesStore>().refresh();
+      final mats = asMap(res[0]);
+      final books = asList(res[1], keys: const ['rateBooks', 'books', 'items']);
       setState(() {
-        _materials = asMap(res[0]);
-        _rateBooks = asList(res[1], keys: const ['rateBooks', 'books', 'items']);
+        _materials = mats;
+        _rateBooks = books;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -2184,20 +2164,39 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
   }
 
   List<LookupOption> get _metalOpts => asList(_materials['metals'])
-      .map((m) => LookupOption(id: '${m['id']}', label: '${m['name']} (${m['code']})', raw: m))
+      .map(
+        (m) => LookupOption(
+          id: '${m['id']}',
+          label: '${m['name']} (${m['code']})',
+          raw: m,
+        ),
+      )
       .where((o) => o.id.isNotEmpty)
       .toList();
 
   List<LookupOption> _purityOpts(String? metalId) {
     final out = <LookupOption>[];
     for (final m in asList(_materials['metals'])) {
-      if (metalId != null && metalId.isNotEmpty && '${m['id']}' != metalId) continue;
+      if (metalId != null && metalId.isNotEmpty && '${m['id']}' != metalId) {
+        continue;
+      }
       for (final pg in asList(m['purityGrades'])) {
-        out.add(LookupOption(
-          id: '${pg['id']}',
-          label: '${m['code']} · ${pg['code']}${pg['displayKarat'] != null ? ' (${pg['displayKarat']})' : ''} · ${pg['finenessPerThousand']}‰',
-          raw: pg,
-        ));
+        final karat = '${pg['displayKarat'] ?? pg['displayLabel'] ?? ''}'.trim();
+        final fine = normWeight6('${pg['finenessPerThousand'] ?? ''}');
+        final parts = <String>[
+          '${pg['code'] ?? ''}'.trim(),
+          if (karat.isNotEmpty) karat,
+          fine,
+        ].where((s) => s.isNotEmpty).toList();
+        out.add(
+          LookupOption(
+            id: '${pg['id']}',
+            label: metalId != null && metalId.isNotEmpty
+                ? parts.join(' · ')
+                : '${m['code']} · ${parts.join(' · ')}',
+            raw: {...pg, '_metalId': '${m['id']}'},
+          ),
+        );
       }
     }
     return out;
@@ -2205,7 +2204,13 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
 
   List<LookupOption> get _massUnitOpts => asList(_materials['units'])
       .where((u) => '${u['dimension'] ?? 'MASS'}' == 'MASS')
-      .map((u) => LookupOption(id: '${u['id']}', label: '${u['code']} (${u['symbol'] ?? u['code']})', raw: u))
+      .map(
+        (u) => LookupOption(
+          id: '${u['id']}',
+          label: '${u['code']} (${u['symbol'] ?? u['code']})',
+          raw: u,
+        ),
+      )
       .where((o) => o.id.isNotEmpty)
       .toList();
 
@@ -2213,185 +2218,777 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
     final out = <LookupOption>[];
     for (final b in _rateBooks) {
       for (final v in asList(b['versions'])) {
-        if ('${v['state']}' == 'PUBLISHED') {
-          out.add(LookupOption(
-            id: '${v['id']}',
-            label: '${b['name']} · v${v['sequenceNumber']}',
-            raw: v,
-          ));
+        if ('${v['state']}'.toUpperCase() == 'PUBLISHED') {
+          out.add(
+            LookupOption(
+              id: '${v['id']}',
+              label: '${b['name']} · v${v['sequenceNumber']}',
+              raw: v,
+            ),
+          );
         }
       }
     }
     return out;
   }
 
-  Future<void> _submitQuickMaster() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    final api = context.read<ApiClient>();
-    try {
-      if (_openPanel == 'METAL') {
-        await api.post('/materials/metals', idempotent: true, body: {
-          'code': _metalCode.text.trim().toUpperCase(),
-          'name': _metalName.text.trim(),
-        });
-        _metalCode.clear();
-        _metalName.clear();
-      } else if (_openPanel == 'PURITY') {
-        await api.post('/materials/purity-grades', idempotent: true, body: {
-          'metalId': _gradeMetalId.text.trim(),
-          'code': _gradeCode.text.trim().toUpperCase(),
-          if (_gradeKarat.text.trim().isNotEmpty) 'displayKarat': _gradeKarat.text.trim(),
-          'finenessPerThousand': _gradeFineness.text.trim(),
-        });
-        _gradeCode.clear();
-        _gradeKarat.clear();
-        _gradeFineness.clear();
-      } else if (_openPanel == 'BOOK') {
-        await api.post('/rate-books', idempotent: true, body: {
-          'code': _bookCode.text.trim().toUpperCase(),
-          'name': _bookName.text.trim(),
-          'currency': _bookCurrency.text.trim().toUpperCase(),
-        });
-        _bookCode.clear();
-        _bookName.clear();
-      }
-      if (!mounted) return;
-      setState(() => _openPanel = null);
-      _load();
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  String _formatPurityBadge(Map<String, dynamic> g) {
+    final code = '${g['code'] ?? ''}'.trim();
+    final karat = '${g['displayKarat'] ?? g['displayLabel'] ?? ''}'.trim();
+    final rawFine = '${g['finenessPerThousand'] ?? ''}'.trim();
+    final fineDec = tryDec(rawFine);
+    final fine = fineDec != null ? fineDec.toStringAsFixed(6) : rawFine;
+    return [
+      if (code.isNotEmpty) code,
+      if (karat.isNotEmpty) karat,
+      if (fine.isNotEmpty) fine,
+    ].join(' · ');
   }
 
-  Future<void> _createRateVersion() async {
-    final book = _versionTargetBook;
-    if (book == null) return;
-    final validLines = _versionLines
-        .where((l) => l.metalId.isNotEmpty && l.ratePerUnit.trim().isNotEmpty && l.unitId.isNotEmpty)
-        .toList();
-    if (validLines.isEmpty) {
-      setState(() => _error = 'Add at least one complete rate line (metal, rate, reference fineness, unit).');
-      return;
+  String _formatUnitsLine(List<Map<String, dynamic>> units) {
+    if (units.isEmpty) return '';
+    final parts = <String>[];
+    for (final u in units) {
+      final code = '${u['code'] ?? ''}'.trim();
+      if (code.isEmpty) continue;
+      final rawFactor = '${u['baseFactor'] ?? u['toBaseFactor'] ?? '1.000000000000'}'.trim();
+      final decFactor = tryDec(rawFactor);
+      final factorStr = rawFactor.contains('.')
+          ? rawFactor
+          : (decFactor != null ? decFactor.toStringAsFixed(12) : rawFactor);
+      parts.add('$code ($factorStr base)');
     }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final now = DateTime.now().toUtc();
-      await context.read<ApiClient>().post(
-        '/rate-books/${book['id']}/versions',
-        idempotent: true,
-        body: {
-          'expectedBookVersion': asInt(book['version'], fallback: 1),
-          'effectiveAt': now.toIso8601String(),
-          'lines': validLines
-              .map((l) => {
-                    'metalId': l.metalId,
-                    'side': l.side,
-                    'ratePerUnit': l.ratePerUnit.trim(),
-                    'referenceFineness': l.referenceFineness.trim(),
-                    'unitId': l.unitId,
-                  })
-              .toList(),
-        },
-      );
-      if (!mounted) return;
-      setState(() {
-        _versionTargetBook = null;
-        _versionLines
-          ..clear()
-          ..add(_RateLineDraft());
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Immutable draft rate version created.')),
-      );
-      _load();
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    if (parts.isEmpty) return '';
+    return 'Units: ${parts.join(' · ')}';
+  }
+
+  Future<void> _openAddMetalModal() async {
+    final codeCtrl = TextEditingController();
+    final nameCtrl = TextEditingController();
+    var saving = false;
+    String? modalErr;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Dialog(
+          backgroundColor: Pal.card,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Add metal',
+                        style: T.body(17, weight: FontWeight.w700, color: Pal.ink),
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20, color: Pal.inkSoft),
+                    ),
+                  ],
+                ),
+                if (modalErr != null) ...[
+                  const SizedBox(height: 8),
+                  ErrorBanner(modalErr!),
+                ],
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Code',
+                  controller: codeCtrl,
+                  mono: true,
+                ),
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Name',
+                  controller: nameCtrl,
+                ),
+                const SizedBox(height: 18),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GoldButton(
+                    label: 'Create metal',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final code = codeCtrl.text.trim().toUpperCase();
+                            final name = nameCtrl.text.trim();
+                            if (code.isEmpty || name.isEmpty) {
+                              setModal(() => modalErr = 'Enter both metal code and name.');
+                              return;
+                            }
+                            setModal(() {
+                              saving = true;
+                              modalErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/materials/metals',
+                                idempotent: true,
+                                body: {
+                                  'code': code,
+                                  'name': name,
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Metal master created.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setModal(() => modalErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setModal(() => saving = false);
+                            }
+                          },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    codeCtrl.dispose();
+    nameCtrl.dispose();
+  }
+
+  Future<void> _openAddPurityModal() async {
+    String? selectedMetalId;
+    final gradeCodeCtrl = TextEditingController();
+    final karatCtrl = TextEditingController();
+    final finenessCtrl = TextEditingController();
+    var saving = false;
+    String? modalErr;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Dialog(
+          backgroundColor: Pal.card,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Add purity grade',
+                        style: T.body(17, weight: FontWeight.w700, color: Pal.ink),
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20, color: Pal.inkSoft),
+                    ),
+                  ],
+                ),
+                if (modalErr != null) ...[
+                  const SizedBox(height: 8),
+                  ErrorBanner(modalErr!),
+                ],
+                const SizedBox(height: 12),
+                const FieldLabel('Metal'),
+                GoldDropdown<String>(
+                  value: selectedMetalId,
+                  hint: 'Select metal',
+                  items: _metalOpts
+                      .map(
+                        (m) => DropdownMenuItem<String>(
+                          value: m.id,
+                          child: Text(
+                            m.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setModal(() => selectedMetalId = v),
+                ),
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Grade code',
+                  controller: gradeCodeCtrl,
+                  mono: true,
+                ),
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Display label / karat',
+                  controller: karatCtrl,
+                ),
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Fineness per thousand',
+                  controller: finenessCtrl,
+                  mono: true,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 18),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GoldButton(
+                    label: 'Create purity grade',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final metalId = (selectedMetalId ?? '').trim();
+                            final code = gradeCodeCtrl.text.trim().toUpperCase();
+                            final karat = karatCtrl.text.trim();
+                            final fineness = finenessCtrl.text.trim();
+                            if (metalId.isEmpty || code.isEmpty || fineness.isEmpty) {
+                              setModal(
+                                () => modalErr =
+                                    'Select metal and enter grade code and fineness per thousand.',
+                              );
+                              return;
+                            }
+                            if (tryDec(fineness) == null) {
+                              setModal(
+                                () => modalErr = 'Fineness per thousand must be a valid decimal.',
+                              );
+                              return;
+                            }
+                            setModal(() {
+                              saving = true;
+                              modalErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/materials/purity-grades',
+                                idempotent: true,
+                                body: {
+                                  'metalId': metalId,
+                                  'code': code,
+                                  if (karat.isNotEmpty) 'displayKarat': karat,
+                                  'finenessPerThousand': fineness,
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Purity grade created.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setModal(() => modalErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setModal(() => saving = false);
+                            }
+                          },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    gradeCodeCtrl.dispose();
+    karatCtrl.dispose();
+    finenessCtrl.dispose();
+  }
+
+  Future<void> _openNewRateBookModal() async {
+    final codeCtrl = TextEditingController();
+    final nameCtrl = TextEditingController();
+    final currencyCtrl = TextEditingController(text: 'INR');
+    var saving = false;
+    String? modalErr;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Dialog(
+          backgroundColor: Pal.card,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'New rate book',
+                        style: T.body(17, weight: FontWeight.w700, color: Pal.ink),
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20, color: Pal.inkSoft),
+                    ),
+                  ],
+                ),
+                if (modalErr != null) ...[
+                  const SizedBox(height: 8),
+                  ErrorBanner(modalErr!),
+                ],
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Code',
+                  controller: codeCtrl,
+                  mono: true,
+                ),
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Name',
+                  controller: nameCtrl,
+                ),
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Currency',
+                  controller: currencyCtrl,
+                  mono: true,
+                ),
+                const SizedBox(height: 18),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GoldButton(
+                    label: 'Create rate book',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final code = codeCtrl.text.trim().toUpperCase();
+                            final name = nameCtrl.text.trim();
+                            final currency = currencyCtrl.text.trim().toUpperCase();
+                            if (code.isEmpty || name.isEmpty || currency.isEmpty) {
+                              setModal(
+                                () => modalErr = 'Enter rate book code, name, and currency.',
+                              );
+                              return;
+                            }
+                            setModal(() {
+                              saving = true;
+                              modalErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/rate-books',
+                                idempotent: true,
+                                body: {
+                                  'code': code,
+                                  'name': name,
+                                  'currency': currency,
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Rate book created.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setModal(() => modalErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setModal(() => saving = false);
+                            }
+                          },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    codeCtrl.dispose();
+    nameCtrl.dispose();
+    currencyCtrl.dispose();
+  }
+
+  Future<void> _openCreateRateVersionSheet(Map<String, dynamic> book) async {
+    final defaultMetalId = _metalOpts.isNotEmpty ? _metalOpts.first.id : '';
+    final defaultUnitId = _massUnitOpts.isNotEmpty ? _massUnitOpts.first.id : '';
+    final lines = <_RateLineDraft>[
+      _RateLineDraft(metalId: defaultMetalId, unitId: defaultUnitId),
+    ];
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'New rate version · ${book['name'] ?? book['code']}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                Text(
+                  'Immutable, effective-dated bullion board lines.',
+                  style: T.body(12.2, color: Pal.muted),
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+                for (var i = 0; i < lines.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 10),
+                  SaasSubBox(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Line ${i + 1}',
+                                style: T.body(12.5, weight: FontWeight.w700),
+                              ),
+                            ),
+                            if (lines.length > 1)
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  foregroundColor: Pal.err,
+                                ),
+                                onPressed: () => setSheet(() => lines.removeAt(i)),
+                                icon: const Icon(Icons.delete_outline_rounded, size: 15),
+                                label: const Text('Remove'),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: GoldDropdown<String>(
+                                value: lines[i].metalId.isEmpty ? null : lines[i].metalId,
+                                hint: 'Metal',
+                                items: _metalOpts
+                                    .map(
+                                      (m) => DropdownMenuItem(
+                                        value: m.id,
+                                        child: Text(
+                                          m.label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (v) => setSheet(() => lines[i].metalId = v ?? ''),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 104,
+                              child: GoldDropdown<String>(
+                                value: lines[i].side,
+                                items: const [
+                                  DropdownMenuItem(value: 'SELL', child: Text('SELL')),
+                                  DropdownMenuItem(value: 'BUY', child: Text('BUY')),
+                                ],
+                                onChanged: (v) => setSheet(() => lines[i].side = v ?? 'SELL'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                decoration: const InputDecoration(hintText: 'Rate per unit'),
+                                style: T.mono(13),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                onChanged: (v) => lines[i].ratePerUnit = v,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 92,
+                              child: TextFormField(
+                                initialValue: lines[i].referenceFineness,
+                                decoration: const InputDecoration(hintText: '999'),
+                                style: T.mono(13),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                onChanged: (v) => lines[i].referenceFineness = v,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        GoldDropdown<String>(
+                          value: lines[i].unitId.isEmpty ? null : lines[i].unitId,
+                          hint: 'Mass unit',
+                          items: _massUnitOpts
+                              .map(
+                                (u) => DropdownMenuItem(
+                                  value: u.id,
+                                  child: Text(
+                                    u.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) => setSheet(() => lines[i].unitId = v ?? ''),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () => setSheet(
+                      () => lines.add(
+                        _RateLineDraft(metalId: defaultMetalId, unitId: defaultUnitId),
+                      ),
+                    ),
+                    icon: const Icon(Icons.add_rounded, size: 16),
+                    label: const Text('Add rate line'),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                RoyalGoldButton(
+                  label: 'Create immutable draft',
+                  busy: saving,
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final valid = lines
+                              .where(
+                                (l) =>
+                                    l.metalId.isNotEmpty &&
+                                    l.ratePerUnit.trim().isNotEmpty &&
+                                    l.unitId.isNotEmpty,
+                              )
+                              .toList();
+                          if (valid.isEmpty) {
+                            setSheet(
+                              () => sheetErr =
+                                  'Add at least one complete rate line (metal, rate, fineness, unit).',
+                            );
+                            return;
+                          }
+                          setSheet(() {
+                            saving = true;
+                            sheetErr = null;
+                          });
+                          try {
+                            await context.read<ApiClient>().post(
+                              '/rate-books/${book['id']}/versions',
+                              idempotent: true,
+                              body: {
+                                'expectedBookVersion': asInt(book['version'], fallback: 1),
+                                'effectiveAt': DateTime.now().toUtc().toIso8601String(),
+                                'lines': valid
+                                    .map(
+                                      (l) => {
+                                        'metalId': l.metalId,
+                                        'side': l.side,
+                                        'ratePerUnit': l.ratePerUnit.trim(),
+                                        'referenceFineness': l.referenceFineness.trim(),
+                                        'unitId': l.unitId,
+                                      },
+                                    )
+                                    .toList(),
+                              },
+                            );
+                            if (!ctx.mounted) return;
+                            Navigator.pop(ctx);
+                            if (!mounted) return;
+                            toast(context, 'Immutable draft rate version created.');
+                            _load();
+                          } on ApiException catch (e) {
+                            setSheet(() => sheetErr = e.message);
+                          } finally {
+                            if (ctx.mounted) setSheet(() => saving = false);
+                          }
+                        },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _publishVersion(Map<String, dynamic> v) async {
-    final reasonCtrl = TextEditingController(
-      text: 'Approved showroom bullion board rate after treasury verification.',
-    );
-    final ok = await showDialog<bool>(
+    final reasonCtrl = TextEditingController();
+    var saving = false;
+    String? modalErr;
+
+    await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Publish version ${v['sequenceNumber']}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Publishing locks this complete rate proposal for historical use.',
-              style: T.body(12.5, color: Pal.muted),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Dialog(
+          backgroundColor: Pal.card,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Publish version ${v['sequenceNumber']}',
+                        style: T.body(16.5, weight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                Text(
+                  'Publishing locks this complete rate proposal for historical use.',
+                  style: T.body(12.5, color: Pal.muted),
+                ),
+                if (modalErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(modalErr!),
+                ],
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Approval reason (min 10 chars)',
+                  controller: reasonCtrl,
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GoldButton(
+                    label: 'Publish rate version',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final reason = reasonCtrl.text.trim();
+                            if (reason.length < 10) {
+                              setModal(
+                                () => modalErr =
+                                    'Enter an approval reason of at least 10 characters.',
+                              );
+                              return;
+                            }
+                            setModal(() {
+                              saving = true;
+                              modalErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/rate-versions/${v['id']}/publish',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion': asInt(v['version'], fallback: 1),
+                                  'approvalReason': reason,
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Rate version published.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setModal(() => modalErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setModal(() => saving = false);
+                            }
+                          },
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            SaasField(
-              label: 'Approval reason (min 10 chars)',
-              controller: reasonCtrl,
-              maxLines: 2,
-            ),
-          ],
+          ),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Publish rate version')),
-        ],
       ),
     );
-    if (ok != true || !mounted) return;
-    setState(() => _busy = true);
-    try {
-      await context.read<ApiClient>().post(
-        '/rate-versions/${v['id']}/publish',
-        idempotent: true,
-        body: {
-          'expectedVersion': asInt(v['version'], fallback: 1),
-          'approvalReason': reasonCtrl.text.trim(),
-        },
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rate version published!')));
-      _load();
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    reasonCtrl.dispose();
   }
 
   Future<void> _checkPrice() async {
-    if (_calcRateVersionId.text.trim().isEmpty ||
-        _calcMetalId.text.trim().isEmpty ||
-        _calcPurityId.text.trim().isEmpty ||
-        _calcWeight.text.trim().isEmpty) {
-      setState(() => _error = 'Select published rate, metal, purity, and weight in grams.');
+    final rateVer = (_calcRateVersionId ?? '').trim();
+    final metalId = (_calcMetalId ?? '').trim();
+    final purityId = (_calcPurityId ?? '').trim();
+    final wt = _calcWeight.text.trim();
+
+    if (rateVer.isEmpty || metalId.isEmpty || purityId.isEmpty || wt.isEmpty) {
+      setState(
+        () => _error = 'Select published rate, metal, purity, and enter weight in grams.',
+      );
       return;
     }
+    if (!isValidWeight(wt)) {
+      setState(() => _error = 'Weight g must be a positive decimal.');
+      return;
+    }
+
     setState(() {
-      _busy = true;
+      _calcBusy = true;
       _error = null;
     });
     try {
       final res = await context.read<ApiClient>().post(
         '/pricing/calculate-metal',
         body: {
-          'rateVersionId': _calcRateVersionId.text.trim(),
+          'rateVersionId': rateVer,
           'components': [
             {
-              'metalId': _calcMetalId.text.trim(),
-              'purityGradeId': _calcPurityId.text.trim(),
-              'weightGrams': _calcWeight.text.trim(),
+              'metalId': metalId,
+              'purityGradeId': purityId,
+              'weightGrams': normWeight6(wt),
               'side': _calcSide,
             },
           ],
@@ -2402,30 +2999,47 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _calcBusy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final metals = asList(_materials['metals']);
     final units = asList(_materials['units']);
+    final unitsFooter = _formatUnitsLine(units);
+
     final q = _search.text.trim().toLowerCase();
+    final fMetals = metals.where((m) {
+      if (q.isEmpty) return true;
+      final grades = asList(m['purityGrades'])
+          .map((g) => '${g['code']} ${g['displayKarat'] ?? ''}')
+          .join(' ');
+      return '${m['name']} ${m['code']} $grades'.toLowerCase().contains(q);
+    }).toList();
     final fBooks = _rateBooks.where((b) {
       if (q.isEmpty) return true;
       return '${b['name']} ${b['code']} ${b['currency']}'.toLowerCase().contains(q);
     }).toList();
-    final fMetals = metals.where((m) {
-      if (q.isEmpty) return true;
-      final grades = asList(m['purityGrades']).map((g) => '${g['code']} ${g['displayKarat']}').join(' ');
-      return '${m['name']} ${m['code']} $grades'.toLowerCase().contains(q);
-    }).toList();
+
+    final purityItems = _purityOpts(_calcMetalId);
 
     return LuxuryModuleScaffold(
       title: 'Materials & Bullion Rates',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.toll_rounded,
       searchController: _search,
-      searchHint: 'Search by Rate Book, Metal or Purity...',
+      searchHint: 'Search metals, purity grades or rate books...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -2433,338 +3047,469 @@ class _MaterialsRatesScreenState extends State<MaterialsRatesScreen> {
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
         ),
       ],
-      topFilterBar: PillTabs<String>(
-        value: _tab,
-        onChanged: (v) => setState(() {
-          _tab = v;
-          _openPanel = null;
-        }),
-        tabs: [
-          ('BOOKS', 'Rate Books (${_rateBooks.length})'),
-          ('METALS', 'Metals (${metals.length})'),
-          ('CALC', 'Price Check'),
-        ],
-      ),
-      secondaryFilterBar: _tab == 'METALS'
-          ? LuxurySubChips<String>(
-              value: _openPanel ?? '',
-              onChanged: (v) => setState(() => _openPanel = _openPanel == v ? null : v),
-              items: const [
-                ('METAL', '+ Add Metal Master'),
-                ('PURITY', '+ Add Purity Grade'),
-              ],
-            )
-          : null,
-      floatingActionButton: _tab == 'CALC'
-          ? null
-          : GoldAddFab(
-              icon: _openPanel != null ? Icons.close_rounded : Icons.add_rounded,
-              tooltip: _tab == 'BOOKS' ? 'New Rate Book' : 'Add Metal / Purity',
-              onPressed: () => setState(() {
-                if (_openPanel != null) {
-                  _openPanel = null;
-                } else {
-                  _openPanel = _tab == 'BOOKS' ? 'BOOK' : 'PURITY';
-                }
-              }),
-            ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 36),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-
-            if (_openPanel != null) ...[
-              const SizedBox(height: 4),
-              SaasFormCard(
-                title: _openPanel == 'METAL'
-                    ? 'Add metal master'
-                    : _openPanel == 'PURITY'
-                        ? 'Add purity grade'
-                        : 'New rate book',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_openPanel == 'METAL') ...[
-                      SaasField(label: 'Metal code (e.g. GOLD)', controller: _metalCode, mono: true),
-                      const SizedBox(height: 10),
-                      SaasField(label: 'Metal name', controller: _metalName),
-                    ] else if (_openPanel == 'PURITY') ...[
-                      LookupField(label: 'Metal', controller: _gradeMetalId, options: _metalOpts),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(child: SaasField(label: 'Grade code (22K916)', controller: _gradeCode, mono: true)),
-                          const SizedBox(width: 10),
-                          Expanded(child: SaasField(label: 'Display karat (22K)', controller: _gradeKarat)),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      SaasField(
-                        label: 'Fineness per thousand (e.g. 916.000000)',
-                        controller: _gradeFineness,
-                        mono: true,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                    ] else ...[
-                      SaasField(label: 'Rate book code', controller: _bookCode, mono: true),
-                      const SizedBox(height: 10),
-                      SaasField(label: 'Rate book name', controller: _bookName),
-                      const SizedBox(height: 10),
-                      SaasField(label: 'Currency', controller: _bookCurrency, mono: true),
-                    ],
-                    const SizedBox(height: 12),
-                    GoldButton(
-                      label: 'Save',
-                      busy: _busy,
-                      onPressed: _submitQuickMaster,
-                    ),
-                  ],
-                ),
-              ),
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
             ],
 
-            if (_versionTargetBook != null) ...[
-              const SizedBox(height: 14),
-              SaasFormCard(
-                title: 'Create complete version · ${_versionTargetBook!['name']}',
-                trailing: IconButton(
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                  onPressed: () => setState(() => _versionTargetBook = null),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (var i = 0; i < _versionLines.length; i++) ...[
-                      if (i > 0) const SizedBox(height: 10),
-                      SaasSubBox(
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: GoldDropdown<String>(
-                                    value: _versionLines[i].metalId.isEmpty ? null : _versionLines[i].metalId,
-                                    hint: 'Metal',
-                                    items: _metalOpts
-                                        .map((m) => DropdownMenuItem(value: m.id, child: Text(m.label)))
-                                        .toList(),
-                                    onChanged: (v) => setState(() => _versionLines[i].metalId = v ?? ''),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  width: 100,
-                                  child: GoldDropdown<String>(
-                                    value: _versionLines[i].side,
-                                    items: const [
-                                      DropdownMenuItem(value: 'SELL', child: Text('SELL')),
-                                      DropdownMenuItem(value: 'BUY', child: Text('BUY')),
-                                    ],
-                                    onChanged: (v) => setState(() => _versionLines[i].side = v ?? 'SELL'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    decoration: const InputDecoration(hintText: 'Rate'),
-                                    style: T.mono(13),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    onChanged: (v) => _versionLines[i].ratePerUnit = v,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  width: 90,
-                                  child: TextFormField(
-                                    initialValue: _versionLines[i].referenceFineness,
-                                    decoration: const InputDecoration(hintText: '999'),
-                                    style: T.mono(13),
-                                    onChanged: (v) => _versionLines[i].referenceFineness = v,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: GoldDropdown<String>(
-                                    value: _versionLines[i].unitId.isEmpty ? null : _versionLines[i].unitId,
-                                    hint: 'Unit',
-                                    items: _massUnitOpts
-                                        .map((u) => DropdownMenuItem(value: u.id, child: Text(u.label)))
-                                        .toList(),
-                                    onChanged: (v) => setState(() => _versionLines[i].unitId = v ?? ''),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: () => setState(() => _versionLines.add(_RateLineDraft())),
-                        icon: const Icon(Icons.add_rounded, size: 16),
-                        label: const Text('Add rate line'),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    GoldButton(
-                      label: 'Create immutable draft',
-                      busy: _busy,
-                      onPressed: _createRateVersion,
-                    ),
-                  ],
-                ),
+            // Bullion 24K active board badge + Materials and rates header card
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
               ),
-            ],
-
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_tab == 'BOOKS') ...[
-              if (fBooks.isEmpty)
-                const SaasEmptyBox('No rate books found. Tap + to create a rate book.')
-              else
-                for (final book in fBooks)
-                  LuxuryRecordCard(
-                    icon: Icons.scale_outlined,
-                    code: '${book['name']}',
-                    status: asList(book['versions']).any((v) => '${v['state']}' == 'PUBLISHED')
-                        ? 'PUBLISHED'
-                        : 'DRAFT',
-                    lines: [
-                      ('Code / Currency', '${book['code']} · ${book['currency']}'),
-                      ('Versions', '${asList(book['versions']).length} recorded'),
-                      for (final v in asList(book['versions']).take(2))
-                        ('v${v['sequenceNumber']} (${v['state']})', '${asList(v['lines']).length} lines · ${fmtDateTime('${v['effectiveAt'] ?? ''}')}'),
-                    ],
-                    amountLabel: 'Current',
-                    amountValue: 'v${book['version'] ?? 1}',
-                    actions: [
-                      OutlinedButton.icon(
-                        onPressed: () => setState(() => _versionTargetBook = book),
-                        icon: const Icon(Icons.add_rounded, size: 15),
-                        label: const Text('New Version'),
-                      ),
-                      for (final v in asList(book['versions']).where((x) => '${x['state']}' == 'DRAFT'))
-                        GoldButton(
-                          label: 'Publish v${v['sequenceNumber']}',
-                          compact: true,
-                          busy: _busy,
-                          icon: Icons.send_rounded,
-                          onPressed: () => _publishVersion(v),
-                        ),
-                    ],
-                  ),
-            ] else if (_tab == 'METALS') ...[
-              if (fMetals.isEmpty)
-                const SaasEmptyBox('No metals configured yet. Tap + to add a metal or purity grade.')
-              else
-                for (final m in fMetals)
-                  LuxuryRecordCard(
-                    icon: Icons.diamond_outlined,
-                    code: '${m['name']}',
-                    status: '${m['code']}',
-                    lines: [
-                      (
-                        'Purity Grades',
-                        asList(m['purityGrades']).isEmpty
-                            ? 'None configured'
-                            : asList(m['purityGrades'])
-                                .map((g) => '${g['code']}${g['displayKarat'] != null ? ' (${g['displayKarat']})' : ''} · ${g['finenessPerThousand']}‰')
-                                .join(', '),
-                      ),
-                      if (units.isNotEmpty)
-                        ('Mass Units', units.map((u) => '${u['code']}').join(' · ')),
-                    ],
-                    amountLabel: 'Purities',
-                    amountValue: '${asList(m['purityGrades']).length} grades',
-                  ),
-            ] else ...[
-              SaasFormCard(
-                title: 'Authoritative metal-price check',
-                icon: Icons.calculate_outlined,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LookupField(
-                      label: 'Published rate',
-                      controller: _calcRateVersionId,
-                      options: _publishedVersionOpts,
-                      hint: 'Published rate',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
                     ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Metal',
-                      controller: _calcMetalId,
-                      options: _metalOpts,
-                      hint: 'Metal',
-                      onSelected: (_) => setState(() => _calcPurityId.clear()),
-                    ),
-                    const SizedBox(height: 10),
-                    LookupField(
-                      label: 'Purity grade',
-                      controller: _calcPurityId,
-                      options: _purityOpts(_calcMetalId.text.trim()),
-                      hint: 'Purity',
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Expanded(
-                          child: SaasField(
-                            label: 'Weight grams',
-                            controller: _calcWeight,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasDropdown(
-                            label: 'Side',
-                            value: _calcSide,
-                            options: const {'SELL': 'SELL', 'BUY': 'BUY'},
-                            onChanged: (v) => setState(() => _calcSide = v),
+                        const Icon(Icons.toll_rounded, size: 13, color: Pal.goldDeep),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(11.5, weight: FontWeight.w700, color: Pal.goldDeep),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    GoldButton(
-                      label: 'Calculate Metal Value',
-                      busy: _busy,
-                      onPressed: _checkPrice,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(Icons.diamond_outlined, size: 20, color: Pal.gold),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Materials and rates',
+                          style: T.body(16.5, weight: FontWeight.w700, color: Pal.ink),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Exact purity masters and immutable, effective-dated metal rates.',
+                    style: T.body(12.5, color: Pal.muted),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                        onPressed: _openAddMetalModal,
+                        child: Text(
+                          'Add metal',
+                          style: T.body(12.5, weight: FontWeight.w600, color: Pal.ink),
+                        ),
+                      ),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                        onPressed: _openAddPurityModal,
+                        child: Text(
+                          'Add purity',
+                          style: T.body(12.5, weight: FontWeight.w600, color: Pal.ink),
+                        ),
+                      ),
+                      GoldButton(
+                        label: 'New rate book',
+                        compact: true,
+                        onPressed: _openNewRateBookModal,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // 1. Material masters card (exact image-17.png layout formatted for phone)
+            Panel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Material masters',
+                    style: T.body(15.5, weight: FontWeight.w700, color: Pal.ink),
+                  ),
+                  const SizedBox(height: 14),
+                  if (_loading && metals.isEmpty)
+                    const Skeleton(height: 92)
+                  else if (fMetals.isEmpty)
+                    Text(
+                      'No metals configured yet. Tap "Add metal" above to add a metal master.',
+                      style: T.body(12.5, color: Pal.muted),
+                    )
+                  else ...[
+                    for (var i = 0; i < fMetals.length; i++) ...[
+                      if (i > 0)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Divider(height: 1, color: Pal.divider),
+                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${fMetals[i]['name'] ?? ''}',
+                              style: T.body(14.5, weight: FontWeight.w700, color: Pal.ink),
+                            ),
+                          ),
+                          Text(
+                            '${fMetals[i]['code'] ?? ''}'.toUpperCase(),
+                            style: T.caps(10.8, color: Pal.muted),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if (asList(fMetals[i]['purityGrades']).isEmpty)
+                        Text(
+                          'No purity grades configured.',
+                          style: T.body(12, color: Pal.muted),
+                        )
+                      else
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final g in asList(fMetals[i]['purityGrades']))
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Pal.goldTint,
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(
+                                    color: Pal.borderGold.withValues(alpha: 0.55),
+                                  ),
+                                ),
+                                child: Text(
+                                  _formatPurityBadge(g),
+                                  style: T.mono(
+                                    11.8,
+                                    weight: FontWeight.w600,
+                                    color: Pal.goldDeep,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ],
+                  if (unitsFooter.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    const Divider(height: 1, color: Pal.divider),
+                    const SizedBox(height: 10),
+                    Text(
+                      unitsFooter,
+                      style: T.body(11.5, color: Pal.muted),
                     ),
-                    if (_priceResult != null) ...[
-                      const SizedBox(height: 12),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // 2. Rate books card (exact image-17.png layout formatted for phone)
+            Panel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.balance_rounded, size: 18, color: Pal.gold),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Rate books',
+                          style: T.body(15.5, weight: FontWeight.w700, color: Pal.ink),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_loading && _rateBooks.isEmpty)
+                    const Skeleton(height: 80)
+                  else if (fBooks.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Text(
+                        'No rate books recorded yet. Tap "New rate book" above to create one.',
+                        style: T.body(12.5, color: Pal.muted),
+                      ),
+                    )
+                  else
+                    for (var i = 0; i < fBooks.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 10),
                       SaasSubBox(
                         child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            KVRow('Total Metal Value', inr(_priceResult!['totalMetalValue']), bold: true),
-                            for (final c in asList(_priceResult!['components']))
-                              KVRow(
-                                '${c['metalCode']} ${c['purityCode']} (${grams(c['fineWeightGrams'])} fine)',
-                                inr(c['metalValue']),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${fBooks[i]['name'] ?? ''}',
+                                        style: T.body(
+                                          14,
+                                          weight: FontWeight.w700,
+                                          color: Pal.ink,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '${fBooks[i]['code'] ?? ''} · ${fBooks[i]['currency'] ?? 'INR'}',
+                                        style: T.mono(11.5, color: Pal.muted),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                StatusPill(
+                                  asList(fBooks[i]['versions']).any(
+                                    (v) => '${v['state']}'.toUpperCase() == 'PUBLISHED',
+                                  )
+                                      ? 'PUBLISHED'
+                                      : 'DRAFT',
+                                ),
+                              ],
+                            ),
+                            if (asList(fBooks[i]['versions']).isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              for (final v in asList(fBooks[i]['versions']).take(4))
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          'v${v['sequenceNumber']} (${v['state']}) · ${asList(v['lines']).length} lines · ${fmtDateTime('${v['effectiveAt'] ?? ''}')}',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: T.body(11.8, color: Pal.inkSoft),
+                                        ),
+                                      ),
+                                      if ('${v['state']}'.toUpperCase() == 'DRAFT') ...[
+                                        const SizedBox(width: 8),
+                                        GoldButton(
+                                          label: 'Publish v${v['sequenceNumber']}',
+                                          compact: true,
+                                          onPressed: () => _publishVersion(v),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                            ],
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                onPressed: () => _openCreateRateVersionSheet(fBooks[i]),
+                                icon: const Icon(Icons.add_rounded, size: 15),
+                                label: const Text('New rate version'),
                               ),
+                            ),
                           ],
                         ),
                       ),
                     ],
-                  ],
-                ),
+                ],
               ),
-            ],
+            ),
+
+            const SizedBox(height: 14),
+
+            // 3. Authoritative metal-price check card (exact image-17.png layout)
+            Panel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.calculate_outlined, size: 18, color: Pal.gold),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Authoritative metal-price check',
+                          style: T.body(15.5, weight: FontWeight.w700, color: Pal.ink),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  GoldDropdown<String>(
+                    value: _calcRateVersionId,
+                    hint: 'Published rate',
+                    items: _publishedVersionOpts
+                        .map(
+                          (o) => DropdownMenuItem<String>(
+                            value: o.id,
+                            child: Text(
+                              o.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) => setState(() => _calcRateVersionId = v),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GoldDropdown<String>(
+                          value: _calcMetalId,
+                          hint: 'Metal',
+                          items: _metalOpts
+                              .map(
+                                (m) => DropdownMenuItem<String>(
+                                  value: m.id,
+                                  child: Text(
+                                    m.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) => setState(() {
+                            _calcMetalId = v;
+                            _calcPurityId = null;
+                          }),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: GoldDropdown<String>(
+                          value: _calcPurityId,
+                          hint: 'Purity',
+                          items: purityItems
+                              .map(
+                                (p) => DropdownMenuItem<String>(
+                                  value: p.id,
+                                  child: Text(
+                                    p.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) {
+                            final picked = purityItems.where((x) => x.id == v).firstOrNull;
+                            final parentMetal = '${picked?.raw['_metalId'] ?? ''}'.trim();
+                            setState(() {
+                              _calcPurityId = v;
+                              if ((_calcMetalId ?? '').isEmpty && parentMetal.isNotEmpty) {
+                                _calcMetalId = parentMetal;
+                              }
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: TextField(
+                          controller: _calcWeight,
+                          style: T.mono(13.5),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            hintText: 'Weight g',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: GoldDropdown<String>(
+                          value: _calcSide,
+                          items: const [
+                            DropdownMenuItem(value: 'SELL', child: Text('SELL')),
+                            DropdownMenuItem(value: 'BUY', child: Text('BUY')),
+                          ],
+                          onChanged: (v) => setState(() => _calcSide = v ?? 'SELL'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  RoyalGoldButton(
+                    label: 'Calculate',
+                    busy: _calcBusy,
+                    onPressed: _calcBusy ? null : _checkPrice,
+                  ),
+                  if (_priceResult != null) ...[
+                    const SizedBox(height: 12),
+                    SaasSubBox(
+                      child: Column(
+                        children: [
+                          KVRow(
+                            'Total Metal Value',
+                            inr(_priceResult!['totalMetalValue']),
+                            bold: true,
+                          ),
+                          for (final c in asList(_priceResult!['components']))
+                            KVRow(
+                              '${c['metalCode'] ?? ''} ${c['purityCode'] ?? ''} (${grams(c['fineWeightGrams'])} fine)',
+                              inr(c['metalValue']),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),
