@@ -6,24 +6,28 @@ import 'package:provider/provider.dart';
 import '../../core/api.dart';
 import '../../core/app_state.dart';
 import '../../core/format.dart';
+import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/workspace_lookup.dart';
 
 // ---------------------------------------------------------------------------
-// 1. PROVIDER INTEGRATIONS (`/integrations`) — Screenshot (692)
+// 1. PROVIDER INTEGRATIONS (`/integrations`) — `image-40..41.png`
 // ---------------------------------------------------------------------------
 
 class ProviderIntegrationsScreen extends StatefulWidget {
   const ProviderIntegrationsScreen({super.key});
   @override
-  State<ProviderIntegrationsScreen> createState() => _ProviderIntegrationsScreenState();
+  State<ProviderIntegrationsScreen> createState() =>
+      _ProviderIntegrationsScreenState();
 }
 
-class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen> {
+class _ProviderIntegrationsScreenState
+    extends State<ProviderIntegrationsScreen> {
   final _search = TextEditingController();
   String _tab = 'CONNECTIONS';
-  bool _showForm = false;
+  bool _connFormExpanded = true;
+  bool _opFormExpanded = true;
   Map<String, dynamic> _ws = const {};
   bool _loading = true;
   bool _busy = false;
@@ -31,7 +35,7 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
 
   final _auditReason = TextEditingController();
 
-  // Register provider connection (Screenshot 692 left card)
+  // `Register provider connection` (`image-40.png`)
   String _capability = 'PAYMENT';
   final _providerKey = TextEditingController();
   final _displayName = TextEditingController();
@@ -41,7 +45,7 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
   final _webhookRef = TextEditingController();
   final _adapterJson = TextEditingController(text: '{}');
 
-  // Prepare outbound operation (Screenshot 692 right card)
+  // `Prepare outbound operation` (`image-40.png`)
   final _activeConnId = TextEditingController();
   final _operationType = TextEditingController();
   final _aggregateType = TextEditingController();
@@ -58,9 +62,20 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
   @override
   void dispose() {
     for (final c in [
-      _search, _auditReason, _providerKey, _displayName, _endpoint, _credentialRef,
-      _webhookRef, _adapterJson, _activeConnId, _operationType,
-      _aggregateType, _aggregateUuid, _aggregateVersion, _payloadJson,
+      _search,
+      _auditReason,
+      _providerKey,
+      _displayName,
+      _endpoint,
+      _credentialRef,
+      _webhookRef,
+      _adapterJson,
+      _activeConnId,
+      _operationType,
+      _aggregateType,
+      _aggregateUuid,
+      _aggregateVersion,
+      _payloadJson,
     ]) {
       c.dispose();
     }
@@ -90,10 +105,15 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
     }
     Map<String, dynamic> cfg = {};
     try {
-      final decoded = jsonDecode(_adapterJson.text.trim().isEmpty ? '{}' : _adapterJson.text.trim());
+      final decoded = jsonDecode(
+        _adapterJson.text.trim().isEmpty ? '{}' : _adapterJson.text.trim(),
+      );
       if (decoded is Map) cfg = Map<String, dynamic>.from(decoded);
     } catch (_) {
-      setState(() => _error = 'Adapter configuration JSON must be a valid JSON object.');
+      setState(
+        () => _error =
+            'Adapter configuration JSON must be a valid JSON object.',
+      );
       return;
     }
     setState(() {
@@ -109,21 +129,21 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
           'providerKey': _providerKey.text.trim().toUpperCase(),
           'displayName': _displayName.text.trim(),
           'scope': _scope,
-          if (_endpoint.text.trim().isNotEmpty) 'endpointUrl': _endpoint.text.trim(),
+          if (_endpoint.text.trim().isNotEmpty)
+            'endpointUrl': _endpoint.text.trim(),
           if (_credentialRef.text.trim().isNotEmpty)
             'credentialSecretRef': _credentialRef.text.trim(),
           if (_webhookRef.text.trim().isNotEmpty)
             'webhookSecretRef': _webhookRef.text.trim(),
           'adapterConfig': cfg,
-          if (_auditReason.text.trim().isNotEmpty) 'reason': _auditReason.text.trim(),
+          if (_auditReason.text.trim().isNotEmpty)
+            'reason': _auditReason.text.trim(),
         },
       );
       if (!mounted) return;
       _providerKey.clear();
       _displayName.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Draft provider connection saved.')),
-      );
+      toast(context, 'Draft provider connection saved.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -137,15 +157,22 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
         _operationType.text.trim().isEmpty ||
         _aggregateType.text.trim().isEmpty ||
         _aggregateUuid.text.trim().isEmpty) {
-      setState(() => _error = 'Select Active connection and fill Operation type, Aggregate type, and Aggregate UUID.');
+      setState(
+        () => _error =
+            'Select Active connection and fill Operation type, Aggregate type, and Aggregate UUID.',
+      );
       return;
     }
     Map<String, dynamic> payload = {};
     try {
-      final decoded = jsonDecode(_payloadJson.text.trim().isEmpty ? '{}' : _payloadJson.text.trim());
+      final decoded = jsonDecode(
+        _payloadJson.text.trim().isEmpty ? '{}' : _payloadJson.text.trim(),
+      );
       if (decoded is Map) payload = Map<String, dynamic>.from(decoded);
     } catch (_) {
-      setState(() => _error = 'Immutable payload JSON must be a valid JSON object.');
+      setState(
+        () => _error = 'Immutable payload JSON must be a valid JSON object.',
+      );
       return;
     }
     setState(() {
@@ -163,14 +190,13 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
           'aggregateId': _aggregateUuid.text.trim(),
           'aggregateVersion': int.tryParse(_aggregateVersion.text.trim()) ?? 1,
           'payload': payload,
-          if (_auditReason.text.trim().isNotEmpty) 'reason': _auditReason.text.trim(),
+          if (_auditReason.text.trim().isNotEmpty)
+            'reason': _auditReason.text.trim(),
         },
       );
       if (!mounted) return;
       _aggregateUuid.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Outbound provider operation queued.')),
-      );
+      toast(context, 'Outbound provider operation queued.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -179,20 +205,455 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Connection Lifecycle Sheet: Activate / Suspend / Rotate Secret Refs
+  // -------------------------------------------------------------------------
+  Future<void> _openConnectionControlSheet(Map<String, dynamic> c) async {
+    var actionTab = 'STATE';
+    final credRefCtrl = TextEditingController(
+      text: '${c['credentialSecretRef'] ?? ''}',
+    );
+    final hookRefCtrl = TextEditingController(
+      text: '${c['webhookSecretRef'] ?? ''}',
+    );
+    final reasonCtrl = TextEditingController(text: _auditReason.text.trim());
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Manage Connection · ${c['displayName'] ?? c['providerKey'] ?? ''}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${c['state'] ?? c['status'] ?? 'DRAFT'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: actionTab,
+                  onChanged: (v) => setSheet(() {
+                    actionTab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('STATE', 'Activate / Suspend'),
+                    ('SECRETS', 'Rotate Secret Refs'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (actionTab == 'STATE') ...[
+                  SaasField(
+                    label: 'Audit reason (min 10 chars)',
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  if (reasonCtrl.text.trim().length < 10) {
+                                    setSheet(
+                                      () => sheetErr =
+                                          'Enter audit reason (10+ chars).',
+                                    );
+                                    return;
+                                  }
+                                  setSheet(() {
+                                    saving = true;
+                                    sheetErr = null;
+                                  });
+                                  try {
+                                    await context.read<ApiClient>().post(
+                                      '/integrations/connections/${c['id']}/suspend',
+                                      idempotent: true,
+                                      body: {
+                                        'expectedVersion':
+                                            asInt(c['version'], fallback: 1),
+                                        'reason': reasonCtrl.text.trim(),
+                                      },
+                                    );
+                                    if (!ctx.mounted) return;
+                                    Navigator.pop(ctx);
+                                    if (!mounted) return;
+                                    toast(context, 'Connection suspended.');
+                                    _load();
+                                  } on ApiException catch (e) {
+                                    setSheet(() => sheetErr = e.message);
+                                  } finally {
+                                    if (ctx.mounted) {
+                                      setSheet(() => saving = false);
+                                    }
+                                  }
+                                },
+                          child: const Text('Suspend'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: RoyalGoldButton(
+                          label: 'Activate Connection',
+                          busy: saving,
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  if (reasonCtrl.text.trim().length < 10) {
+                                    setSheet(
+                                      () => sheetErr =
+                                          'Enter audit reason (10+ chars).',
+                                    );
+                                    return;
+                                  }
+                                  setSheet(() {
+                                    saving = true;
+                                    sheetErr = null;
+                                  });
+                                  try {
+                                    await context.read<ApiClient>().post(
+                                      '/integrations/connections/${c['id']}/activate',
+                                      idempotent: true,
+                                      body: {
+                                        'expectedVersion':
+                                            asInt(c['version'], fallback: 1),
+                                        'reason': reasonCtrl.text.trim(),
+                                      },
+                                    );
+                                    if (!ctx.mounted) return;
+                                    Navigator.pop(ctx);
+                                    if (!mounted) return;
+                                    toast(context, 'Connection activated.');
+                                    _load();
+                                  } on ApiException catch (e) {
+                                    setSheet(() => sheetErr = e.message);
+                                  } finally {
+                                    if (ctx.mounted) {
+                                      setSheet(() => saving = false);
+                                    }
+                                  }
+                                },
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  SaasField(
+                    label: 'Credential secret ref',
+                    controller: credRefCtrl,
+                    hint: 'env:PAYMENT_API_KEY',
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Webhook secret ref',
+                    controller: hookRefCtrl,
+                    hint: 'env:PAYMENT_WEBHOOK_SECRET',
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Rotation audit reason (min 10 chars)',
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Rotate Secret References',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter rotation reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/integrations/connections/${c['id']}/rotate-secrets',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(c['version'], fallback: 1),
+                                  if (credRefCtrl.text.trim().isNotEmpty)
+                                    'credentialSecretRef':
+                                        credRefCtrl.text.trim(),
+                                  if (hookRefCtrl.text.trim().isNotEmpty)
+                                    'webhookSecretRef': hookRefCtrl.text.trim(),
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Secret references rotated.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final ctrl in [credRefCtrl, hookRefCtrl, reasonCtrl]) {
+      ctrl.dispose();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Outbound Operation Control: Immutable Attempt & Unknown-Outcome Reconcile
+  // -------------------------------------------------------------------------
+  Future<void> _openOperationControlSheet(Map<String, dynamic> op) async {
+    var outcome = 'SUCCEEDED';
+    final extRefCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController(text: _auditReason.text.trim());
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Operation Control · ${op['operationType'] ?? shortId('${op['id']}')}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${op['state'] ?? op['status'] ?? 'PENDING'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Dispatch an immutable attempt or reconcile an unknown provider outcome.',
+                  style: T.body(12, color: Pal.muted),
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+                RoyalGoldButton(
+                  label: 'Execute Immutable Attempt',
+                  busy: saving,
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          setSheet(() {
+                            saving = true;
+                            sheetErr = null;
+                          });
+                          try {
+                            await context.read<ApiClient>().post(
+                              '/integrations/operations/${op['id']}/execute',
+                              idempotent: true,
+                              body: {
+                                'expectedVersion':
+                                    asInt(op['version'], fallback: 1),
+                                if (reasonCtrl.text.trim().isNotEmpty)
+                                  'reason': reasonCtrl.text.trim(),
+                              },
+                            );
+                            if (!ctx.mounted) return;
+                            Navigator.pop(ctx);
+                            if (!mounted) return;
+                            toast(context, 'Immutable provider attempt recorded.');
+                            _load();
+                          } on ApiException catch (e) {
+                            setSheet(() => sheetErr = e.message);
+                          } finally {
+                            if (ctx.mounted) setSheet(() => saving = false);
+                          }
+                        },
+                ),
+                const Divider(height: 24),
+                SaasDropdown(
+                  label: 'Unknown-outcome reconciliation state',
+                  value: outcome,
+                  options: const {
+                    'SUCCEEDED': 'Confirmed Succeeded at Provider',
+                    'FAILED_TERMINAL': 'Confirmed Terminal Failure',
+                    'RETRYABLE': 'Mark Retryable',
+                  },
+                  onChanged: (v) => setSheet(() => outcome = v),
+                ),
+                const SizedBox(height: 10),
+                SaasField(
+                  label: 'External provider reference / evidence',
+                  controller: extRefCtrl,
+                  mono: true,
+                ),
+                const SizedBox(height: 10),
+                SaasField(
+                  label: 'Reconciliation audit reason (min 10 chars)',
+                  controller: reasonCtrl,
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 14),
+                OutlinedButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          if (reasonCtrl.text.trim().length < 10) {
+                            setSheet(
+                              () => sheetErr =
+                                  'Enter reconciliation reason (10+ chars).',
+                            );
+                            return;
+                          }
+                          setSheet(() {
+                            saving = true;
+                            sheetErr = null;
+                          });
+                          try {
+                            await context.read<ApiClient>().post(
+                              '/integrations/operations/${op['id']}/reconcile',
+                              idempotent: true,
+                              body: {
+                                'expectedVersion':
+                                    asInt(op['version'], fallback: 1),
+                                'outcome': outcome,
+                                if (extRefCtrl.text.trim().isNotEmpty)
+                                  'providerReference': extRefCtrl.text.trim(),
+                                'reason': reasonCtrl.text.trim(),
+                              },
+                            );
+                            if (!ctx.mounted) return;
+                            Navigator.pop(ctx);
+                            if (!mounted) return;
+                            toast(context, 'Operation outcome reconciled.');
+                            _load();
+                          } on ApiException catch (e) {
+                            setSheet(() => sheetErr = e.message);
+                          } finally {
+                            if (ctx.mounted) setSheet(() => saving = false);
+                          }
+                        },
+                  child: const Text('Reconcile Unknown Outcome'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    extRefCtrl.dispose();
+    reasonCtrl.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final conns = asList(_ws['connections']);
-    final ops = asList(_ws['operations'] ?? _ws['outboundOperations']);
-    final hooks = asList(_ws['webhooks'] ?? _ws['webhookEvents']);
-    final activeCount = conns.where((c) => '${c['state'] ?? c['status']}' == 'ACTIVE').length;
-    final pendingOps = ops.where((o) => '${o['state'] ?? o['status']}' == 'PENDING').length;
+    final ops = asList(
+      _ws['operations'] ??
+          _ws['externalOperations'] ??
+          _ws['outboundOperations'],
+    );
+    final hooks = asList(
+      _ws['webhooks'] ?? _ws['webhookInbox'] ?? _ws['webhookEvents'],
+    );
+    final activeCount = conns
+        .where((c) => '${c['state'] ?? c['status']}'.toUpperCase() == 'ACTIVE')
+        .length;
+    final pendingOps = ops.where((o) {
+      final st = '${o['state'] ?? o['status']}'.toUpperCase();
+      return st == 'PENDING' || st == 'QUEUED' || st == 'UNKNOWN_OUTCOME';
+    }).length;
 
     final connOpts = conns
-        .map((c) => LookupOption(
-              id: '${c['id']}',
-              label: '${c['displayName'] ?? c['providerKey']} (${c['capability'] ?? ''})',
-              raw: c,
-            ))
+        .map(
+          (c) => LookupOption(
+            id: '${c['id']}',
+            label:
+                '${c['displayName'] ?? c['providerKey']} (${c['capability'] ?? ''})',
+            raw: c,
+          ),
+        )
         .where((o) => o.id.isNotEmpty)
         .toList();
 
@@ -211,16 +672,17 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
     }).toList();
     final fHooks = hooks.where((h) {
       if (q.isEmpty) return true;
-      return '${h['eventType'] ?? ''} ${h['providerKey'] ?? ''} ${h['id'] ?? ''}'
+      return '${h['eventType'] ?? ''} ${h['externalEventId'] ?? ''} ${h['providerKey'] ?? ''} ${h['payloadDigest'] ?? ''}'
           .toLowerCase()
           .contains(q);
     }).toList();
 
     return LuxuryModuleScaffold(
       title: 'Provider Integrations',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.cloud_sync_outlined,
       searchController: _search,
-      searchHint: 'Search by Provider, Capability or Event...',
+      searchHint: 'Search Provider, Operation or Webhook...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -230,275 +692,460 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
       ],
       topFilterBar: PillTabs<String>(
         value: _tab,
-        onChanged: (v) => setState(() {
-          _tab = v;
-          _showForm = false;
-        }),
+        onChanged: (v) => setState(() => _tab = v),
         tabs: [
           ('CONNECTIONS', 'Connections (${conns.length})'),
-          ('OPERATIONS', 'Operations (${ops.length})'),
-          ('WEBHOOKS', 'Webhooks (${hooks.length})'),
+          ('OPERATIONS', 'External Ops (${ops.length})'),
+          ('WEBHOOKS', 'Webhook Inbox (${hooks.length})'),
         ],
       ),
-      floatingActionButton: _tab == 'WEBHOOKS'
-          ? null
-          : GoldAddFab(
-              icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-              tooltip: _tab == 'CONNECTIONS' ? 'New Provider Connection' : 'Queue Outbound Operation',
-              onPressed: () => setState(() => _showForm = !_showForm),
-            ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header Card (`Provider Integrations` — image-40.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.cloud_sync_outlined,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Provider Integrations',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Tenant-isolated payment, GST, messaging and export connections with secret references, signed webhooks, immutable attempts and unknown-outcome reconciliation.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Exact 4 KPI Cards (`image-40.png`)
             SaasKpiGrid(
               items: [
                 (label: 'CONNECTIONS', value: '${conns.length}'),
                 (label: 'ACTIVE', value: '$activeCount'),
-                (label: 'PENDING OPS', value: '$pendingOps'),
-                (label: 'WEBHOOKS', value: '${hooks.length}'),
+                (label: 'PENDING OPERATIONS', value: '$pendingOps'),
+                (label: 'VERIFIED WEBHOOKS', value: '${hooks.length}'),
               ],
             ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            if (_showForm) ...[
-              const SizedBox(height: 12),
-              SaasField(
+
+            const SizedBox(height: 12),
+
+            // Shared `Audit reason` (`image-40.png`)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Pal.border),
+              ),
+              child: SaasField(
                 label: 'Audit reason',
                 controller: _auditReason,
-                hint: 'Reason required for state changes and outbound commands',
               ),
-              const SizedBox(height: 12),
-              if (_tab == 'CONNECTIONS')
-                SaasFormCard(
-                  title: 'Register provider connection',
-                  trailing: TextButton(
-                    onPressed: () => setState(() => _showForm = false),
-                    child: const Text('Close'),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SaasDropdown(
-                              label: 'Capability',
-                              value: _capability,
-                              options: const {
-                                'PAYMENT': 'PAYMENT',
-                                'GST': 'GST',
-                                'MESSAGING': 'MESSAGING',
-                                'EXPORT': 'EXPORT',
-                              },
-                              onChanged: (v) => setState(() => _capability = v),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SaasField(
-                              label: 'Provider key',
-                              controller: _providerKey,
-                              hint: 'RAZORPAY_PROD',
-                              mono: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SaasField(
-                              label: 'Display name',
-                              controller: _displayName,
-                              hint: 'Production payment gateway',
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SaasDropdown(
-                              label: 'Scope',
-                              value: _scope,
-                              options: const {
-                                'LEGAL_ENTITY': 'Entire legal entity',
-                                'BRANCH': 'Current branch',
-                              },
-                              onChanged: (v) => setState(() => _scope = v),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      SaasField(
-                        label: 'HTTPS endpoint (optional)',
-                        controller: _endpoint,
-                        hint: 'https://provider.example/api/',
-                        mono: true,
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SaasField(
-                              label: 'Credential secret ref',
-                              controller: _credentialRef,
-                              hint: 'env:PAYMENT_API_KEY',
-                              mono: true,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SaasField(
-                              label: 'Webhook secret ref',
-                              controller: _webhookRef,
-                              hint: 'env:PAYMENT_WEBHOOK_SECRET',
-                              mono: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      SaasField(
-                        label: 'Adapter configuration JSON',
-                        controller: _adapterJson,
-                        mono: true,
-                        maxLines: 3,
-                      ),
-                      const SizedBox(height: 12),
-                      GoldButton(
-                        label: 'Save Draft Connection',
-                        busy: _busy,
-                        onPressed: _saveConnection,
-                      ),
-                    ],
-                  ),
-                )
-              else
-                SaasFormCard(
-                  title: 'Prepare outbound operation',
-                  trailing: TextButton(
-                    onPressed: () => setState(() => _showForm = false),
-                    child: const Text('Close'),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      LookupField(
-                        label: 'Active connection',
-                        controller: _activeConnId,
-                        options: connOpts,
-                        hint: 'Select...',
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SaasField(
-                              label: 'Operation type',
-                              controller: _operationType,
-                              hint: 'PAYMENT_CREATE',
-                              mono: true,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SaasField(
-                              label: 'Aggregate type',
-                              controller: _aggregateType,
-                              hint: 'settlement_document',
-                              mono: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: SaasField(
-                              label: 'Aggregate UUID',
-                              controller: _aggregateUuid,
-                              mono: true,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SaasField(
-                              label: 'Aggregate version',
-                              controller: _aggregateVersion,
-                              mono: true,
-                              keyboardType: TextInputType.number,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      SaasField(
-                        label: 'Immutable payload JSON',
-                        controller: _payloadJson,
-                        mono: true,
-                        maxLines: 3,
-                      ),
-                      const SizedBox(height: 12),
-                      GoldButton(
-                        label: 'Queue Operation',
-                        icon: Icons.send_rounded,
-                        busy: _busy,
-                        onPressed: _queueOperation,
-                      ),
-                    ],
-                  ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // TAB 1: CONNECTIONS (`Register provider connection` + `Connections` — image-40..41.png)
+            if (_tab == 'CONNECTIONS') ...[
+              SaasFormCard(
+                title: 'Register provider connection',
+                icon: Icons.key_rounded,
+                trailing: TextButton(
+                  onPressed: () =>
+                      setState(() => _connFormExpanded = !_connFormExpanded),
+                  child: Text(_connFormExpanded ? 'Hide' : 'Show'),
                 ),
-            ],
-            const SizedBox(height: 14),
-            if (_loading)
-              const Center(child: CircularProgressIndicator())
-            else if (_tab == 'CONNECTIONS') ...[
-              if (fConns.isEmpty)
-                const SaasEmptyBox('No provider connections registered yet. Tap + to register an adapter.')
+                child: !_connFormExpanded
+                    ? Text(
+                        'Tap Show to register a payment, GST, messaging or export provider connection.',
+                        style: T.body(12.2, color: Pal.muted),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasDropdown(
+                                  label: 'Capability',
+                                  value: _capability,
+                                  options: const {
+                                    'PAYMENT': 'PAYMENT',
+                                    'GST': 'GST',
+                                    'MESSAGING': 'MESSAGING',
+                                    'EXPORT': 'EXPORT',
+                                  },
+                                  onChanged: (v) =>
+                                      setState(() => _capability = v),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Provider key',
+                                  controller: _providerKey,
+                                  hint: 'RAZORPAY_PROD',
+                                  mono: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Display name',
+                                  controller: _displayName,
+                                  hint: 'Production payment gateway',
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasDropdown(
+                                  label: 'Scope',
+                                  value: _scope,
+                                  options: const {
+                                    'LEGAL_ENTITY': 'Entire legal entity',
+                                    'BRANCH': 'Current branch',
+                                  },
+                                  onChanged: (v) => setState(() => _scope = v),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'HTTPS endpoint (optional)',
+                            controller: _endpoint,
+                            hint: 'https://provider.example/api/',
+                            mono: true,
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Credential secret ref',
+                                  controller: _credentialRef,
+                                  hint: 'env:PAYMENT_API_KEY',
+                                  mono: true,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Webhook secret ref',
+                                  controller: _webhookRef,
+                                  hint: 'env:PAYMENT_WEBHOOK_SECRET',
+                                  mono: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'Adapter configuration JSON',
+                            controller: _adapterJson,
+                            mono: true,
+                            maxLines: 2,
+                          ),
+                          const SizedBox(height: 14),
+                          RoyalGoldButton(
+                            label: 'Save draft connection',
+                            icon: Icons.verified_user_outlined,
+                            busy: _busy,
+                            onPressed: _busy ? null : _saveConnection,
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Connections',
+                style: T.body(14.5, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              if (_loading)
+                const Panel(child: Skeleton(height: 92))
+              else if (fConns.isEmpty)
+                const SaasEmptyBox(
+                  'No provider connections registered in the authorized workspace.',
+                )
               else
                 for (final c in fConns)
                   LuxuryRecordCard(
                     icon: Icons.cloud_sync_outlined,
                     code: '${c['displayName'] ?? c['providerKey']}',
                     status: '${c['state'] ?? 'DRAFT'}',
+                    onTap: () => _openConnectionControlSheet(c),
                     lines: [
                       ('Provider Key', '${c['providerKey'] ?? ''}'),
                       ('Scope', '${c['scope'] ?? ''}'),
+                      if ('${c['endpointUrl'] ?? ''}'.isNotEmpty)
+                        ('Endpoint', '${c['endpointUrl']}'),
                     ],
                     amountLabel: 'Capability',
                     amountValue: '${c['capability'] ?? 'ADAPTER'}',
+                    actions: [
+                      GoldButton(
+                        label: 'Manage Connection',
+                        compact: true,
+                        onPressed: () => _openConnectionControlSheet(c),
+                      ),
+                    ],
                   ),
-            ] else if (_tab == 'OPERATIONS') ...[
-              if (fOps.isEmpty)
-                const SaasEmptyBox('No outbound provider operations queued yet. Tap + to queue one.')
+            ]
+
+            // TAB 2: EXTERNAL OPERATIONS (`Prepare outbound operation` + `External operations` — image-40..41.png)
+            else if (_tab == 'OPERATIONS') ...[
+              SaasFormCard(
+                title: 'Prepare outbound operation',
+                icon: Icons.send_outlined,
+                trailing: TextButton(
+                  onPressed: () =>
+                      setState(() => _opFormExpanded = !_opFormExpanded),
+                  child: Text(_opFormExpanded ? 'Hide' : 'Show'),
+                ),
+                child: !_opFormExpanded
+                    ? Text(
+                        'Tap Show to prepare and queue an outbound provider operation.',
+                        style: T.body(12.2, color: Pal.muted),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          LookupField(
+                            label: 'Active connection',
+                            controller: _activeConnId,
+                            options: connOpts,
+                            hint: 'Select...',
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Operation type',
+                                  controller: _operationType,
+                                  hint: 'PAYMENT_CREATE',
+                                  mono: true,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Aggregate type',
+                                  controller: _aggregateType,
+                                  hint: 'settlement_document',
+                                  mono: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: SaasField(
+                                  label: 'Aggregate UUID',
+                                  controller: _aggregateUuid,
+                                  mono: true,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Aggregate version',
+                                  controller: _aggregateVersion,
+                                  mono: true,
+                                  keyboardType: TextInputType.number,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'Immutable payload JSON',
+                            controller: _payloadJson,
+                            mono: true,
+                            maxLines: 2,
+                          ),
+                          const SizedBox(height: 14),
+                          RoyalGoldButton(
+                            label: 'Queue operation',
+                            icon: Icons.send_rounded,
+                            busy: _busy,
+                            onPressed: _busy ? null : _queueOperation,
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'External operations',
+                style: T.body(14.5, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'CREATED · PROVIDER / OPERATION · AGGREGATE · STATE · ATTEMPTS · CONTROL',
+                style: T.caps(9.8),
+              ),
+              const SizedBox(height: 8),
+              if (_loading)
+                const Panel(child: Skeleton(height: 92))
+              else if (fOps.isEmpty)
+                const SaasEmptyBox('No external operations have been queued.')
               else
                 for (final o in fOps)
                   LuxuryRecordCard(
                     icon: Icons.send_rounded,
                     code: '${o['operationType'] ?? shortId('${o['id']}')}',
                     status: '${o['state'] ?? o['status'] ?? 'PENDING'}',
+                    onTap: () => _openOperationControlSheet(o),
                     lines: [
-                      ('Aggregate', '${o['aggregateType'] ?? ''} · ${shortId('${o['aggregateId'] ?? ''}')}'),
+                      if ('${o['createdAt'] ?? ''}'.isNotEmpty)
+                        ('Created', fmtDateTime('${o['createdAt']}')),
+                      (
+                        'Aggregate',
+                        '${o['aggregateType'] ?? ''} · ${shortId('${o['aggregateId'] ?? ''}')}',
+                      ),
                     ],
-                    amountLabel: 'Retries',
-                    amountValue: '${o['attemptCount'] ?? 0}',
+                    amountLabel: 'Attempts',
+                    amountValue: '${o['attemptCount'] ?? o['attempts'] ?? 0}',
+                    actions: [
+                      GoldButton(
+                        label: 'Control',
+                        compact: true,
+                        onPressed: () => _openOperationControlSheet(o),
+                      ),
+                    ],
                   ),
-            ] else ...[
-              if (fHooks.isEmpty)
-                const SaasEmptyBox('No verified inbound provider webhooks received yet.')
+            ]
+
+            // TAB 3: WEBHOOK INBOX (`Webhook inbox` — image-41.png)
+            else ...[
+              Row(
+                children: [
+                  const Icon(
+                    Icons.webhook_rounded,
+                    size: 18,
+                    color: Pal.goldDeep,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Webhook inbox',
+                    style: T.body(14.5, weight: FontWeight.w700),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'VERIFIED · EXTERNAL EVENT · STATE · PAYLOAD DIGEST',
+                style: T.caps(9.8),
+              ),
+              const SizedBox(height: 8),
+              if (_loading)
+                const Panel(child: Skeleton(height: 92))
+              else if (fHooks.isEmpty)
+                const SaasEmptyBox(
+                  'No signed provider webhook has been received.',
+                )
               else
                 for (final h in fHooks)
                   LuxuryRecordCard(
                     icon: Icons.webhook_rounded,
-                    code: '${h['eventType'] ?? shortId('${h['id']}')}',
-                    status: 'VERIFIED',
+                    code:
+                        '${h['eventType'] ?? h['externalEventId'] ?? shortId('${h['id']}')}',
+                    status: '${h['state'] ?? 'VERIFIED'}',
                     lines: [
-                      ('Provider', '${h['providerKey'] ?? 'GATEWAY'}'),
-                      if ('${h['receivedAt'] ?? ''}'.isNotEmpty) ('Received', fmtDateTime('${h['receivedAt']}')),
+                      if ('${h['verifiedAt'] ?? h['receivedAt'] ?? ''}'
+                          .isNotEmpty)
+                        (
+                          'Verified',
+                          fmtDateTime(
+                            '${h['verifiedAt'] ?? h['receivedAt']}',
+                          ),
+                        ),
+                      if ('${h['payloadDigest'] ?? h['digest'] ?? ''}'
+                          .isNotEmpty)
+                        (
+                          'Payload Digest',
+                          '${h['payloadDigest'] ?? h['digest']}',
+                        ),
                     ],
                     amountLabel: 'Signature',
                     amountValue: 'Verified',
@@ -512,11 +1159,14 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
 }
 
 // ---------------------------------------------------------------------------
-// 2. GST REGISTRATION & TRANSPORT (`/gst-compliance`) — Screenshots (693-694)
+// 2. GST REGISTRATION & TRANSPORT (`/gst-compliance`) — `image-42..43.png`
 // ---------------------------------------------------------------------------
 
 class GstRegistrationTransportScreen extends StatefulWidget {
-  const GstRegistrationTransportScreen({super.key, this.submissionsFocus = false});
+  const GstRegistrationTransportScreen({
+    super.key,
+    this.submissionsFocus = false,
+  });
   final bool submissionsFocus;
   @override
   State<GstRegistrationTransportScreen> createState() =>
@@ -526,8 +1176,9 @@ class GstRegistrationTransportScreen extends StatefulWidget {
 class _GstRegistrationTransportScreenState
     extends State<GstRegistrationTransportScreen> {
   final _search = TextEditingController();
-  late String _tab = widget.submissionsFocus ? 'SUBMISSIONS' : 'SUBMISSIONS';
-  bool _showForm = false;
+  late String _tab = widget.submissionsFocus ? 'SUBMISSIONS' : 'PROFILES';
+  bool _profileFormExpanded = true;
+  bool _subFormExpanded = true;
   Map<String, dynamic> _ws = const {};
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
@@ -536,7 +1187,7 @@ class _GstRegistrationTransportScreenState
 
   final _auditReason = TextEditingController();
 
-  // Effective GST profile (Screenshots 693 & 694)
+  // `Effective GST profile` (`image-42..43.png`)
   final _sellerGstin = TextEditingController();
   final _legalName = TextEditingController();
   final _tradeName = TextEditingController();
@@ -554,7 +1205,7 @@ class _GstRegistrationTransportScreenState
   bool _requireIrnForRegistered = false;
   bool _enableThresholdEway = false;
 
-  // Prepare provider submission (Screenshot 693 right card)
+  // `Prepare provider submission` (`image-42.png`)
   String _docKind = 'EINVOICE_IRN';
   final _invoiceId = TextEditingController();
   final _taxConnId = TextEditingController();
@@ -571,10 +1222,26 @@ class _GstRegistrationTransportScreenState
   @override
   void dispose() {
     for (final c in [
-      _search, _auditReason, _sellerGstin, _legalName, _tradeName, _addr1, _addr2,
-      _city, _stateCode, _pinCode, _ewayThreshold, _reportingWindowDays,
-      _stockHoldMinutes, _effectiveFrom, _effectiveUntil, _invoiceId,
-      _taxConnId, _openPeriodId, _invSeriesId, _placeOfSupply,
+      _search,
+      _auditReason,
+      _sellerGstin,
+      _legalName,
+      _tradeName,
+      _addr1,
+      _addr2,
+      _city,
+      _stateCode,
+      _pinCode,
+      _ewayThreshold,
+      _reportingWindowDays,
+      _stockHoldMinutes,
+      _effectiveFrom,
+      _effectiveUntil,
+      _invoiceId,
+      _taxConnId,
+      _openPeriodId,
+      _invSeriesId,
+      _placeOfSupply,
     ]) {
       c.dispose();
     }
@@ -599,9 +1266,17 @@ class _GstRegistrationTransportScreenState
         ),
       ]);
       if (!mounted) return;
+      final lk = res[1] as WorkspaceLookup;
+      if (_openPeriodId.text.isEmpty && lk.openPeriods().isNotEmpty) {
+        _openPeriodId.text = lk.openPeriods().first.id;
+      }
+      if (_invSeriesId.text.isEmpty) {
+        final s = lk.seriesFor(const ['INVOICE', 'SALES']);
+        if (s.isNotEmpty) _invSeriesId.text = s.first.id;
+      }
       setState(() {
         _ws = asMap(res[0]);
-        _lk = res[1] as WorkspaceLookup;
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -614,7 +1289,10 @@ class _GstRegistrationTransportScreenState
     if (_sellerGstin.text.trim().length != 15 ||
         _legalName.text.trim().isEmpty ||
         _stateCode.text.trim().length != 2) {
-      setState(() => _error = 'Enter 15-char Seller GSTIN, Registered legal name, and 2-digit GST state code.');
+      setState(
+        () => _error =
+            'Enter 15-character Seller GSTIN, Registered legal name, and 2-digit GST state code.',
+      );
       return;
     }
     setState(() {
@@ -628,30 +1306,33 @@ class _GstRegistrationTransportScreenState
         body: {
           'sellerGstin': _sellerGstin.text.trim().toUpperCase(),
           'registeredLegalName': _legalName.text.trim(),
-          if (_tradeName.text.trim().isNotEmpty) 'tradeName': _tradeName.text.trim(),
+          if (_tradeName.text.trim().isNotEmpty)
+            'tradeName': _tradeName.text.trim(),
           'addressLine1': _addr1.text.trim(),
-          if (_addr2.text.trim().isNotEmpty) 'addressLine2': _addr2.text.trim(),
+          if (_addr2.text.trim().isNotEmpty)
+            'addressLine2': _addr2.text.trim(),
           'city': _city.text.trim(),
           'stateCode': _stateCode.text.trim(),
           'postalCode': _pinCode.text.trim(),
           if (_ewayThreshold.text.trim().isNotEmpty)
-            'ewayBillThresholdAmount': _ewayThreshold.text.trim(),
+            'ewayBillThresholdAmount': normAmount(_ewayThreshold.text),
           if (_reportingWindowDays.text.trim().isNotEmpty)
-            'reportingWindowDays': int.tryParse(_reportingWindowDays.text.trim()) ?? 3,
-          'stockHoldMinutes': int.tryParse(_stockHoldMinutes.text.trim()) ?? 120,
+            'reportingWindowDays':
+                int.tryParse(_reportingWindowDays.text.trim()) ?? 3,
+          'stockHoldMinutes':
+              int.tryParse(_stockHoldMinutes.text.trim()) ?? 120,
           'effectiveFrom': _effectiveFrom.text.trim(),
           if (_effectiveUntil.text.trim().isNotEmpty)
             'effectiveTo': _effectiveUntil.text.trim(),
           'enableEinvoiceRegistration': _enableEinvoice,
           'requireIrnForRegisteredCustomers': _requireIrnForRegistered,
           'enableThresholdEwayBillControl': _enableThresholdEway,
-          if (_auditReason.text.trim().isNotEmpty) 'reason': _auditReason.text.trim(),
+          if (_auditReason.text.trim().isNotEmpty)
+            'reason': _auditReason.text.trim(),
         },
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Draft GST profile saved.')),
-      );
+      toast(context, 'Draft GST profile saved.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -662,7 +1343,9 @@ class _GstRegistrationTransportScreenState
 
   Future<void> _prepareSubmission() async {
     if (_invoiceId.text.trim().isEmpty || _taxConnId.text.trim().isEmpty) {
-      setState(() => _error = 'Select Invoice and Tax provider connection.');
+      setState(
+        () => _error = 'Select Invoice and Tax provider connection.',
+      );
       return;
     }
     setState(() {
@@ -683,13 +1366,12 @@ class _GstRegistrationTransportScreenState
             'documentSeriesId': _invSeriesId.text.trim(),
           if (_placeOfSupply.text.trim().isNotEmpty)
             'placeOfSupplyStateCode': _placeOfSupply.text.trim(),
-          if (_auditReason.text.trim().isNotEmpty) 'reason': _auditReason.text.trim(),
+          if (_auditReason.text.trim().isNotEmpty)
+            'reason': _auditReason.text.trim(),
         },
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('GST provider submission prepared & queued.')),
-      );
+      toast(context, 'GST provider submission prepared & queued.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -698,10 +1380,411 @@ class _GstRegistrationTransportScreenState
     }
   }
 
+  // -------------------------------------------------------------------------
+  // GST Profile Lifecycle Modal: Approve / Retire
+  // -------------------------------------------------------------------------
+  Future<void> _openProfileLifecycleSheet(Map<String, dynamic> p) async {
+    final reasonCtrl = TextEditingController(text: _auditReason.text.trim());
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'GST Profile · ${p['sellerGstin'] ?? ''}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${p['state'] ?? 'DRAFT'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+                SaasField(
+                  label: 'Audit reason (min 10 chars)',
+                  controller: reasonCtrl,
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 14),
+                RoyalGoldButton(
+                  label: 'Approve & Activate GST Profile',
+                  busy: saving,
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          if (reasonCtrl.text.trim().length < 10) {
+                            setSheet(
+                              () => sheetErr = 'Enter audit reason (10+ chars).',
+                            );
+                            return;
+                          }
+                          setSheet(() {
+                            saving = true;
+                            sheetErr = null;
+                          });
+                          try {
+                            await context.read<ApiClient>().post(
+                              '/gst-compliance/profiles/${p['id']}/approve',
+                              idempotent: true,
+                              body: {
+                                'expectedVersion':
+                                    asInt(p['version'], fallback: 1),
+                                'reason': reasonCtrl.text.trim(),
+                              },
+                            );
+                            if (!ctx.mounted) return;
+                            Navigator.pop(ctx);
+                            if (!mounted) return;
+                            toast(context, 'GST profile approved & active.');
+                            _load();
+                          } on ApiException catch (e) {
+                            setSheet(() => sheetErr = e.message);
+                          } finally {
+                            if (ctx.mounted) setSheet(() => saving = false);
+                          }
+                        },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    reasonCtrl.dispose();
+  }
+
+  // -------------------------------------------------------------------------
+  // GST Submission Lifecycle: Registration, Cancellation & Recovery (`image-43`)
+  // -------------------------------------------------------------------------
+  Future<void> _openSubmissionLifecycleSheet(Map<String, dynamic> s) async {
+    var actionTab = 'REGISTER';
+    final irnCtrl = TextEditingController(text: '${s['irn'] ?? ''}');
+    final ackNoCtrl = TextEditingController(text: '${s['ackNumber'] ?? ''}');
+    final ewayCtrl = TextEditingController(
+      text: '${s['ewayBillNumber'] ?? ''}',
+    );
+    var cancelCode = 'DATA_ENTRY_MISTAKE';
+    var recoveryAction = 'RETRY_SUBMISSION';
+    final reasonCtrl = TextEditingController(text: _auditReason.text.trim());
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Submission · ${s['documentKind'] ?? 'EINVOICE_IRN'}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${s['state'] ?? 'QUEUED'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: actionTab,
+                  onChanged: (v) => setSheet(() {
+                    actionTab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('REGISTER', 'Registration'),
+                    ('CANCEL', 'Cancellation'),
+                    ('RECOVER', 'Recovery'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (actionTab == 'REGISTER') ...[
+                  SaasField(
+                    label: 'IRP Registered IRN (64-char hash, optional if GSP)',
+                    controller: irnCtrl,
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasField(
+                          label: 'Acknowledgement No.',
+                          controller: ackNoCtrl,
+                          mono: true,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'E-Way Bill No.',
+                          controller: ewayCtrl,
+                          mono: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Audit reason (min 10 chars)',
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Confirm Registration & Post Evidence',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter audit reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/gst-compliance/submissions/${s['id']}/register',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(s['version'], fallback: 1),
+                                  if (irnCtrl.text.trim().isNotEmpty)
+                                    'irn': irnCtrl.text.trim(),
+                                  if (ackNoCtrl.text.trim().isNotEmpty)
+                                    'ackNumber': ackNoCtrl.text.trim(),
+                                  if (ewayCtrl.text.trim().isNotEmpty)
+                                    'ewayBillNumber': ewayCtrl.text.trim(),
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(
+                                context,
+                                'GST registration evidence confirmed.',
+                              );
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else if (actionTab == 'CANCEL') ...[
+                  SaasDropdown(
+                    label: 'Statutory cancellation reason code',
+                    value: cancelCode,
+                    options: const {
+                      'DUPLICATE': '1 · Duplicate IRN / E-Way Bill',
+                      'DATA_ENTRY_MISTAKE': '2 · Data entry mistake',
+                      'ORDER_CANCELLED': '3 · Order cancelled',
+                      'OTHERS': '4 · Others',
+                    },
+                    onChanged: (v) => setSheet(() => cancelCode = v),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Cancellation audit reason (min 10 chars)',
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Cancel Registration',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter cancellation reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/gst-compliance/submissions/${s['id']}/cancel',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(s['version'], fallback: 1),
+                                  'cancellationCode': cancelCode,
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'GST registration cancelled.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else ...[
+                  SaasDropdown(
+                    label: 'Recovery action',
+                    value: recoveryAction,
+                    options: const {
+                      'RETRY_SUBMISSION': 'Retry GSP provider submission',
+                      'RELEASE_STOCK_HOLD': 'Release expired stock hold',
+                      'MARK_REJECTED': 'Mark terminal rejection for correction',
+                    },
+                    onChanged: (v) => setSheet(() => recoveryAction = v),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Recovery audit reason (min 10 chars)',
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Execute Recovery',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Enter recovery reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/gst-compliance/submissions/${s['id']}/recover',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(s['version'], fallback: 1),
+                                  'recoveryAction': recoveryAction,
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'GST submission recovery executed.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final ctrl in [irnCtrl, ackNoCtrl, ewayCtrl, reasonCtrl]) {
+      ctrl.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final profiles = asList(_ws['profiles'] ?? _ws['gstProfiles']);
     final submissions = asList(_ws['submissions'] ?? _ws['gstSubmissions']);
+
+    final gstConns = _lk.connections.where((c) {
+      final cap = '${c.raw['capability'] ?? ''}'.toUpperCase();
+      return cap.isEmpty || cap == 'GST';
+    }).toList();
 
     final q = _search.text.trim().toLowerCase();
     final fSubs = submissions.where((s) {
@@ -718,10 +1801,13 @@ class _GstRegistrationTransportScreenState
     }).toList();
 
     return LuxuryModuleScaffold(
-      title: widget.submissionsFocus ? 'GST E-Invoices & Bills' : 'GST Registration & Transport',
+      title: widget.submissionsFocus
+          ? 'GST E-Invoices & Bills'
+          : 'GST Registration & Transport',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.verified_user_outlined,
       searchController: _search,
-      searchHint: 'Search by IRN, E-Way Bill or GSTIN...',
+      searchHint: 'Search by GSTIN, IRN or E-Way Bill...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -731,243 +1817,451 @@ class _GstRegistrationTransportScreenState
       ],
       topFilterBar: PillTabs<String>(
         value: _tab,
-        onChanged: (v) => setState(() {
-          _tab = v;
-          _showForm = false;
-        }),
+        onChanged: (v) => setState(() => _tab = v),
         tabs: [
-          ('SUBMISSIONS', 'IRN & E-Way (${submissions.length})'),
-          ('PROFILES', 'GST Profiles (${profiles.length})'),
+          ('PROFILES', 'Effective GST Profile (${profiles.length})'),
+          ('SUBMISSIONS', 'IRN & E-Way Bills (${submissions.length})'),
         ],
-      ),
-      floatingActionButton: GoldAddFab(
-        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: _tab == 'PROFILES' ? 'New GST Profile' : 'Prepare IRN / E-Way Bill',
-        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-            if (_showForm) ...[
-              SaasField(
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header Card (`GST Registration & Transport` — image-42.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.description_outlined,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'GST Registration & Transport',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Prepare registered-customer invoices, review provider evidence and track registration before posting or dispatch.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Shared `Audit reason (required for commands)` (`image-42.png`)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Pal.border),
+              ),
+              child: SaasField(
                 label: 'Audit reason (required for commands)',
                 controller: _auditReason,
               ),
-              const SizedBox(height: 12),
-              if (_tab == 'PROFILES')
-                SaasFormCard(
-                  title: 'Effective GST profile',
-                  subtitle:
-                      'Enter accountant-approved applicability and reporting rules for this legal entity.',
-                  icon: Icons.shield_outlined,
-                  trailing: TextButton(
-                    onPressed: () => setState(() => _showForm = false),
-                    child: const Text('Close'),
+            ),
+
+            const SizedBox(height: 12),
+
+            // TAB 1: EFFECTIVE GST PROFILE (`image-42..43.png`)
+            if (_tab == 'PROFILES') ...[
+              SaasFormCard(
+                title: 'Effective GST profile',
+                subtitle:
+                    'Enter accountant-approved applicability and reporting rules for this legal entity.',
+                icon: Icons.verified_user_outlined,
+                trailing: TextButton(
+                  onPressed: () => setState(
+                    () => _profileFormExpanded = !_profileFormExpanded,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SaasField(label: 'Seller GSTIN', controller: _sellerGstin, mono: true),
-                      const SizedBox(height: 10),
-                      SaasField(label: 'Registered legal name', controller: _legalName),
-                      const SizedBox(height: 10),
-                      SaasField(label: 'Trade name', controller: _tradeName),
-                      const SizedBox(height: 10),
-                      SaasField(label: 'Address line 1', controller: _addr1),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(child: SaasField(label: 'Address line 2', controller: _addr2)),
-                          const SizedBox(width: 10),
-                          Expanded(child: SaasField(label: 'City / location', controller: _city)),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(child: SaasField(label: 'GST state code', controller: _stateCode, mono: true)),
-                          const SizedBox(width: 10),
-                          Expanded(child: SaasField(label: 'PIN code', controller: _pinCode, mono: true)),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SaasField(
-                              label: 'Approved e-way bill threshold (INR)',
-                              controller: _ewayThreshold,
-                              mono: true,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SaasField(
-                              label: 'Approved reporting window (days)',
-                              controller: _reportingWindowDays,
-                              mono: true,
-                              keyboardType: TextInputType.number,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      SaasField(
-                        label: 'Stock hold (minutes)',
-                        controller: _stockHoldMinutes,
-                        mono: true,
-                        keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(child: DatePickField(label: 'Effective from', controller: _effectiveFrom)),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: DatePickField(
-                              label: 'Effective until (optional)',
-                              controller: _effectiveUntil,
-                              optional: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      SaasCheckRow(
-                        label: 'Enable e-invoice registration',
-                        value: _enableEinvoice,
-                        onChanged: (v) => setState(() => _enableEinvoice = v),
-                      ),
-                      SaasCheckRow(
-                        label: 'Require IRN for registered customers',
-                        value: _requireIrnForRegistered,
-                        onChanged: (v) => setState(() => _requireIrnForRegistered = v),
-                      ),
-                      SaasCheckRow(
-                        label: 'Enable threshold-based e-way bill control',
-                        value: _enableThresholdEway,
-                        onChanged: (v) => setState(() => _enableThresholdEway = v),
-                      ),
-                      const SizedBox(height: 12),
-                      GoldButton(
-                        label: 'Save Draft Profile',
-                        busy: _busy,
-                        onPressed: _saveGstProfile,
-                      ),
-                    ],
-                  ),
-                )
-              else
-                SaasFormCard(
-                  title: 'Prepare provider submission',
-                  icon: Icons.local_shipping_outlined,
-                  trailing: TextButton(
-                    onPressed: () => setState(() => _showForm = false),
-                    child: const Text('Close'),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SaasDropdown(
-                        label: 'Document kind',
-                        value: _docKind,
-                        options: const {
-                          'EINVOICE_IRN': 'E-invoice / IRN',
-                          'EWAY_BILL': 'E-way bill',
-                        },
-                        onChanged: (v) => setState(() => _docKind = v),
-                      ),
-                      const SizedBox(height: 10),
-                      LookupField(
-                        label: 'Invoice',
-                        controller: _invoiceId,
-                        options: _lk.invoices,
-                        hint: 'Select...',
-                      ),
-                      const SizedBox(height: 10),
-                      LookupField(
-                        label: 'Tax provider connection',
-                        controller: _taxConnId,
-                        options: _lk.connections,
-                        hint: 'Select...',
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: LookupField(
-                              label: 'Open posting period',
-                              controller: _openPeriodId,
-                              options: _lk.openPeriods(),
-                              hint: 'Select...',
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: LookupField(
-                              label: 'Invoice series',
-                              controller: _invSeriesId,
-                              options: _lk.seriesFor(const ['INVOICE', 'SALES']),
-                              hint: 'Select...',
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      SaasField(
-                        label: 'Place of supply (GST state code)',
-                        controller: _placeOfSupply,
-                        mono: true,
-                      ),
-                      const SizedBox(height: 12),
-                      GoldButton(
-                        label: 'Prepare & Queue',
-                        busy: _busy,
-                        onPressed: _prepareSubmission,
-                      ),
-                    ],
-                  ),
+                  child: Text(_profileFormExpanded ? 'Hide' : 'Show'),
                 ),
+                child: !_profileFormExpanded
+                    ? Text(
+                        'Tap Show to configure the effective GST profile for this legal entity.',
+                        style: T.body(12.2, color: Pal.muted),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Seller GSTIN',
+                                  controller: _sellerGstin,
+                                  mono: true,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Registered legal name',
+                                  controller: _legalName,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Trade name',
+                                  controller: _tradeName,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Address line 1',
+                                  controller: _addr1,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Address line 2',
+                                  controller: _addr2,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'City / location',
+                                  controller: _city,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'GST state code',
+                                  controller: _stateCode,
+                                  mono: true,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'PIN code',
+                                  controller: _pinCode,
+                                  mono: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Approved e-way bill threshold (INR)',
+                                  controller: _ewayThreshold,
+                                  mono: true,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Approved reporting window (days)',
+                                  controller: _reportingWindowDays,
+                                  mono: true,
+                                  keyboardType: TextInputType.number,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'Stock hold (minutes)',
+                            controller: _stockHoldMinutes,
+                            mono: true,
+                            keyboardType: TextInputType.number,
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: DatePickField(
+                                  label: 'Effective from',
+                                  controller: _effectiveFrom,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: DatePickField(
+                                  label: 'Effective until (optional)',
+                                  controller: _effectiveUntil,
+                                  optional: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SaasCheckRow(
+                            label: 'Enable e-invoice registration',
+                            value: _enableEinvoice,
+                            onChanged: (v) =>
+                                setState(() => _enableEinvoice = v),
+                          ),
+                          SaasCheckRow(
+                            label: 'Require IRN for registered customers',
+                            value: _requireIrnForRegistered,
+                            onChanged: (v) =>
+                                setState(() => _requireIrnForRegistered = v),
+                          ),
+                          SaasCheckRow(
+                            label: 'Enable threshold-based e-way bill control',
+                            value: _enableThresholdEway,
+                            onChanged: (v) =>
+                                setState(() => _enableThresholdEway = v),
+                          ),
+                          const SizedBox(height: 14),
+                          RoyalGoldButton(
+                            label: 'Save draft profile',
+                            busy: _busy,
+                            onPressed: _busy ? null : _saveGstProfile,
+                          ),
+                        ],
+                      ),
+              ),
               const SizedBox(height: 14),
-            ],
-            if (_loading)
-              const Center(child: CircularProgressIndicator())
-            else if (_tab == 'PROFILES') ...[
-              if (fProfs.isEmpty)
-                const SaasEmptyBox('No GST profile configured. Tap + to create an effective GST profile.')
+              Text(
+                'GST profiles',
+                style: T.body(14.5, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              if (_loading)
+                const Panel(child: Skeleton(height: 92))
+              else if (fProfs.isEmpty)
+                const SaasEmptyBox('No GST profile configured.')
               else
                 for (final p in fProfs)
                   LuxuryRecordCard(
-                    icon: Icons.shield_outlined,
+                    icon: Icons.verified_user_outlined,
                     code: '${p['sellerGstin'] ?? 'GSTIN'}',
                     status: '${p['state'] ?? 'DRAFT'}',
+                    onTap: () => _openProfileLifecycleSheet(p),
                     lines: [
                       ('Legal Name', '${p['registeredLegalName'] ?? ''}'),
-                      ('State / PIN', '${p['stateCode'] ?? ''} · ${p['postalCode'] ?? ''}'),
+                      (
+                        'State / PIN',
+                        '${p['stateCode'] ?? ''} · ${p['postalCode'] ?? ''}',
+                      ),
                     ],
-                    amountLabel: 'Effective',
+                    amountLabel: 'Effective From',
                     amountValue: fmtDate('${p['effectiveFrom'] ?? ''}'),
+                    actions: [
+                      GoldButton(
+                        label: 'Manage Profile',
+                        compact: true,
+                        onPressed: () => _openProfileLifecycleSheet(p),
+                      ),
+                    ],
                   ),
-            ] else ...[
-              if (fSubs.isEmpty)
-                const SaasEmptyBox('No GST E-Invoice or E-Way Bill prepared yet. Tap + to prepare one.')
+            ]
+
+            // TAB 2: PREPARE PROVIDER SUBMISSION & REGISTRATION/CANCELLATION/RECOVERY (`image-42..43.png`)
+            else ...[
+              SaasFormCard(
+                title: 'Prepare provider submission',
+                icon: Icons.local_shipping_outlined,
+                trailing: TextButton(
+                  onPressed: () =>
+                      setState(() => _subFormExpanded = !_subFormExpanded),
+                  child: Text(_subFormExpanded ? 'Hide' : 'Show'),
+                ),
+                child: !_subFormExpanded
+                    ? Text(
+                        'Tap Show to prepare an E-invoice / IRN or E-way bill submission.',
+                        style: T.body(12.2, color: Pal.muted),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SaasDropdown(
+                            label: 'Document kind',
+                            value: _docKind,
+                            options: const {
+                              'EINVOICE_IRN': 'E-invoice / IRN',
+                              'EWAY_BILL': 'E-way bill',
+                            },
+                            onChanged: (v) => setState(() => _docKind = v),
+                          ),
+                          const SizedBox(height: 10),
+                          LookupField(
+                            label: 'Invoice',
+                            controller: _invoiceId,
+                            options: _lk.invoices,
+                            hint: 'Select...',
+                          ),
+                          const SizedBox(height: 10),
+                          LookupField(
+                            label: 'Tax provider connection',
+                            controller: _taxConnId,
+                            options: gstConns.isNotEmpty
+                                ? gstConns
+                                : _lk.connections,
+                            hint: 'Select...',
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: LookupField(
+                                  label: 'Open posting period',
+                                  controller: _openPeriodId,
+                                  options: _lk.openPeriods(),
+                                  hint: 'Select...',
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: LookupField(
+                                  label: 'Invoice series',
+                                  controller: _invSeriesId,
+                                  options: _lk.seriesFor(
+                                    const ['INVOICE', 'SALES'],
+                                  ),
+                                  hint: 'Select...',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'Place of supply (GST state code)',
+                            controller: _placeOfSupply,
+                            mono: true,
+                          ),
+                          const SizedBox(height: 14),
+                          RoyalGoldButton(
+                            label: 'Prepare & queue',
+                            busy: _busy,
+                            onPressed: _busy ? null : _prepareSubmission,
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Registration, cancellation & recovery',
+                style: T.body(14.5, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              if (_loading)
+                const Panel(child: Skeleton(height: 92))
+              else if (fSubs.isEmpty)
+                const SaasEmptyBox('No GST submission prepared.')
               else
                 for (final s in fSubs)
                   LuxuryRecordCard(
                     icon: Icons.verified_user_outlined,
-                    code: '${s['irn'] ?? s['ewayBillNumber'] ?? shortId('${s['id']}')}',
+                    code:
+                        '${s['irn'] ?? s['ewayBillNumber'] ?? shortId('${s['id']}')}',
                     status: '${s['state'] ?? 'QUEUED'}',
+                    onTap: () => _openSubmissionLifecycleSheet(s),
                     lines: [
-                      ('Document Kind', '${s['documentKind'] ?? 'EINVOICE_IRN'}'),
-                      if ('${s['placeOfSupply'] ?? ''}'.isNotEmpty) ('Place of Supply', '${s['placeOfSupply']}'),
+                      (
+                        'Document Kind',
+                        '${s['documentKind'] ?? 'EINVOICE_IRN'}',
+                      ),
+                      if ('${s['placeOfSupply'] ?? s['placeOfSupplyStateCode'] ?? ''}'
+                          .isNotEmpty)
+                        (
+                          'Place of Supply',
+                          '${s['placeOfSupply'] ?? s['placeOfSupplyStateCode']}',
+                        ),
+                      if ('${s['ackNumber'] ?? ''}'.isNotEmpty)
+                        ('Ack No.', '${s['ackNumber']}'),
                     ],
                     amountLabel: 'Stage',
                     amountValue: statusLabel('${s['state'] ?? 'QUEUED'}'),
+                    actions: [
+                      GoldButton(
+                        label: 'Manage Registration',
+                        compact: true,
+                        onPressed: () => _openSubmissionLifecycleSheet(s),
+                      ),
+                    ],
                   ),
             ],
           ],
