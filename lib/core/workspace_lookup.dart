@@ -613,6 +613,7 @@ class SaasField extends StatelessWidget {
     this.mono = false,
     this.maxLines = 1,
     this.trailing,
+    this.onChanged,
   });
 
   final String label;
@@ -622,6 +623,7 @@ class SaasField extends StatelessWidget {
   final bool mono;
   final int maxLines;
   final Widget? trailing;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -634,6 +636,7 @@ class SaasField extends StatelessWidget {
           controller: controller,
           keyboardType: keyboardType,
           maxLines: maxLines,
+          onChanged: onChanged,
           style: mono ? T.mono(13) : T.body(13.5, w: FontWeight.w500),
           decoration: InputDecoration(hintText: hint),
         ),

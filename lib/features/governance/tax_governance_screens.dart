@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api.dart';
@@ -2272,7 +2273,7 @@ class _GstRegistrationTransportScreenState
 }
 
 // ---------------------------------------------------------------------------
-// 3. GST RETURNS & ITC REVIEW (`/gst-returns`) — Screenshots (695-696)
+// 3. GST RETURNS & ITC REVIEW (`/gst-returns`) — `image-44..45.png`
 // ---------------------------------------------------------------------------
 
 class GstReturnsItcScreen extends StatefulWidget {
@@ -2282,46 +2283,225 @@ class GstReturnsItcScreen extends StatefulWidget {
 }
 
 class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
+  static const List<String> _monthNames = <String>[
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
   final _search = TextEditingController();
-  String _tab = 'PAPERS';
-  bool _showForm = false;
+  String _tab = 'GSTR2B';
+  bool _importExpanded = true;
+  bool _papersExpanded = true;
   final _returnMonth = TextEditingController(text: todayIso().substring(0, 7));
+
   Map<String, dynamic> _ws = const {};
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // Shared governance inputs (`image-44.png`)
   final _commandReason = TextEditingController();
   final _itcEvidence = TextEditingController();
 
-  // 1. Import & reconcile GSTR-2B (Screenshot 695-696)
+  // 1. Import & reconcile GSTR-2B (`image-44..45.png`)
   final _gstr2bJson = TextEditingController();
+  String _gstr2bFileLabel = 'No file chosen';
   final _importedStmtId = TextEditingController();
 
-  // 2. Prepare GSTR working papers (Screenshot 695-696)
+  // 2. Prepare GSTR working papers (`image-44..45.png`)
   final _approvedReconId = TextEditingController();
   final _b2clThreshold = TextEditingController();
   final _mappingsJson = TextEditingController();
+  String _mappingsFileLabel = 'No file chosen';
 
-  // Working papers & approvals
+  // Working papers & approvals (`image-45.png`)
   final _selectedRecordId = TextEditingController();
+  String _exportReturnType = 'GSTR1';
 
   @override
   void initState() {
     super.initState();
+    _selectedRecordId.addListener(_onRecordSelectionChanged);
     _load();
+  }
+
+  void _onRecordSelectionChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _selectedRecordId.removeListener(_onRecordSelectionChanged);
     for (final c in [
-      _search, _returnMonth, _commandReason, _itcEvidence, _gstr2bJson,
-      _importedStmtId, _approvedReconId, _b2clThreshold,
-      _mappingsJson, _selectedRecordId,
+      _search,
+      _returnMonth,
+      _commandReason,
+      _itcEvidence,
+      _gstr2bJson,
+      _importedStmtId,
+      _approvedReconId,
+      _b2clThreshold,
+      _mappingsJson,
+      _selectedRecordId,
     ]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  String _formatReturnMonthDisplay(String ym) {
+    final parts = ym.trim().split('-');
+    if (parts.length == 2) {
+      final y = int.tryParse(parts[0]);
+      final m = int.tryParse(parts[1]);
+      if (y != null && m != null && m >= 1 && m <= 12) {
+        return '${_monthNames[m - 1]}, $y';
+      }
+    }
+    return ym;
+  }
+
+  Future<void> _pickReturnMonth() async {
+    final parts = _returnMonth.text.trim().split('-');
+    int selYear = int.tryParse(parts.isNotEmpty ? parts[0] : '') ??
+        int.parse(todayIso().substring(0, 4));
+    int selMonth = int.tryParse(parts.length > 1 ? parts[1] : '') ??
+        int.parse(todayIso().substring(5, 7));
+
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModal) => AlertDialog(
+            backgroundColor: Pal.card,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: const BorderSide(color: Pal.borderGold),
+            ),
+            title: Text(
+              'Select Return Month',
+              style: T.body(16, weight: FontWeight.w700, color: Pal.ink),
+            ),
+            content: SizedBox(
+              width: 320,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      IconButton(
+                        onPressed: () => setModal(() => selYear -= 1),
+                        icon: const Icon(Icons.chevron_left_rounded),
+                      ),
+                      Text(
+                        '$selYear',
+                        style: T.mono(
+                          16,
+                          weight: FontWeight.w700,
+                          color: Pal.ink,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => setModal(() => selYear += 1),
+                        icon: const Icon(Icons.chevron_right_rounded),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: List.generate(12, (idx) {
+                      final m = idx + 1;
+                      final active = m == selMonth;
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () => setModal(() => selMonth = m),
+                        child: Container(
+                          width: 68,
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: active ? Pal.goldTint : Pal.bgTint,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: active ? Pal.gold : Pal.border,
+                            ),
+                          ),
+                          child: Text(
+                            _monthNames[idx].substring(0, 3),
+                            style: T.body(
+                              12.5,
+                              weight:
+                                  active ? FontWeight.w700 : FontWeight.w500,
+                              color: active ? Pal.goldDeep : Pal.ink,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              GoldButton(
+                label: 'Apply Month',
+                compact: true,
+                onPressed: () {
+                  final mm = selMonth.toString().padLeft(2, '0');
+                  Navigator.of(ctx).pop('$selYear-$mm');
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (picked != null && picked != _returnMonth.text.trim()) {
+      setState(() => _returnMonth.text = picked);
+      await _load();
+    }
+  }
+
+  Future<dynamic> _postFirstLive(
+    ApiClient api,
+    List<String> candidatePaths,
+    Map<String, dynamic> body,
+  ) async {
+    ApiException? lastErr;
+    for (var i = 0; i < candidatePaths.length; i++) {
+      try {
+        return await api.post(
+          candidatePaths[i],
+          idempotent: true,
+          body: body,
+        );
+      } on ApiException catch (e) {
+        lastErr = e;
+        if (e.status == 404 && i + 1 < candidatePaths.length) {
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw lastErr ?? ApiException('HTTP_ERROR', 'Request failed.');
   }
 
   Future<void> _load() async {
@@ -2330,10 +2510,14 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
       _error = null;
     });
     try {
-      final d = await context.read<ApiClient>().get('/gst-returns', query: {
-        'returnMonth': _returnMonth.text.trim(),
-        'period': _returnMonth.text.trim(),
-      });
+      final ym = _returnMonth.text.trim();
+      final d = await context.read<ApiClient>().get(
+        '/gst-returns',
+        query: {
+          'returnMonth': ym,
+          'period': ym,
+        },
+      );
       if (!mounted) return;
       setState(() => _ws = asMap(d));
     } on ApiException catch (e) {
@@ -2343,27 +2527,173 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
     }
   }
 
-  void _createMappingTemplate() {
+  int _metricCount(dynamic val, [dynamic fallback]) {
+    if (val is int) return val;
+    if (val is num) return val.toInt();
+    if (val is List) return val.length;
+    if (val is String) {
+      final parsed = int.tryParse(val.trim());
+      if (parsed != null) return parsed;
+    }
+    if (fallback != null) return _metricCount(fallback);
+    return 0;
+  }
+
+  Future<void> _pasteClipboardInto(
+    TextEditingController target, {
+    required bool isGstr2b,
+  }) async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final txt = (data?.text ?? '').trim();
+    if (!mounted) return;
+    if (txt.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Clipboard is empty. Copy JSON content first.'),
+        ),
+      );
+      return;
+    }
     setState(() {
-      _mappingsJson.text = const JsonEncoder.withIndent('  ').convert({
-        'schema': 'GST_RETURN_MAPPING_V1',
-        'hsnOverrides': [],
-        'placeOfSupplyOverrides': [],
-        'itcReversals': [],
-      });
+      target.text = txt;
+      final label = 'Clipboard JSON (${txt.length} chars)';
+      if (isGstr2b) {
+        _gstr2bFileLabel = label;
+      } else {
+        _mappingsFileLabel = label;
+      }
     });
   }
 
-  Future<void> _runGstMutation(Future<void> Function(ApiClient api) fn, String msg) async {
+  void _createMappingTemplate() {
+    final outward = asList(
+      _ws['outwardLines'] ?? _ws['postedOutwardSources'] ?? const [],
+    );
+    final purchases = asList(
+      _ws['purchaseBookEntries'] ?? _ws['purchaseSources'] ?? const [],
+    );
+    final hsnOverrides = <Map<String, dynamic>>[];
+    final posOverrides = <Map<String, dynamic>>[];
+    final itcReversals = <Map<String, dynamic>>[];
+
+    final seenHsn = <String>{};
+    for (final line in outward) {
+      final hsn = '${line['hsnCode'] ?? line['hsn'] ?? ''}'.trim();
+      if (hsn.isNotEmpty && seenHsn.add(hsn)) {
+        hsnOverrides.add({
+          'sourceHsn': hsn,
+          'reviewedHsn': hsn,
+          'uqc': '${line['uqc'] ?? 'GMS'}',
+        });
+      }
+      final pos =
+          '${line['placeOfSupply'] ?? line['placeOfSupplyStateCode'] ?? ''}'
+              .trim();
+      final docId = '${line['documentId'] ?? line['invoiceId'] ?? ''}'.trim();
+      if (pos.isNotEmpty && docId.isNotEmpty) {
+        posOverrides.add({
+          'documentId': docId,
+          'placeOfSupplyStateCode': pos,
+        });
+      }
+    }
+
+    for (final entry in purchases) {
+      final rev = '${entry['reversalRule'] ?? ''}'.trim();
+      final docId = '${entry['id'] ?? entry['documentId'] ?? ''}'.trim();
+      if (rev.isNotEmpty && docId.isNotEmpty) {
+        itcReversals.add({
+          'purchaseDocumentId': docId,
+          'rule': rev,
+        });
+      }
+    }
+
+    final templateObj = <String, dynamic>{
+      'schema': 'GST_WORKING_PAPER_MAPPING_V1',
+      'returnMonth': _returnMonth.text.trim(),
+      'hsnMappings': hsnOverrides,
+      'placeOfSupplyMappings': posOverrides,
+      'taxHeadAdjustments': <Map<String, dynamic>>[],
+      'itcReversals': itcReversals,
+    };
+
+    setState(() {
+      _mappingsJson.text =
+          const JsonEncoder.withIndent('  ').convert(templateObj);
+      _mappingsFileLabel = 'Template from posted sources';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Mapping template generated from posted workspace sources.'),
+      ),
+    );
+  }
+
+  Future<void> _importGstr2b() async {
+    final reason = _commandReason.text.trim();
+    if (reason.isEmpty) {
+      setState(
+        () => _error = 'Enter Command reason before importing GSTR-2B records.',
+      );
+      return;
+    }
+    final raw = _gstr2bJson.text.trim();
+    if (raw.isEmpty) {
+      setState(
+        () => _error =
+            'Provide normalized GSTR-2B JSON records (NORMALIZED_GSTR_2B_V1).',
+      );
+      return;
+    }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException catch (e) {
+      setState(() => _error = 'Invalid GSTR-2B JSON: ${e.message}');
+      return;
+    }
+
+    final List<dynamic> records = decoded is List
+        ? decoded
+        : (decoded is Map && decoded['records'] is List
+            ? decoded['records'] as List<dynamic>
+            : <dynamic>[decoded]);
+
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await fn(context.read<ApiClient>());
+      final ym = _returnMonth.text.trim();
+      final evidence = _itcEvidence.text.trim();
+      await _postFirstLive(
+        context.read<ApiClient>(),
+        const [
+          '/gst-returns/gstr2b-imports',
+          '/gst-returns/gstr2b/import',
+          '/gst-returns/imports',
+        ],
+        {
+          'returnMonth': ym,
+          'period': ym,
+          'schema': 'NORMALIZED_GSTR_2B_V1',
+          'format': 'NORMALIZED_GSTR_2B_V1',
+          'records': records,
+          'reason': reason,
+          'auditReason': reason,
+          if (evidence.isNotEmpty) 'evidenceReference': evidence,
+          if (evidence.isNotEmpty) 'evidence': evidence,
+        },
+      );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      _load();
+      _gstr2bJson.clear();
+      setState(() => _gstr2bFileLabel = 'No file chosen');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Normalized GSTR-2B records imported.')),
+      );
+      await _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -2371,46 +2701,623 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
     }
   }
 
+  Future<void> _buildReconciliation() async {
+    final reason = _commandReason.text.trim();
+    final stmtId = _importedStmtId.text.trim();
+    if (stmtId.isEmpty) {
+      setState(
+        () => _error = 'Select an Imported statement before building reconciliation.',
+      );
+      return;
+    }
+    if (reason.isEmpty) {
+      setState(
+        () => _error = 'Enter Command reason before building ITC reconciliation.',
+      );
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final ym = _returnMonth.text.trim();
+      final evidence = _itcEvidence.text.trim();
+      await _postFirstLive(
+        context.read<ApiClient>(),
+        const [
+          '/gst-returns/itc-reconciliations',
+          '/gst-returns/reconciliations',
+        ],
+        {
+          'returnMonth': ym,
+          'period': ym,
+          'importedStatementId': stmtId,
+          'gstr2bImportId': stmtId,
+          'statementId': stmtId,
+          'reason': reason,
+          'auditReason': reason,
+          if (evidence.isNotEmpty) 'evidenceReference': evidence,
+          if (evidence.isNotEmpty) 'evidence': evidence,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ITC reconciliation built cleanly.')),
+      );
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _prepareRevision() async {
+    final reason = _commandReason.text.trim();
+    if (reason.isEmpty) {
+      setState(
+        () => _error = 'Enter Command reason before preparing working papers.',
+      );
+      return;
+    }
+
+    final rawMap = _mappingsJson.text.trim();
+    dynamic mappingsObj = <String, dynamic>{};
+    if (rawMap.isNotEmpty) {
+      try {
+        mappingsObj = jsonDecode(rawMap);
+      } on FormatException catch (e) {
+        setState(() => _error = 'Invalid mappings JSON: ${e.message}');
+        return;
+      }
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final ym = _returnMonth.text.trim();
+      final reconId = _approvedReconId.text.trim();
+      final b2cl = _b2clThreshold.text.trim();
+      final evidence = _itcEvidence.text.trim();
+      await _postFirstLive(
+        context.read<ApiClient>(),
+        const [
+          '/gst-returns/working-papers',
+          '/gst-returns/revisions',
+        ],
+        {
+          'returnMonth': ym,
+          'period': ym,
+          if (reconId.isNotEmpty) 'itcReconciliationId': reconId,
+          if (reconId.isNotEmpty) 'reconciliationId': reconId,
+          if (b2cl.isNotEmpty) 'b2clThresholdInr': b2cl,
+          if (b2cl.isNotEmpty) 'b2clThresholdAmount': b2cl,
+          'mappings': mappingsObj,
+          'reason': reason,
+          'auditReason': reason,
+          if (evidence.isNotEmpty) 'evidenceReference': evidence,
+          if (evidence.isNotEmpty) 'evidence': evidence,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('GSTR working-paper revision prepared.')),
+      );
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _approveSelectedRecord(Map<String, dynamic> rec, String kind) async {
+    final reason = _commandReason.text.trim();
+    if (reason.isEmpty) {
+      setState(() => _error = 'Enter Command reason before approving.');
+      return;
+    }
+    final id = '${rec['id'] ?? ''}'.trim();
+    if (id.isEmpty) return;
+    final evidence = _itcEvidence.text.trim();
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final paths = kind == 'RECON'
+          ? <String>[
+              '/gst-returns/itc-reconciliations/$id/approve',
+              '/gst-returns/reconciliations/$id/approve',
+            ]
+          : <String>[
+              '/gst-returns/working-papers/$id/approve',
+              '/gst-returns/revisions/$id/approve',
+            ];
+      await _postFirstLive(
+        context.read<ApiClient>(),
+        paths,
+        {
+          'reason': reason,
+          'auditReason': reason,
+          if (evidence.isNotEmpty) 'evidenceReference': evidence,
+          if (evidence.isNotEmpty) 'evidence': evidence,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            kind == 'RECON'
+                ? 'ITC reconciliation approved.'
+                : 'Working-paper revision approved.',
+          ),
+        ),
+      );
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _createExportSnapshot(Map<String, dynamic> paper) async {
+    final reason = _commandReason.text.trim();
+    if (reason.isEmpty) {
+      setState(
+        () => _error = 'Enter Command reason before creating an approved export.',
+      );
+      return;
+    }
+    final id = '${paper['id'] ?? ''}'.trim();
+    if (id.isEmpty) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await _postFirstLive(
+        context.read<ApiClient>(),
+        [
+          '/gst-returns/working-papers/$id/exports',
+          '/gst-returns/exports',
+        ],
+        {
+          'workingPaperId': id,
+          'returnType': _exportReturnType,
+          'returnMonth': _returnMonth.text.trim(),
+          'reason': reason,
+          'auditReason': reason,
+          if (_itcEvidence.text.trim().isNotEmpty)
+            'evidenceReference': _itcEvidence.text.trim(),
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Approved $_exportReturnType preparation snapshot created.'),
+        ),
+      );
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openItcLineDecisionModal(
+    String reconId,
+    Map<String, dynamic> line,
+  ) async {
+    String decision =
+        '${line['decision'] ?? line['eligibility'] ?? 'ELIGIBLE'}'.toUpperCase();
+    if (!const {'ELIGIBLE', 'INELIGIBLE', 'DEFERRED', 'REVERSED'}
+        .contains(decision)) {
+      decision = 'ELIGIBLE';
+    }
+    final noteCtrl = TextEditingController(
+      text: '${line['reviewNote'] ?? line['evidenceReference'] ?? _itcEvidence.text}',
+    );
+    final lineId = '${line['id'] ?? line['lineId'] ?? ''}'.trim();
+    if (lineId.isEmpty) {
+      noteCtrl.dispose();
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            18,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Review ITC Eligibility Line',
+                style: T.body(16, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Supplier: ${line['supplierGstin'] ?? '—'} · Doc: ${line['invoiceNumber'] ?? line['documentNumber'] ?? shortId(lineId)}',
+                style: T.mono(12, color: Pal.muted),
+              ),
+              const SizedBox(height: 12),
+              SaasDropdown(
+                label: 'Eligibility decision',
+                value: decision,
+                options: const {
+                  'ELIGIBLE': 'Eligible ITC',
+                  'INELIGIBLE': 'Ineligible (Block)',
+                  'DEFERRED': 'Defer to next period',
+                  'REVERSED': 'Reverse ITC',
+                },
+                onChanged: (v) => setModal(() => decision = v),
+              ),
+              const SizedBox(height: 10),
+              SaasField(
+                label: 'Evidence / review note',
+                controller: noteCtrl,
+                maxLines: 2,
+              ),
+              const SizedBox(height: 14),
+              RoyalGoldButton(
+                label: 'Save Line Decision',
+                busy: _busy,
+                onPressed: () async {
+                  final reason = _commandReason.text.trim();
+                  if (reason.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Enter Command reason on screen first.'),
+                      ),
+                    );
+                    return;
+                  }
+                  Navigator.of(ctx).pop();
+                  setState(() => _busy = true);
+                  try {
+                    await _postFirstLive(
+                      context.read<ApiClient>(),
+                      [
+                        '/gst-returns/itc-reconciliations/$reconId/lines/$lineId/decision',
+                        '/gst-returns/reconciliations/$reconId/lines/$lineId/decision',
+                      ],
+                      {
+                        'decision': decision,
+                        'eligibility': decision,
+                        'reason': reason,
+                        'auditReason': reason,
+                        if (noteCtrl.text.trim().isNotEmpty)
+                          'evidenceReference': noteCtrl.text.trim(),
+                        if (noteCtrl.text.trim().isNotEmpty)
+                          'note': noteCtrl.text.trim(),
+                      },
+                    );
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('ITC line decision recorded.')),
+                    );
+                    await _load();
+                  } on ApiException catch (e) {
+                    if (mounted) setState(() => _error = e.message);
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    noteCtrl.dispose();
+  }
+
+  Future<void> _downloadExportSnapshot(Map<String, dynamic> ex) async {
+    final id = '${ex['id'] ?? ''}'.trim();
+    if (id.isEmpty) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final payload = await context
+          .read<ApiClient>()
+          .get('/gst-returns/exports/$id/download');
+      if (!mounted) return;
+      final formatted = const JsonEncoder.withIndent('  ').convert(payload);
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Pal.card,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.72,
+          maxChildSize: 0.92,
+          minChildSize: 0.45,
+          builder: (ctx, scrollCtrl) => Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${ex['returnType'] ?? 'GSTR'} Approved Snapshot',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    GoldButton(
+                      label: 'Copy JSON',
+                      compact: true,
+                      icon: Icons.copy_rounded,
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: formatted));
+                        if (ctx.mounted) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(
+                              content:
+                                  Text('Preparation snapshot copied to clipboard.'),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Preparation snapshot only — does not represent GST portal filing acknowledgement.',
+                  style: T.body(11.8, color: Pal.muted),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Pal.bgTint,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Pal.border),
+                    ),
+                    child: SingleChildScrollView(
+                      controller: scrollCtrl,
+                      child: SelectableText(
+                        formatted,
+                        style: T.mono(11.5, color: Pal.ink),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _buildJsonFileRow({
+    required String fileLabel,
+    required VoidCallback onChoose,
+    required VoidCallback? onClear,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Pal.bgTint,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Pal.border),
+      ),
+      child: Row(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: onChoose,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Pal.borderGold),
+              ),
+              child: Text(
+                'Choose file',
+                style: T.body(
+                  12,
+                  weight: FontWeight.w700,
+                  color: Pal.goldDeep,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              fileLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: T.body(12, color: Pal.muted),
+            ),
+          ),
+          if (onClear != null)
+            InkWell(
+              onTap: onClear,
+              child: const Padding(
+                padding: EdgeInsets.all(4),
+                child: Icon(Icons.close_rounded, size: 16, color: Pal.muted),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final stmts = asList(_ws['importedStatements'] ?? _ws['gstr2bStatements']);
-    final recons = asList(_ws['reconciliations'] ?? _ws['itcReconciliations']);
-    final papers = asList(_ws['workingPapers'] ?? _ws['revisions']);
-    final exports = asList(_ws['exports'] ?? _ws['exportHistory']);
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
+    final summary = asMap(_ws['summary'] ?? _ws['counts']);
+    final stmts = asList(
+      _ws['importedStatements'] ??
+          _ws['gstr2bStatements'] ??
+          _ws['gstr2bImports'],
+    );
+    final recons = asList(
+      _ws['itcReconciliations'] ?? _ws['reconciliations'],
+    );
+    final papers = asList(
+      _ws['workingPapers'] ?? _ws['revisions'],
+    );
+    final exports = asList(
+      _ws['exports'] ?? _ws['exportHistory'],
+    );
+
+    final outwardCount = _metricCount(
+      summary['postedOutwardLines'] ??
+          _ws['postedOutwardLinesCount'] ??
+          _ws['postedOutwardLines'],
+    );
+    final purchaseBooksCount = _metricCount(
+      summary['purchaseBooks'] ??
+          _ws['purchaseBookCount'] ??
+          _ws['purchaseBooks'] ??
+          _ws['purchaseBookLines'],
+    );
+    final revisionsCount = _metricCount(
+      summary['workingPaperRevisions'] ?? _ws['workingPaperRevisionsCount'],
+      papers.length,
+    );
 
     final stmtOpts = stmts
-        .map((s) => LookupOption(id: '${s['id']}', label: '${s['returnMonth'] ?? ''} · ${shortId('${s['id']}')}', raw: s))
-        .toList();
-    final reconOpts = recons
-        .map((r) => LookupOption(id: '${r['id']}', label: '${r['state'] ?? ''} · ${shortId('${r['id']}')}', raw: r))
-        .toList();
-    final paperOpts = papers
-        .map((p) => LookupOption(id: '${p['id']}', label: 'Rev ${p['revisionNumber'] ?? 1} · ${p['state'] ?? ''}', raw: p))
+        .map(
+          (s) => LookupOption(
+            id: '${s['id']}',
+            label:
+                '${s['returnMonth'] ?? _returnMonth.text} · ${s['state'] ?? 'IMPORTED'} · ${shortId('${s['id']}')}',
+            raw: s,
+          ),
+        )
         .toList();
 
+    final reconOpts = recons
+        .map(
+          (r) => LookupOption(
+            id: '${r['id']}',
+            label:
+                '${r['state'] ?? 'DRAFT'} · ${r['returnMonth'] ?? _returnMonth.text} · ${shortId('${r['id']}')}',
+            raw: r,
+          ),
+        )
+        .toList();
+
+    final combinedApprovalOpts = <LookupOption>[
+      for (final p in papers)
+        LookupOption(
+          id: 'PAPER:${p['id']}',
+          label:
+              'Working Paper Rev ${p['revisionNumber'] ?? 1} · ${p['state'] ?? 'DRAFT'} (${p['returnMonth'] ?? _returnMonth.text})',
+          raw: p,
+        ),
+      for (final r in recons)
+        LookupOption(
+          id: 'RECON:${r['id']}',
+          label:
+              'ITC Reconciliation · ${r['state'] ?? 'DRAFT'} · ${shortId('${r['id']}')}',
+          raw: r,
+        ),
+    ];
+
+    Map<String, dynamic>? selectedApprovalRec;
+    String selectedApprovalKind = '';
+    final selVal = _selectedRecordId.text.trim();
+    if (selVal.startsWith('PAPER:')) {
+      final targetId = selVal.substring(6);
+      selectedApprovalKind = 'PAPER';
+      for (final p in papers) {
+        if ('${p['id']}' == targetId) {
+          selectedApprovalRec = p;
+          break;
+        }
+      }
+    } else if (selVal.startsWith('RECON:')) {
+      final targetId = selVal.substring(6);
+      selectedApprovalKind = 'RECON';
+      for (final r in recons) {
+        if ('${r['id']}' == targetId) {
+          selectedApprovalRec = r;
+          break;
+        }
+      }
+    }
+
     final q = _search.text.trim().toLowerCase();
-    final fPapers = papers.where((p) {
-      if (q.isEmpty) return true;
-      return 'rev ${p['revisionNumber'] ?? ''} ${p['state'] ?? ''} ${p['returnMonth'] ?? ''}'
-          .toLowerCase()
-          .contains(q);
-    }).toList();
     final fStmts = stmts.where((s) {
       if (q.isEmpty) return true;
       return '${s['returnMonth'] ?? ''} ${s['id'] ?? ''} ${s['state'] ?? ''}'
           .toLowerCase()
           .contains(q);
     }).toList();
+    final fRecons = recons.where((r) {
+      if (q.isEmpty) return true;
+      return '${r['returnMonth'] ?? ''} ${r['id'] ?? ''} ${r['state'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
+    final fPapers = papers.where((p) {
+      if (q.isEmpty) return true;
+      return 'rev ${p['revisionNumber'] ?? ''} ${p['state'] ?? ''} ${p['returnMonth'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
     final fExports = exports.where((ex) {
       if (q.isEmpty) return true;
-      return '${ex['returnType'] ?? ''} ${ex['state'] ?? ''}'.toLowerCase().contains(q);
+      return '${ex['returnType'] ?? ''} ${ex['state'] ?? ''} ${ex['id'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
     }).toList();
 
     return LuxuryModuleScaffold(
       title: 'GST Returns & ITC Review',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.description_outlined,
       searchController: _search,
-      searchHint: 'Search by Return Month, Revision or Export...',
+      searchHint: 'Search statements, reconciliations, revisions, exports...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -2420,235 +3327,675 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
       ],
       topFilterBar: PillTabs<String>(
         value: _tab,
-        onChanged: (v) => setState(() {
-          _tab = v;
-          _showForm = false;
-        }),
+        onChanged: (v) => setState(() => _tab = v),
         tabs: [
-          ('PAPERS', 'Working Papers (${papers.length})'),
-          ('GSTR2B', 'GSTR-2B (${stmts.length})'),
-          ('EXPORTS', 'Exports (${exports.length})'),
+          ('GSTR2B', '1. GSTR-2B & ITC (${stmts.length})'),
+          ('PAPERS', '2. Working Papers (${papers.length})'),
+          ('APPROVALS', 'Approvals & Exports (${exports.length})'),
         ],
       ),
-      floatingActionButton: _tab == 'EXPORTS'
-          ? null
-          : GoldAddFab(
-              icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-              tooltip: _tab == 'GSTR2B' ? 'Import GSTR-2B' : 'Prepare Working Paper',
-              onPressed: () => setState(() => _showForm = !_showForm),
-            ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: SaasField(
-                    label: 'Return month (YYYY-MM)',
-                    controller: _returnMonth,
-                    mono: true,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Padding(
-                  padding: const EdgeInsets.only(top: 18),
-                  child: OutlinedButton(onPressed: _load, child: const Text('Load month')),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SaasKpiGrid(
-              items: [
-                (label: 'OUTWARD LINES', value: '${_ws['postedOutwardLines'] ?? 0}'),
-                (label: 'PURCHASE BOOKS', value: '${_ws['purchaseBookLines'] ?? _ws['purchaseBooks'] ?? 0}'),
-                (label: 'REVISIONS', value: '${papers.length}'),
-              ],
-            ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-
-            if (_showForm) ...[
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
               const SizedBox(height: 12),
-              SaasField(label: 'Command reason', controller: _commandReason),
-              const SizedBox(height: 10),
-              SaasField(label: 'ITC review evidence / reference', controller: _itcEvidence),
-              const SizedBox(height: 12),
-              if (_tab == 'GSTR2B')
-                SaasFormCard(
-                  title: 'Import & reconcile GSTR-2B',
-                  subtitle: 'Use authorized records normalized to NORMALIZED_GSTR2B_V1.',
-                  trailing: TextButton(
-                    onPressed: () => setState(() => _showForm = false),
-                    child: const Text('Close'),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SaasField(
-                        label: 'Normalized GSTR-2B records',
-                        controller: _gstr2bJson,
-                        mono: true,
-                        maxLines: 4,
-                      ),
-                      const SizedBox(height: 10),
-                      GoldButton(
-                        label: 'Import Records',
-                        busy: _busy,
-                        onPressed: () => _runGstMutation(
-                          (api) => api.post('/gst-returns/gstr2b/import', idempotent: true, body: {
-                            'returnMonth': _returnMonth.text.trim(),
-                            'reason': _commandReason.text.trim(),
-                            'records': jsonDecode(_gstr2bJson.text.trim().isEmpty ? '[]' : _gstr2bJson.text.trim()),
-                          }),
-                          'GSTR-2B records imported.',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      LookupField(
-                        label: 'Imported statement',
-                        controller: _importedStmtId,
-                        options: stmtOpts,
-                        hint: 'Select...',
-                      ),
-                      const SizedBox(height: 10),
-                      OutlinedButton.icon(
-                        onPressed: _busy
-                            ? null
-                            : () => _runGstMutation(
-                                  (api) => api.post('/gst-returns/reconciliations', idempotent: true, body: {
-                                    'returnMonth': _returnMonth.text.trim(),
-                                    'importedStatementId': _importedStmtId.text.trim(),
-                                    'reason': _commandReason.text.trim(),
-                                    if (_itcEvidence.text.trim().isNotEmpty)
-                                      'evidence': _itcEvidence.text.trim(),
-                                  }),
-                                  'ITC reconciliation built.',
-                                ),
-                        icon: const Icon(Icons.sync_rounded, size: 15),
-                        label: const Text('Build ITC Reconciliation'),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                SaasFormCard(
-                  title: 'Prepare GSTR working papers',
-                  trailing: TextButton(
-                    onPressed: () => setState(() => _showForm = false),
-                    child: const Text('Close'),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      LookupField(
-                        label: 'Approved ITC reconciliation',
-                        controller: _approvedReconId,
-                        options: reconOpts,
-                        hint: 'Select...',
-                      ),
-                      const SizedBox(height: 10),
-                      SaasField(
-                        label: 'Accountant-approved B2CL threshold (INR)',
-                        controller: _b2clThreshold,
-                        mono: true,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton(
-                          onPressed: _createMappingTemplate,
-                          child: const Text('Create mapping template from posted sources'),
-                        ),
-                      ),
-                      SaasField(
-                        label: 'Reviewed HSN, place-of-supply, tax heads and reversal mappings',
-                        controller: _mappingsJson,
-                        mono: true,
-                        maxLines: 4,
-                      ),
-                      const SizedBox(height: 10),
-                      GoldButton(
-                        label: 'Prepare Working-Paper Revision',
-                        busy: _busy,
-                        onPressed: () => _runGstMutation(
-                          (api) => api.post('/gst-returns/working-papers', idempotent: true, body: {
-                            'returnMonth': _returnMonth.text.trim(),
-                            if (_approvedReconId.text.trim().isNotEmpty)
-                              'reconciliationId': _approvedReconId.text.trim(),
-                            if (_b2clThreshold.text.trim().isNotEmpty)
-                              'b2clThresholdAmount': _b2clThreshold.text.trim(),
-                            'mappings': jsonDecode(_mappingsJson.text.trim().isEmpty ? '{}' : _mappingsJson.text.trim()),
-                            'reason': _commandReason.text.trim(),
-                          }),
-                          'Working-paper revision prepared.',
-                        ),
-                      ),
-                      if (paperOpts.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        LookupField(
-                          label: 'Select record',
-                          controller: _selectedRecordId,
-                          options: paperOpts,
-                          hint: 'Select...',
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
             ],
 
-            const SizedBox(height: 14),
-            if (_loading)
-              const Center(child: CircularProgressIndicator())
+            // Hero Header Card + `Return month` selector (`image-44.png`)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.description_outlined,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'GST Returns & ITC Review',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Entity-wide GSTR-1 and GSTR-3B working papers, authorized GSTR-2B imports, and evidence-backed eligibility review.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Return month',
+                    style: T.body(
+                      11.8,
+                      weight: FontWeight.w600,
+                      color: Pal.muted,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(11),
+                    onTap: _pickReturnMonth,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 11,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Pal.bgTint,
+                        borderRadius: BorderRadius.circular(11),
+                        border: Border.all(color: Pal.border),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _formatReturnMonthDisplay(_returnMonth.text),
+                              style: T.body(
+                                13.5,
+                                weight: FontWeight.w600,
+                                color: Pal.ink,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            _returnMonth.text.trim(),
+                            style: T.mono(11.5, color: Pal.muted),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(
+                            Icons.calendar_today_outlined,
+                            size: 16,
+                            color: Pal.goldDeep,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // 3 KPI Cards (`POSTED OUTWARD LINES`, `PURCHASE BOOKS`, `WORKING-PAPER REVISIONS` — `image-44.png`)
+            SaasKpiGrid(
+              items: [
+                (label: 'POSTED OUTWARD LINES', value: '$outwardCount'),
+                (label: 'PURCHASE BOOKS', value: '$purchaseBooksCount'),
+                (label: 'WORKING-PAPER REVISIONS', value: '$revisionsCount'),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            // Shared `Command reason` & `ITC review evidence / reference` (`image-44.png`)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SaasField(
+                    label: 'Command reason',
+                    controller: _commandReason,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'ITC review evidence / reference',
+                    controller: _itcEvidence,
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // TAB 1: `1. Import & reconcile GSTR-2B` (`image-44..45.png`)
+            if (_tab == 'GSTR2B') ...[
+              SaasFormCard(
+                title: '1. Import & reconcile GSTR-2B',
+                subtitle:
+                    'Use authorized records normalized to NORMALIZED_GSTR_2B_V1. The source JSON format and field definitions are in the return runbook.',
+                icon: Icons.fact_check_outlined,
+                trailing: TextButton(
+                  onPressed: () =>
+                      setState(() => _importExpanded = !_importExpanded),
+                  child: Text(_importExpanded ? 'Hide' : 'Show'),
+                ),
+                child: !_importExpanded
+                    ? Text(
+                        'Tap Show to import normalized GSTR-2B records or build an ITC reconciliation.',
+                        style: T.body(12.2, color: Pal.muted),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildJsonFileRow(
+                            fileLabel: _gstr2bFileLabel,
+                            onChoose: () => _pasteClipboardInto(
+                              _gstr2bJson,
+                              isGstr2b: true,
+                            ),
+                            onClear: _gstr2bJson.text.isEmpty
+                                ? null
+                                : () => setState(() {
+                                      _gstr2bJson.clear();
+                                      _gstr2bFileLabel = 'No file chosen';
+                                    }),
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'Normalized GSTR-2B records',
+                            controller: _gstr2bJson,
+                            mono: true,
+                            maxLines: 5,
+                            onChanged: (v) {
+                              final next = v.trim().isEmpty
+                                  ? 'No file chosen'
+                                  : 'JSON ready (${v.trim().length} chars)';
+                              if (next != _gstr2bFileLabel) {
+                                setState(() => _gstr2bFileLabel = next);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          RoyalGoldButton(
+                            label: 'Import records',
+                            busy: _busy,
+                            onPressed: _busy ? null : _importGstr2b,
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 14),
+                            child: Divider(height: 1, color: Pal.divider),
+                          ),
+                          LookupField(
+                            label: 'Imported statement',
+                            controller: _importedStmtId,
+                            options: stmtOpts,
+                            hint: 'Select...',
+                          ),
+                          const SizedBox(height: 12),
+                          RoyalGoldButton(
+                            label: 'Build reconciliation',
+                            icon: Icons.sync_rounded,
+                            busy: _busy,
+                            onPressed: _busy ? null : _buildReconciliation,
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Imported GSTR-2B statements',
+                style: T.body(14.5, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              if (_loading)
+                const Panel(child: Skeleton(height: 88))
+              else if (fStmts.isEmpty)
+                const SaasEmptyBox(
+                  'No GSTR-2B statement imported for this return month.',
+                )
+              else
+                for (final s in fStmts)
+                  LuxuryRecordCard(
+                    icon: Icons.upload_file_outlined,
+                    code:
+                        'GSTR-2B · ${s['returnMonth'] ?? _returnMonth.text} · ${shortId('${s['id']}')}',
+                    status: '${s['state'] ?? 'IMPORTED'}',
+                    onTap: () => setState(() {
+                      _importedStmtId.text = '${s['id']}';
+                      _importExpanded = true;
+                    }),
+                    lines: [
+                      (
+                        'Schema',
+                        '${s['schema'] ?? s['format'] ?? 'NORMALIZED_GSTR_2B_V1'}',
+                      ),
+                      if ('${s['createdAt'] ?? ''}'.isNotEmpty)
+                        ('Imported', fmtDateTime('${s['createdAt']}')),
+                    ],
+                    amountLabel: 'Records',
+                    amountValue:
+                        '${s['recordCount'] ?? asList(s['records']).length}',
+                  ),
+              if (fRecons.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(
+                  'ITC reconciliations',
+                  style: T.body(14.5, weight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                for (final r in fRecons)
+                  LuxuryRecordCard(
+                    icon: Icons.rule_folder_outlined,
+                    code: 'ITC Recon · ${shortId('${r['id']}')}',
+                    status: '${r['state'] ?? 'DRAFT'}',
+                    onTap: () => setState(() {
+                      _selectedRecordId.text = 'RECON:${r['id']}';
+                      _tab = 'APPROVALS';
+                    }),
+                    lines: [
+                      ('Return Month', '${r['returnMonth'] ?? _returnMonth.text}'),
+                      ('Lines', '${asList(r['lines']).length}'),
+                    ],
+                    amountLabel: 'Stage',
+                    amountValue: statusLabel('${r['state'] ?? 'DRAFT'}'),
+                    actions: [
+                      GoldButton(
+                        label: 'Review & Approve',
+                        compact: true,
+                        onPressed: () => setState(() {
+                          _selectedRecordId.text = 'RECON:${r['id']}';
+                          _tab = 'APPROVALS';
+                        }),
+                      ),
+                    ],
+                  ),
+              ],
+            ]
+
+            // TAB 2: `2. Prepare GSTR working papers` (`image-44..45.png`)
             else if (_tab == 'PAPERS') ...[
-              if (fPapers.isEmpty)
-                const SaasEmptyBox('No working-paper revisions for this month. Tap + to prepare one.')
+              SaasFormCard(
+                title: '2. Prepare GSTR working papers',
+                icon: Icons.assignment_outlined,
+                trailing: TextButton(
+                  onPressed: () =>
+                      setState(() => _papersExpanded = !_papersExpanded),
+                  child: Text(_papersExpanded ? 'Hide' : 'Show'),
+                ),
+                child: !_papersExpanded
+                    ? Text(
+                        'Tap Show to prepare a GSTR-1 / GSTR-3B working-paper revision.',
+                        style: T.body(12.2, color: Pal.muted),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          LookupField(
+                            label: 'Approved ITC reconciliation',
+                            controller: _approvedReconId,
+                            options: reconOpts,
+                            hint: 'Select...',
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'Accountant-approved B2CL threshold (INR)',
+                            controller: _b2clThreshold,
+                            mono: true,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(6),
+                              onTap: _createMappingTemplate,
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 4),
+                                child: Text(
+                                  'Create mapping template from posted sources',
+                                  style: T.body(
+                                    12.8,
+                                    weight: FontWeight.w700,
+                                    color: Pal.goldDeep,
+                                  ).copyWith(
+                                    decoration: TextDecoration.underline,
+                                    decorationColor: Pal.goldDeep,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildJsonFileRow(
+                            fileLabel: _mappingsFileLabel,
+                            onChoose: () => _pasteClipboardInto(
+                              _mappingsJson,
+                              isGstr2b: false,
+                            ),
+                            onClear: _mappingsJson.text.isEmpty
+                                ? null
+                                : () => setState(() {
+                                      _mappingsJson.clear();
+                                      _mappingsFileLabel = 'No file chosen';
+                                    }),
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label:
+                                'Reviewed HSN, place-of-supply, tax heads and reversal mappings',
+                            controller: _mappingsJson,
+                            mono: true,
+                            maxLines: 5,
+                            onChanged: (v) {
+                              final next = v.trim().isEmpty
+                                  ? 'No file chosen'
+                                  : 'JSON ready (${v.trim().length} chars)';
+                              if (next != _mappingsFileLabel) {
+                                setState(() => _mappingsFileLabel = next);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          RoyalGoldButton(
+                            label: 'Prepare revision',
+                            busy: _busy,
+                            onPressed: _busy ? null : _prepareRevision,
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Working-paper revisions',
+                style: T.body(14.5, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              if (_loading)
+                const Panel(child: Skeleton(height: 88))
+              else if (fPapers.isEmpty)
+                const SaasEmptyBox(
+                  'No working-paper revisions prepared for this return month.',
+                )
               else
                 for (final p in fPapers)
                   LuxuryRecordCard(
                     icon: Icons.description_outlined,
-                    code: 'Revision ${p['revisionNumber'] ?? 1} · ${p['returnMonth'] ?? _returnMonth.text}',
+                    code:
+                        'Revision ${p['revisionNumber'] ?? 1} · ${p['returnMonth'] ?? _returnMonth.text}',
                     status: '${p['state'] ?? 'DRAFT'}',
+                    onTap: () => setState(() {
+                      _selectedRecordId.text = 'PAPER:${p['id']}';
+                      _tab = 'APPROVALS';
+                    }),
                     lines: [
-                      if ('${p['createdAt'] ?? ''}'.isNotEmpty) ('Prepared', fmtDateTime('${p['createdAt']}')),
+                      if ('${p['b2clThresholdInr'] ?? p['b2clThresholdAmount'] ?? ''}'
+                          .isNotEmpty)
+                        (
+                          'B2CL Threshold',
+                          inr(p['b2clThresholdInr'] ?? p['b2clThresholdAmount']),
+                        ),
+                      if ('${p['createdAt'] ?? ''}'.isNotEmpty)
+                        ('Prepared', fmtDateTime('${p['createdAt']}')),
                     ],
                     amountLabel: 'Stage',
                     amountValue: statusLabel('${p['state'] ?? 'DRAFT'}'),
-                  ),
-            ] else if (_tab == 'GSTR2B') ...[
-              if (fStmts.isEmpty)
-                const SaasEmptyBox('No GSTR-2B statements imported for this month. Tap + to import.')
-              else
-                for (final s in fStmts)
-                  LuxuryRecordCard(
-                    icon: Icons.fact_check_outlined,
-                    code: 'GSTR-2B · ${s['returnMonth'] ?? _returnMonth.text}',
-                    status: '${s['state'] ?? 'IMPORTED'}',
-                    lines: [
-                      ('Statement Ref', shortId('${s['id'] ?? ''}')),
-                      ('Reconciliations', '${recons.length} built'),
+                    actions: [
+                      GoldButton(
+                        label: 'Open in Approvals',
+                        compact: true,
+                        onPressed: () => setState(() {
+                          _selectedRecordId.text = 'PAPER:${p['id']}';
+                          _tab = 'APPROVALS';
+                        }),
+                      ),
                     ],
-                    amountLabel: 'Records',
-                    amountValue: '${s['recordCount'] ?? asList(s['records']).length}',
                   ),
-            ] else ...[
-              if (fExports.isEmpty)
-                const SaasEmptyBox('No approved GSTR preparation exports created yet.')
-              else
-                for (final ex in fExports)
-                  LuxuryRecordCard(
-                    icon: Icons.download_done_rounded,
-                    code: '${ex['returnType'] ?? 'GSTR'} Snapshot',
-                    status: '${ex['state'] ?? 'READY'}',
-                    lines: [
-                      ('Created', fmtDate('${ex['createdAt'] ?? ''}')),
+            ]
+
+            // TAB 3: `Working papers & approvals` + `Export history` (`image-45.png`)
+            else ...[
+              SaasFormCard(
+                title: 'Working papers & approvals',
+                icon: Icons.verified_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LookupField(
+                      label: 'Select record',
+                      controller: _selectedRecordId,
+                      options: combinedApprovalOpts,
+                      hint: 'Select...',
+                    ),
+                    if (selectedApprovalRec != null) ...[
+                      const SizedBox(height: 12),
+                      SaasSubBox(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    selectedApprovalKind == 'RECON'
+                                        ? 'ITC Reconciliation · ${shortId('${selectedApprovalRec['id']}')}'
+                                        : 'Working Paper Rev ${selectedApprovalRec['revisionNumber'] ?? 1}',
+                                    style: T.body(
+                                      13.5,
+                                      weight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                StatusPill(
+                                  '${selectedApprovalRec['state'] ?? 'DRAFT'}',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            if (selectedApprovalKind == 'RECON') ...[
+                              Text(
+                                'Lines reviewed: ${asList(selectedApprovalRec['lines']).length}',
+                                style: T.body(12.2, color: Pal.muted),
+                              ),
+                              if (asList(selectedApprovalRec['lines'])
+                                  .isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                for (final line
+                                    in asList(selectedApprovalRec['lines'])
+                                        .take(15))
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(8),
+                                      onTap: () => _openItcLineDecisionModal(
+                                        '${selectedApprovalRec!['id']}',
+                                        line,
+                                      ),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Pal.card,
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border:
+                                              Border.all(color: Pal.border),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                '${line['supplierGstin'] ?? 'GSTIN'} · ${line['invoiceNumber'] ?? line['documentNumber'] ?? shortId('${line['id']}')}',
+                                                maxLines: 1,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: T.mono(11.5),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            StatusPill(
+                                              '${line['decision'] ?? line['eligibility'] ?? line['bucket'] ?? 'REVIEW'}',
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                              const SizedBox(height: 10),
+                              RoyalGoldButton(
+                                label: 'Approve ITC reconciliation',
+                                busy: _busy,
+                                onPressed: _busy
+                                    ? null
+                                    : () => _approveSelectedRecord(
+                                          selectedApprovalRec!,
+                                          'RECON',
+                                        ),
+                              ),
+                            ] else ...[
+                              Text(
+                                'Return month: ${selectedApprovalRec['returnMonth'] ?? _returnMonth.text}',
+                                style: T.body(12.2, color: Pal.muted),
+                              ),
+                              const SizedBox(height: 10),
+                              if ('${selectedApprovalRec['state'] ?? 'DRAFT'}'
+                                      .toUpperCase() !=
+                                  'APPROVED')
+                                RoyalGoldButton(
+                                  label: 'Approve working paper',
+                                  busy: _busy,
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _approveSelectedRecord(
+                                            selectedApprovalRec!,
+                                            'PAPER',
+                                          ),
+                                )
+                              else ...[
+                                SaasDropdown(
+                                  label: 'Export return snapshot type',
+                                  value: _exportReturnType,
+                                  options: const {
+                                    'GSTR1': 'GSTR-1 Preparation Snapshot',
+                                    'GSTR3B': 'GSTR-3B Preparation Snapshot',
+                                    'PACKAGE': 'Combined GSTR Package',
+                                  },
+                                  onChanged: (v) =>
+                                      setState(() => _exportReturnType = v),
+                                ),
+                                const SizedBox(height: 10),
+                                RoyalGoldButton(
+                                  label: 'Create approved export',
+                                  icon: Icons.download_done_rounded,
+                                  busy: _busy,
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _createExportSnapshot(
+                                            selectedApprovalRec!,
+                                          ),
+                                ),
+                              ],
+                            ],
+                          ],
+                        ),
+                      ),
                     ],
-                    amountLabel: 'Status',
-                    amountValue: '${ex['state'] ?? 'READY'}',
-                  ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              SaasFormCard(
+                title: 'Export history',
+                subtitle:
+                    'Downloads contain approved preparation snapshots. They do not represent GST filing acknowledgements.',
+                icon: Icons.history_edu_outlined,
+                child: _loading
+                    ? const Skeleton(height: 76)
+                    : fExports.isEmpty
+                        ? const SaasEmptyBox('No approved export created.')
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final ex in fExports)
+                                LuxuryRecordCard(
+                                  icon: Icons.download_done_rounded,
+                                  code:
+                                      '${ex['returnType'] ?? 'GSTR'} · ${ex['returnMonth'] ?? _returnMonth.text}',
+                                  status: '${ex['state'] ?? 'APPROVED'}',
+                                  onTap: () => _downloadExportSnapshot(ex),
+                                  lines: [
+                                    (
+                                      'Snapshot Ref',
+                                      shortId('${ex['id'] ?? ''}'),
+                                    ),
+                                    if ('${ex['createdAt'] ?? ''}'.isNotEmpty)
+                                      (
+                                        'Created',
+                                        fmtDateTime('${ex['createdAt']}'),
+                                      ),
+                                  ],
+                                  amountLabel: 'Snapshot',
+                                  amountValue:
+                                      statusLabel('${ex['state'] ?? 'READY'}'),
+                                  actions: [
+                                    GoldButton(
+                                      label: 'Download Snapshot',
+                                      compact: true,
+                                      icon: Icons.download_rounded,
+                                      onPressed: () =>
+                                          _downloadExportSnapshot(ex),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+              ),
             ],
           ],
         ),
@@ -2658,43 +4005,191 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 4. CUSTOMER MESSAGING (`/messaging`)
+// 4. CUSTOMER MESSAGING (`/messaging`) — `image-46..47.png`
 // ---------------------------------------------------------------------------
 
 class CustomerMessagingScreen extends StatefulWidget {
   const CustomerMessagingScreen({super.key});
   @override
-  State<CustomerMessagingScreen> createState() => _CustomerMessagingScreenState();
+  State<CustomerMessagingScreen> createState() =>
+      _CustomerMessagingScreenState();
 }
 
 class _CustomerMessagingScreenState extends State<CustomerMessagingScreen> {
   final _search = TextEditingController();
-  String _filter = 'ALL';
-  bool _showForm = false;
+  String _tab = 'TEMPLATES';
+  bool _tplFormExpanded = true;
+  bool _consentBoxExpanded = false;
+
   Map<String, dynamic> _ws = const {};
   WorkspaceLookup _lk = WorkspaceLookup();
+  List<LookupOption> _recipientOpts = const [];
   bool _loading = true;
+  bool _findingCustomers = false;
   bool _busy = false;
   String? _error;
 
-  final _partyId = TextEditingController();
-  String _channel = 'WHATSAPP';
+  // Shared governance inputs (`image-46.png`)
+  final _commandReason = TextEditingController();
+  final _consentEvidence = TextEditingController();
+
+  // 1. Create an immutable template revision (`image-46..47.png`)
   final _templateKey = TextEditingController();
-  final _purpose = TextEditingController(text: 'TRANSACTIONAL_NOTICES');
-  final _bodyPreview = TextEditingController();
+  String _channel = 'SMS';
+  final _consentPurpose = TextEditingController();
+  final _locale = TextEditingController(text: 'en_IN');
+  final _variableNames = TextEditingController();
+  final _providerMappingId = TextEditingController();
+  final _providerTemplateRef = TextEditingController();
+  final _bodyTemplate = TextEditingController();
+
+  // 2. Compose with current consent (`image-47.png`)
+  final _approvedTemplateId = TextEditingController();
+  final _customerPrefix = TextEditingController();
+  final _recipientContactId = TextEditingController();
+  final _businessKey = TextEditingController();
+  final _expireMinutes = TextEditingController(text: '60');
+  final Map<String, TextEditingController> _varCtrls = {};
+
+  // Inline customer consent update helper
+  String _consentAction = 'GRANT';
 
   @override
   void initState() {
     super.initState();
+    _approvedTemplateId.addListener(_syncTemplateVariableControllers);
     _load();
   }
 
   @override
   void dispose() {
-    for (final c in [_search, _partyId, _templateKey, _purpose, _bodyPreview]) {
+    _approvedTemplateId.removeListener(_syncTemplateVariableControllers);
+    for (final c in [
+      _search,
+      _commandReason,
+      _consentEvidence,
+      _templateKey,
+      _consentPurpose,
+      _locale,
+      _variableNames,
+      _providerMappingId,
+      _providerTemplateRef,
+      _bodyTemplate,
+      _approvedTemplateId,
+      _customerPrefix,
+      _recipientContactId,
+      _businessKey,
+      _expireMinutes,
+      ..._varCtrls.values,
+    ]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  List<Map<String, dynamic>> get _templates =>
+      asList(_ws['templates'] ?? _ws['templateRevisions']);
+
+  Map<String, dynamic>? get _selectedTemplate {
+    final id = _approvedTemplateId.text.trim();
+    if (id.isEmpty) return null;
+    for (final t in _templates) {
+      if ('${t['id']}' == id) return t;
+    }
+    return null;
+  }
+
+  List<String> _extractTemplateVars(Map<String, dynamic>? tpl) {
+    if (tpl == null) return const [];
+    final out = <String>[];
+    final seen = <String>{};
+    final rawVars = tpl['variableNames'] ?? tpl['variables'];
+    if (rawVars is List) {
+      for (final v in rawVars) {
+        final s = '$v'.trim();
+        if (s.isNotEmpty && seen.add(s)) out.add(s);
+      }
+    } else if (rawVars is String && rawVars.trim().isNotEmpty) {
+      for (final part in rawVars.split(',')) {
+        final s = part.trim();
+        if (s.isNotEmpty && seen.add(s)) out.add(s);
+      }
+    }
+    final body =
+        '${tpl['body'] ?? tpl['bodyTemplate'] ?? tpl['plainTextBody'] ?? ''}';
+    for (final m in RegExp(r'\{\{\s*([A-Za-z0-9_]+)\s*\}\}').allMatches(body)) {
+      final name = (m.group(1) ?? '').trim();
+      if (name.isNotEmpty && seen.add(name)) out.add(name);
+    }
+    return out;
+  }
+
+  void _syncTemplateVariableControllers() {
+    final vars = _extractTemplateVars(_selectedTemplate);
+    for (final v in vars) {
+      _varCtrls.putIfAbsent(v, () => TextEditingController());
+    }
+    if (mounted) setState(() {});
+  }
+
+  String _renderLivePreview(Map<String, dynamic> tpl) {
+    var txt =
+        '${tpl['body'] ?? tpl['bodyTemplate'] ?? tpl['plainTextBody'] ?? ''}';
+    for (final entry in _varCtrls.entries) {
+      final val = entry.value.text.trim();
+      if (val.isNotEmpty) {
+        txt = txt.replaceAll(
+          RegExp('\\{\\{\\s*${RegExp.escape(entry.key)}\\s*\\}\\}'),
+          val,
+        );
+      }
+    }
+    return txt;
+  }
+
+  Future<dynamic> _postFirstLive(
+    ApiClient api,
+    List<String> candidatePaths,
+    Map<String, dynamic> body,
+  ) async {
+    ApiException? lastErr;
+    for (var i = 0; i < candidatePaths.length; i++) {
+      try {
+        return await api.post(
+          candidatePaths[i],
+          idempotent: true,
+          body: body,
+        );
+      } on ApiException catch (e) {
+        lastErr = e;
+        if (e.status == 404 && i + 1 < candidatePaths.length) {
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw lastErr ?? ApiException('HTTP_ERROR', 'Request failed.');
+  }
+
+  LookupOption _mapRecipientOption(Map<String, dynamic> r) {
+    final id =
+        '${r['contactId'] ?? r['id'] ?? r['partyId'] ?? r['customerId'] ?? ''}';
+    final name =
+        '${r['displayName'] ?? r['customerName'] ?? r['name'] ?? asMap(r['party'])['displayName'] ?? id}';
+    final code = '${r['code'] ?? r['customerCode'] ?? ''}'.trim();
+    final contact =
+        '${r['destination'] ?? r['phone'] ?? r['mobile'] ?? r['email'] ?? r['contactValue'] ?? ''}'
+            .trim();
+    final ch = '${r['channel'] ?? ''}'.trim();
+    final consent =
+        '${r['consentStatus'] ?? r['consentState'] ?? ''}'.trim();
+    final parts = <String>[
+      if (code.isNotEmpty) '$code · $name' else name,
+      if (contact.isNotEmpty) contact,
+      if (ch.isNotEmpty) ch,
+      if (consent.isNotEmpty) consent,
+    ];
+    return LookupOption(id: id, label: parts.join(' · '), raw: r);
   }
 
   Future<void> _load() async {
@@ -2706,12 +4201,25 @@ class _CustomerMessagingScreenState extends State<CustomerMessagingScreen> {
     try {
       final res = await Future.wait([
         api.get('/messaging'),
-        WorkspaceLookup.load(api, includeParties: true),
+        WorkspaceLookup.load(
+          api,
+          includeParties: true,
+          includeIntegrations: true,
+        ),
       ]);
       if (!mounted) return;
+      final wsMap = asMap(res[0]);
+      final lk = res[1] as WorkspaceLookup;
+      final initialRecips = asList(
+        wsMap['recipients'] ?? wsMap['recipientContacts'] ?? const [],
+      ).map(_mapRecipientOption).where((o) => o.id.isNotEmpty).toList();
+
       setState(() {
-        _ws = asMap(res[0]);
-        _lk = res[1] as WorkspaceLookup;
+        _ws = wsMap;
+        _lk = lk;
+        if (initialRecips.isNotEmpty) {
+          _recipientOpts = initialRecips;
+        }
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -2720,34 +4228,134 @@ class _CustomerMessagingScreenState extends State<CustomerMessagingScreen> {
     }
   }
 
-  Future<void> _send() async {
-    if (_partyId.text.trim().isEmpty || _templateKey.text.trim().isEmpty) {
-      setState(() => _error = 'Select recipient party and template key.');
+  Future<void> _findCustomers() async {
+    final prefix = _customerPrefix.text.trim();
+    final tpl = _selectedTemplate;
+    final tplChannel = '${tpl?['channel'] ?? ''}'.trim();
+    final tplPurpose =
+        '${tpl?['consentPurpose'] ?? tpl?['purpose'] ?? ''}'.trim();
+
+    setState(() {
+      _findingCustomers = true;
+      _error = null;
+    });
+    try {
+      final d = await context.read<ApiClient>().get(
+        '/messaging/recipients',
+        query: {
+          if (prefix.isNotEmpty) 'q': prefix,
+          if (prefix.isNotEmpty) 'prefix': prefix,
+          if (prefix.isNotEmpty) 'search': prefix,
+          if (tplChannel.isNotEmpty) 'channel': tplChannel,
+          if (tplPurpose.isNotEmpty) 'consentPurpose': tplPurpose,
+          if (tplPurpose.isNotEmpty) 'purpose': tplPurpose,
+        },
+      );
+      if (!mounted) return;
+      final rawList = d is List
+          ? d
+          : asList(
+              asMap(d)['recipients'] ??
+                  asMap(d)['items'] ??
+                  asMap(d)['contacts'] ??
+                  asMap(d)['customers'],
+            );
+      final opts = rawList
+          .map((e) => _mapRecipientOption(asMap(e)))
+          .where((o) => o.id.isNotEmpty)
+          .toList();
+
+      setState(() {
+        _recipientOpts = opts;
+        if (opts.length == 1) {
+          _recipientContactId.text = opts.first.id;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            opts.isEmpty
+                ? 'No matching customer contacts found.'
+                : 'Found ${opts.length} customer contact(s).',
+          ),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _findingCustomers = false);
+    }
+  }
+
+  Future<void> _createDraftRevision() async {
+    final key = _templateKey.text.trim();
+    final purpose = _consentPurpose.text.trim();
+    final body = _bodyTemplate.text.trim();
+    final reason = _commandReason.text.trim();
+
+    if (key.isEmpty || purpose.isEmpty || body.isEmpty) {
+      setState(
+        () => _error =
+            'Template key, Exact consent purpose, and Plain-text message body are required.',
+      );
       return;
     }
+    if (reason.isEmpty) {
+      setState(
+        () => _error =
+            'Enter Command reason before creating a template revision.',
+      );
+      return;
+    }
+
+    final vars = _variableNames.text
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final locale = _locale.text.trim().isEmpty ? 'en_IN' : _locale.text.trim();
+    final provMapId = _providerMappingId.text.trim();
+    final provRef = _providerTemplateRef.text.trim();
+    final evidence = _consentEvidence.text.trim();
+
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await context.read<ApiClient>().post(
-        '/messaging/dispatches',
-        idempotent: true,
-        body: {
-          'partyId': _partyId.text.trim(),
+      await _postFirstLive(
+        context.read<ApiClient>(),
+        const [
+          '/messaging/templates',
+          '/messaging/template-revisions',
+        ],
+        {
+          'templateKey': key,
           'channel': _channel,
-          'templateKey': _templateKey.text.trim().toUpperCase(),
-          'purpose': _purpose.text.trim().toUpperCase(),
-          if (_bodyPreview.text.trim().isNotEmpty) 'message': _bodyPreview.text.trim(),
+          'consentPurpose': purpose,
+          'purpose': purpose,
+          'locale': locale,
+          'variableNames': vars,
+          if (provMapId.isNotEmpty) 'providerConnectionId': provMapId,
+          if (provMapId.isNotEmpty) 'providerMappingId': provMapId,
+          if (provRef.isNotEmpty) 'providerTemplateReference': provRef,
+          'body': body,
+          'plainTextBody': body,
+          'bodyTemplate': body,
+          'reason': reason,
+          'auditReason': reason,
+          if (evidence.isNotEmpty) 'evidenceReference': evidence,
+          if (evidence.isNotEmpty) 'consentEvidence': evidence,
         },
       );
       if (!mounted) return;
-      _bodyPreview.clear();
-      setState(() => _showForm = false);
+      _bodyTemplate.clear();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Consent-verified message queued.')),
+        const SnackBar(
+          content: Text('Immutable draft template revision created.'),
+        ),
       );
-      _load();
+      await _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -2755,27 +4363,416 @@ class _CustomerMessagingScreenState extends State<CustomerMessagingScreen> {
     }
   }
 
+  Future<void> _governTemplate(Map<String, dynamic> tpl, String action) async {
+    final reason = _commandReason.text.trim();
+    if (reason.isEmpty) {
+      setState(
+        () => _error = 'Enter Command reason before governing a template.',
+      );
+      return;
+    }
+    final id = '${tpl['id'] ?? ''}'.trim();
+    if (id.isEmpty) return;
+    final evidence = _consentEvidence.text.trim();
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final paths = action == 'APPROVE'
+          ? <String>[
+              '/messaging/templates/$id/approve',
+              '/messaging/template-revisions/$id/approve',
+            ]
+          : <String>[
+              '/messaging/templates/$id/retire',
+              '/messaging/templates/$id/deactivate',
+              '/messaging/templates/$id/archive',
+            ];
+      await _postFirstLive(
+        context.read<ApiClient>(),
+        paths,
+        {
+          'reason': reason,
+          'auditReason': reason,
+          if (evidence.isNotEmpty) 'evidenceReference': evidence,
+          if (evidence.isNotEmpty) 'consentEvidence': evidence,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            action == 'APPROVE'
+                ? 'Template revision approved.'
+                : 'Template revision retired.',
+          ),
+        ),
+      );
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _updateRecipientConsent() async {
+    final reason = _commandReason.text.trim();
+    final evidence = _consentEvidence.text.trim();
+    final recipId = _recipientContactId.text.trim();
+    final tpl = _selectedTemplate;
+    final purpose =
+        '${tpl?['consentPurpose'] ?? tpl?['purpose'] ?? _consentPurpose.text}'
+            .trim();
+    final ch = '${tpl?['channel'] ?? _channel}'.trim();
+
+    if (recipId.isEmpty || purpose.isEmpty) {
+      setState(
+        () => _error =
+            'Select Recipient contact and Approved template (or enter Exact consent purpose) first.',
+      );
+      return;
+    }
+    if (reason.isEmpty || evidence.isEmpty) {
+      setState(
+        () => _error =
+            'Both Command reason and Template / customer consent evidence are required for consent updates.',
+      );
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await _postFirstLive(
+        context.read<ApiClient>(),
+        [
+          '/messaging/consents',
+          '/messaging/recipients/$recipId/consents',
+        ],
+        {
+          'recipientContactId': recipId,
+          'contactId': recipId,
+          'partyId': recipId,
+          'channel': ch,
+          'consentPurpose': purpose,
+          'purpose': purpose,
+          'state': _consentAction == 'GRANT' ? 'GRANTED' : 'WITHDRAWN',
+          'action': _consentAction,
+          'reason': reason,
+          'auditReason': reason,
+          'evidenceReference': evidence,
+          'consentEvidence': evidence,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _consentAction == 'GRANT'
+                ? 'Exact-purpose customer consent recorded.'
+                : 'Customer consent withdrawn.',
+          ),
+        ),
+      );
+      await _findCustomers();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _composeMessage({required bool liveSend}) async {
+    final tplId = _approvedTemplateId.text.trim();
+    final recipId = _recipientContactId.text.trim();
+    final bizKey = _businessKey.text.trim();
+    final reason = _commandReason.text.trim();
+    final expMin = int.tryParse(_expireMinutes.text.trim()) ?? 60;
+
+    if (tplId.isEmpty || recipId.isEmpty || bizKey.isEmpty) {
+      setState(
+        () => _error =
+            'Approved template, Recipient contact, and Unique business key are required.',
+      );
+      return;
+    }
+    if (expMin < 1 || expMin > 1440) {
+      setState(
+        () => _error = 'Expire after minutes must be between 1 and 1440.',
+      );
+      return;
+    }
+    if (reason.isEmpty) {
+      setState(
+        () => _error = 'Enter Command reason before capturing or sending.',
+      );
+      return;
+    }
+
+    final varsMap = <String, String>{};
+    for (final v in _extractTemplateVars(_selectedTemplate)) {
+      varsMap[v] = (_varCtrls[v]?.text ?? '').trim();
+    }
+
+    final evidence = _consentEvidence.text.trim();
+    LookupOption? chosenRecip;
+    for (final o in _recipientOpts) {
+      if (o.id == recipId) {
+        chosenRecip = o;
+        break;
+      }
+    }
+    final rawRecip = chosenRecip?.raw ?? const <String, dynamic>{};
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await _postFirstLive(
+        context.read<ApiClient>(),
+        liveSend
+            ? const [
+                '/messaging/messages',
+                '/messaging/messages/send',
+              ]
+            : const [
+                '/messaging/messages',
+                '/messaging/messages/test-capture',
+                '/messaging/messages/capture-test',
+              ],
+        {
+          'templateId': tplId,
+          'templateRevisionId': tplId,
+          'recipientContactId': recipId,
+          'contactId': '${rawRecip['contactId'] ?? recipId}',
+          if ('${rawRecip['partyId'] ?? rawRecip['customerId'] ?? ''}'
+              .isNotEmpty)
+            'partyId': '${rawRecip['partyId'] ?? rawRecip['customerId']}',
+          'variables': varsMap,
+          'businessKey': bizKey,
+          'expireAfterMinutes': expMin,
+          'mode': liveSend ? 'LIVE' : 'TEST_CAPTURE',
+          'deliveryMode': liveSend ? 'LIVE' : 'TEST_CAPTURE',
+          'testCapture': !liveSend,
+          'reason': reason,
+          'auditReason': reason,
+          if (evidence.isNotEmpty) 'evidenceReference': evidence,
+          if (evidence.isNotEmpty) 'consentEvidence': evidence,
+        },
+      );
+      if (!mounted) return;
+      _businessKey.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            liveSend
+                ? 'Live customer message queued with verified consent.'
+                : 'Test message captured — no external send performed.',
+          ),
+        ),
+      );
+      await _load();
+      if (mounted) setState(() => _tab = 'HISTORY');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openMessageDetailSheet(Map<String, dynamic> msg) async {
+    final id = '${msg['id'] ?? ''}'.trim();
+    if (id.isEmpty) return;
+
+    Map<String, dynamic> detail = msg;
+    setState(() => _busy = true);
+    try {
+      final res =
+          await context.read<ApiClient>().get('/messaging/messages/$id');
+      detail = asMap(res).isEmpty ? msg : asMap(res);
+    } on ApiException {
+      detail = msg;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+
+    final attempts = asList(detail['attempts'] ?? detail['deliveryAttempts']);
+    final bodyTxt =
+        '${detail['renderedBody'] ?? detail['body'] ?? detail['plainTextBody'] ?? ''}';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 26),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${detail['templateKey'] ?? 'Message'} · ${detail['channel'] ?? 'SMS'}',
+                      style: T.body(16, weight: FontWeight.w700),
+                    ),
+                  ),
+                  StatusPill('${detail['state'] ?? detail['status'] ?? 'CAPTURED'}'),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Business key: ${detail['businessKey'] ?? '—'} · Mode: ${detail['mode'] ?? detail['deliveryMode'] ?? 'TEST_CAPTURE'}',
+                style: T.mono(11.8, color: Pal.muted),
+              ),
+              if (bodyTxt.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                SaasSubBox(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Rendered Plain-Text Body',
+                        style: T.caps(10.5, color: Pal.muted),
+                      ),
+                      const SizedBox(height: 6),
+                      SelectableText(
+                        bodyTxt,
+                        style: T.body(13, color: Pal.ink),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Delivery Attempts (${attempts.length})',
+                style: T.body(13.5, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              if (attempts.isEmpty)
+                const SaasEmptyBox(
+                  'No external provider attempt executed (test capture or pending).',
+                )
+              else
+                for (final a in attempts)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: SaasSubBox(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Attempt #${a['attemptNumber'] ?? 1} · ${fmtDateTime('${a['createdAt'] ?? ''}')}',
+                              style: T.mono(11.5),
+                            ),
+                          ),
+                          StatusPill('${a['outcome'] ?? a['state'] ?? 'LOGGED'}'),
+                        ],
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final dispatches = asList(_ws['dispatches'] ?? _ws['messages'] ?? _ws['items']);
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
+    final statusObj = asMap(_ws['status'] ?? _ws['capabilities']);
+    final liveEnabled = (_ws['liveMessagingEnabled'] == true) ||
+        (_ws['liveEnabled'] == true) ||
+        (statusObj['liveMessagingEnabled'] == true) ||
+        (statusObj['externalSendEnabled'] == true);
+    final bannerText = '${_ws['statusMessage'] ?? statusObj['message'] ?? ''}'
+            .trim()
+            .isNotEmpty
+        ? '${_ws['statusMessage'] ?? statusObj['message']}'.trim()
+        : (liveEnabled
+            ? 'Live customer messaging is enabled. Test capture is also available.'
+            : 'Test capture is available. Live customer messaging is disabled.');
+
+    final templates = _templates;
+    final messages = asList(
+      _ws['messages'] ?? _ws['messageHistory'] ?? _ws['dispatches'],
+    ).take(200).toList();
+
+    final messagingConns = <LookupOption>[
+      for (final m in asList(_ws['providerMappings']))
+        LookupOption(
+          id: '${m['id']}',
+          label: '${m['displayName'] ?? m['providerKey'] ?? shortId('${m['id']}')}',
+          raw: m,
+        ),
+      for (final c in _lk.connections)
+        if ('${c.raw['capability'] ?? ''}'.toUpperCase().isEmpty ||
+            '${c.raw['capability'] ?? ''}'.toUpperCase() == 'MESSAGING')
+          c,
+    ];
+
+    final approvedTplOpts = templates
+        .map(
+          (t) => LookupOption(
+            id: '${t['id']}',
+            label:
+                '${t['templateKey'] ?? 'TPL'} · v${t['revisionNumber'] ?? t['version'] ?? 1} · ${t['channel'] ?? 'SMS'} · ${t['state'] ?? 'DRAFT'}',
+            raw: t,
+          ),
+        )
+        .toList();
+
+    final recipientOptions = _recipientOpts.isNotEmpty
+        ? _recipientOpts
+        : _lk.parties;
+
+    final selectedTpl = _selectedTemplate;
+    final selectedVars = _extractTemplateVars(selectedTpl);
+
     final q = _search.text.trim().toLowerCase();
-    final sentCnt = dispatches.where((m) => '${m['state'] ?? ''}'.toUpperCase() == 'SENT').length;
-    final queuedCnt = dispatches.where((m) => '${m['state'] ?? 'QUEUED'}'.toUpperCase() != 'SENT').length;
-    final filtered = dispatches.where((m) {
-      final st = '${m['state'] ?? 'QUEUED'}'.toUpperCase();
-      if (_filter == 'SENT' && st != 'SENT') return false;
-      if (_filter == 'QUEUED' && st == 'SENT') return false;
+    final fTemplates = templates.where((t) {
       if (q.isEmpty) return true;
-      return '${m['channel'] ?? ''} ${m['templateKey'] ?? ''} ${asMap(m['party'])['displayName'] ?? ''}'
+      return '${t['templateKey'] ?? ''} ${t['channel'] ?? ''} ${t['consentPurpose'] ?? ''} ${t['state'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
+    }).toList();
+
+    final fMessages = messages.where((m) {
+      if (q.isEmpty) return true;
+      return '${m['templateKey'] ?? ''} ${m['channel'] ?? ''} ${m['businessKey'] ?? ''} ${m['state'] ?? ''} ${asMap(m['party'])['displayName'] ?? ''}'
           .toLowerCase()
           .contains(q);
     }).toList();
 
     return LuxuryModuleScaffold(
       title: 'Customer Messaging',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.chat_bubble_outline_rounded,
       searchController: _search,
-      searchHint: 'Search by Channel, Template or Party...',
+      searchHint: 'Search templates, consent purpose or message history...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -2784,110 +4781,539 @@ class _CustomerMessagingScreenState extends State<CustomerMessagingScreen> {
         ),
       ],
       topFilterBar: PillTabs<String>(
-        value: _filter,
-        onChanged: (v) => setState(() => _filter = v),
+        value: _tab,
+        onChanged: (v) => setState(() => _tab = v),
         tabs: [
-          ('ALL', 'All (${dispatches.length})'),
-          ('QUEUED', 'Queued ($queuedCnt)'),
-          ('SENT', 'Sent ($sentCnt)'),
+          ('TEMPLATES', 'Templates (${templates.length})'),
+          ('COMPOSE', 'Compose'),
+          ('HISTORY', 'Message History (${messages.length})'),
         ],
-      ),
-      floatingActionButton: GoldAddFab(
-        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'Queue Notification',
-        onPressed: () => setState(() => _showForm = !_showForm),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-            if (_showForm) ...[
-              SaasFormCard(
-                title: 'Queue transactional notification',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showForm = false),
-                  child: const Text('Close'),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LookupField(
-                      label: 'Recipient party',
-                      controller: _partyId,
-                      options: _lk.parties,
-                      hint: 'Select...',
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header Card + `Refresh status` + Capability Banner (`image-46.png`)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
                     ),
-                    const SizedBox(height: 10),
-                    Row(
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Expanded(
-                          child: SaasDropdown(
-                            label: 'Channel',
-                            value: _channel,
-                            options: const {
-                              'WHATSAPP': 'WHATSAPP',
-                              'SMS': 'SMS',
-                              'EMAIL': 'EMAIL',
-                            },
-                            onChanged: (v) => setState(() => _channel = v),
-                          ),
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasField(
-                            label: 'Purpose',
-                            controller: _purpose,
-                            mono: true,
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
                           ),
                         ),
                       ],
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Customer Messaging',
+                              style: T.body(
+                                16,
+                                weight: FontWeight.w700,
+                                color: Pal.ink,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Approved plain-text templates, exact-purpose consent and traceable delivery attempts.',
+                              style: T.body(12.2, color: Pal.muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: _loading ? null : _load,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          side: const BorderSide(color: Pal.border),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: Text(
+                          'Refresh status',
+                          style: T.body(
+                            12,
+                            weight: FontWeight.w600,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Text(
+                      bannerText,
+                      style: T.body(
+                        12.4,
+                        weight: FontWeight.w600,
+                        color: Pal.goldDeep,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Shared `Command reason` & `Template / customer consent evidence` (`image-46.png`)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SaasField(
+                    label: 'Command reason',
+                    controller: _commandReason,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Template / customer consent evidence',
+                    controller: _consentEvidence,
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // TAB 1: `Create an immutable template revision` + `Template governance` (`image-46..47.png`)
+            if (_tab == 'TEMPLATES') ...[
+              SaasFormCard(
+                title: 'Create an immutable template revision',
+                icon: Icons.mark_chat_read_outlined,
+                trailing: TextButton(
+                  onPressed: () =>
+                      setState(() => _tplFormExpanded = !_tplFormExpanded),
+                  child: Text(_tplFormExpanded ? 'Hide' : 'Show'),
+                ),
+                child: !_tplFormExpanded
+                    ? Text(
+                        'Tap Show to create a new plain-text template revision.',
+                        style: T.body(12.2, color: Pal.muted),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Template key',
+                                  controller: _templateKey,
+                                  mono: true,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasDropdown(
+                                  label: 'Channel',
+                                  value: _channel,
+                                  options: const {
+                                    'SMS': 'SMS',
+                                    'WHATSAPP': 'WhatsApp',
+                                    'EMAIL': 'Email',
+                                  },
+                                  onChanged: (v) =>
+                                      setState(() => _channel = v),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'Exact consent purpose',
+                            controller: _consentPurpose,
+                            mono: true,
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Locale',
+                                  controller: _locale,
+                                  mono: true,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SaasField(
+                                  label: 'Variable names (comma separated)',
+                                  controller: _variableNames,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          LookupField(
+                            label: 'Provider mapping (optional for test)',
+                            controller: _providerMappingId,
+                            options: messagingConns,
+                            hint: 'Select...',
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label: 'Provider template reference',
+                            controller: _providerTemplateRef,
+                            mono: true,
+                          ),
+                          const SizedBox(height: 10),
+                          SaasField(
+                            label:
+                                'Plain-text message body · use {{variableName}}',
+                            controller: _bodyTemplate,
+                            maxLines: 4,
+                          ),
+                          const SizedBox(height: 14),
+                          RoyalGoldButton(
+                            label: 'Create draft revision',
+                            busy: _busy,
+                            onPressed: _busy ? null : _createDraftRevision,
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 14),
+              SaasFormCard(
+                title: 'Template governance',
+                subtitle:
+                    'Content cannot change after creation. Create a new revision for changes. Approval requires another user.',
+                icon: Icons.gavel_rounded,
+                child: _loading
+                    ? const Skeleton(height: 76)
+                    : fTemplates.isEmpty
+                        ? const SaasEmptyBox(
+                            'No template revisions created in this workspace yet.',
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final t in fTemplates)
+                                LuxuryRecordCard(
+                                  icon: Icons.article_outlined,
+                                  code:
+                                      '${t['templateKey'] ?? 'TEMPLATE'} · v${t['revisionNumber'] ?? t['version'] ?? 1}',
+                                  status: '${t['state'] ?? 'DRAFT'}',
+                                  lines: [
+                                    (
+                                      'Channel / Locale',
+                                      '${t['channel'] ?? 'SMS'} · ${t['locale'] ?? 'en_IN'}',
+                                    ),
+                                    (
+                                      'Consent Purpose',
+                                      '${t['consentPurpose'] ?? t['purpose'] ?? '—'}',
+                                    ),
+                                    if ('${t['body'] ?? t['plainTextBody'] ?? ''}'
+                                        .isNotEmpty)
+                                      (
+                                        'Body',
+                                        '${t['body'] ?? t['plainTextBody']}',
+                                      ),
+                                  ],
+                                  amountLabel: 'Stage',
+                                  amountValue:
+                                      statusLabel('${t['state'] ?? 'DRAFT'}'),
+                                  actions: [
+                                    if ('${t['state'] ?? 'DRAFT'}'
+                                            .toUpperCase() ==
+                                        'DRAFT')
+                                      GoldButton(
+                                        label: 'Approve',
+                                        compact: true,
+                                        onPressed: _busy
+                                            ? null
+                                            : () =>
+                                                _governTemplate(t, 'APPROVE'),
+                                      ),
+                                    if ('${t['state'] ?? ''}'.toUpperCase() !=
+                                        'RETIRED')
+                                      OutlinedButton(
+                                        onPressed: _busy
+                                            ? null
+                                            : () =>
+                                                _governTemplate(t, 'RETIRE'),
+                                        child: const Text('Retire'),
+                                      ),
+                                  ],
+                                ),
+                            ],
+                          ),
+              ),
+            ]
+
+            // TAB 2: `Compose with current consent` (`image-47.png`)
+            else if (_tab == 'COMPOSE') ...[
+              SaasFormCard(
+                title: 'Compose with current consent',
+                icon: Icons.send_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LookupField(
+                      label: 'Approved template',
+                      controller: _approvedTemplateId,
+                      options: approvedTplOpts,
+                      hint: 'Select...',
+                    ),
                     const SizedBox(height: 10),
                     SaasField(
-                      label: 'Template key',
-                      controller: _templateKey,
-                      hint: 'INVOICE_ISSUED',
+                      label: 'Customer name or code prefix',
+                      controller: _customerPrefix,
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: GoldButton(
+                        label: 'Find customers',
+                        busy: _findingCustomers,
+                        icon: Icons.person_search_outlined,
+                        onPressed: _findingCustomers ? null : _findCustomers,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    LookupField(
+                      label: 'Recipient contact',
+                      controller: _recipientContactId,
+                      options: recipientOptions,
+                      hint: 'Select...',
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () => setState(
+                          () => _consentBoxExpanded = !_consentBoxExpanded,
+                        ),
+                        icon: Icon(
+                          _consentBoxExpanded
+                              ? Icons.expand_less_rounded
+                              : Icons.verified_user_outlined,
+                          size: 16,
+                        ),
+                        label: Text(
+                          _consentBoxExpanded
+                              ? 'Hide customer consent update'
+                              : 'Record / update customer consent',
+                        ),
+                      ),
+                    ),
+                    if (_consentBoxExpanded) ...[
+                      SaasSubBox(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SaasDropdown(
+                              label: 'Consent state command',
+                              value: _consentAction,
+                              options: const {
+                                'GRANT': 'Grant exact-purpose consent',
+                                'WITHDRAW': 'Withdraw consent',
+                              },
+                              onChanged: (v) =>
+                                  setState(() => _consentAction = v),
+                            ),
+                            const SizedBox(height: 10),
+                            GoldButton(
+                              label: 'Apply Consent Record',
+                              compact: true,
+                              busy: _busy,
+                              onPressed:
+                                  _busy ? null : _updateRecipientConsent,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (selectedVars.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      SaasSubBox(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              'Template Variables',
+                              style: T.body(12.5, weight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            for (final vName in selectedVars) ...[
+                              SaasField(
+                                label: '{{$vName}}',
+                                controller: _varCtrls[vName]!,
+                                onChanged: (_) => setState(() {}),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                            if (selectedTpl != null) ...[
+                              Text(
+                                'Plain-text preview',
+                                style: T.caps(10.5, color: Pal.muted),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _renderLivePreview(selectedTpl),
+                                style: T.body(12.2, color: Pal.ink),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    SaasField(
+                      label:
+                          'Unique business key (use separate test/live keys)',
+                      controller: _businessKey,
                       mono: true,
                     ),
                     const SizedBox(height: 10),
                     SaasField(
-                      label: 'Message parameters / note (optional)',
-                      controller: _bodyPreview,
-                      maxLines: 2,
+                      label: 'Expire after minutes (1–1440)',
+                      controller: _expireMinutes,
+                      mono: true,
+                      keyboardType: TextInputType.number,
                     ),
-                    const SizedBox(height: 12),
-                    GoldButton(
-                      label: 'Queue Notification',
+                    const SizedBox(height: 14),
+                    RoyalGoldButton(
+                      label: 'Capture test · no external send',
                       busy: _busy,
-                      onPressed: _send,
+                      onPressed: _busy
+                          ? null
+                          : () => _composeMessage(liveSend: false),
                     ),
+                    if (liveEnabled) ...[
+                      const SizedBox(height: 10),
+                      GoldButton(
+                        label: 'Send live message',
+                        busy: _busy,
+                        icon: Icons.send_rounded,
+                        onPressed: _busy
+                            ? null
+                            : () => _composeMessage(liveSend: true),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
+            ]
+
+            // TAB 3: `Message history · latest 200` (`image-47.png`)
+            else ...[
+              SaasFormCard(
+                title: 'Message history · latest 200',
+                icon: Icons.history_rounded,
+                child: _loading
+                    ? const Skeleton(height: 88)
+                    : fMessages.isEmpty
+                        ? const SaasEmptyBox(
+                            'No customer messages recorded yet.',
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final m in fMessages)
+                                LuxuryRecordCard(
+                                  icon: Icons.chat_bubble_outline_rounded,
+                                  code:
+                                      '${m['templateKey'] ?? shortId('${m['id']}')} · ${m['channel'] ?? 'SMS'}',
+                                  status:
+                                      '${m['state'] ?? m['status'] ?? 'CAPTURED'}',
+                                  onTap: () => _openMessageDetailSheet(m),
+                                  lines: [
+                                    if ('${m['recipientDisplay'] ?? asMap(m['party'])['displayName'] ?? m['destination'] ?? ''}'
+                                        .isNotEmpty)
+                                      (
+                                        'Recipient',
+                                        '${m['recipientDisplay'] ?? asMap(m['party'])['displayName'] ?? m['destination']}',
+                                      ),
+                                    if ('${m['businessKey'] ?? ''}'.isNotEmpty)
+                                      ('Business Key', '${m['businessKey']}'),
+                                    if ('${m['createdAt'] ?? ''}'.isNotEmpty)
+                                      (
+                                        'Recorded',
+                                        fmtDateTime('${m['createdAt']}'),
+                                      ),
+                                  ],
+                                  amountLabel: 'Mode',
+                                  amountValue:
+                                      '${m['mode'] ?? m['deliveryMode'] ?? 'TEST'}',
+                                ),
+                            ],
+                          ),
+              ),
             ],
-            if (_loading)
-              const Center(child: CircularProgressIndicator())
-            else if (filtered.isEmpty)
-              const SaasEmptyBox('No customer notifications found. Tap + to queue a notification.')
-            else
-              for (final m in filtered)
-                LuxuryRecordCard(
-                  icon: Icons.chat_bubble_outline_rounded,
-                  code: '${m['templateKey'] ?? shortId('${m['id']}')}',
-                  status: '${m['state'] ?? 'QUEUED'}',
-                  lines: [
-                    ('Channel', '${m['channel'] ?? 'WHATSAPP'}'),
-                    if ('${asMap(m['party'])['displayName'] ?? ''}'.isNotEmpty)
-                      ('Recipient', '${asMap(m['party'])['displayName']}'),
-                    if ('${m['purpose'] ?? ''}'.isNotEmpty) ('Purpose', '${m['purpose']}'),
-                  ],
-                  amountLabel: 'Dispatch',
-                  amountValue: '${m['channel'] ?? 'MSG'}',
-                ),
           ],
         ),
       ),
