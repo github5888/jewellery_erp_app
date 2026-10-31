@@ -4845,12 +4845,15 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
             SaasKpiGrid(
               items: [
                 (
-                  'ACTIVE CONTRACTS',
-                  '${_summary['activeContracts'] ?? activeCnt}',
+                  label: 'ACTIVE CONTRACTS',
+                  value: '${_summary['activeContracts'] ?? activeCnt}',
                 ),
-                ('UNFIXED FINE EXPOSURE', '${dStr6(unfixedFine)} g'),
-                ('UNDELIVERED FINE', '${dStr6(undeliveredFine)} g'),
-                ('UNSETTLED MATCHED VALUE', inr(unsettledVal)),
+                (
+                  label: 'UNFIXED FINE EXPOSURE',
+                  value: '${dStr6(unfixedFine)} g',
+                ),
+                (label: 'UNDELIVERED FINE', value: '${dStr6(undeliveredFine)} g'),
+                (label: 'UNSETTLED MATCHED VALUE', value: inr(unsettledVal)),
               ],
             ),
 

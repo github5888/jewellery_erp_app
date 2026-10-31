@@ -4023,25 +4023,29 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 3. BANKING & RECONCILIATION (`/banking`) — Screenshot (690)
+// 3. BANKING & RECONCILIATION (`/banking`) — `image-37.png`
 // ---------------------------------------------------------------------------
 
 class BankingReconciliationScreen extends StatefulWidget {
   const BankingReconciliationScreen({super.key});
   @override
-  State<BankingReconciliationScreen> createState() => _BankingReconciliationScreenState();
+  State<BankingReconciliationScreen> createState() =>
+      _BankingReconciliationScreenState();
 }
 
-class _BankingReconciliationScreenState extends State<BankingReconciliationScreen> {
+class _BankingReconciliationScreenState
+    extends State<BankingReconciliationScreen> {
   final _search = TextEditingController();
   String _filter = 'ALL';
-  bool _showImport = false;
+  bool _importExpanded = true;
   List<Map<String, dynamic>> _statements = [];
+  List<LookupOption> _bankAccounts = const [];
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   bool _busy = false;
   String? _error;
 
+  // Exact fields from `image-37.png` (`Import normalized bank CSV`)
   final _bankAcctId = TextEditingController();
   final _statementId = TextEditingController();
   final _startDate = TextEditingController(text: todayIso());
@@ -4049,9 +4053,7 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
   final _openingBal = TextEditingController();
   final _closingBal = TextEditingController();
   final _currency = TextEditingController(text: 'INR');
-  final _csvText = TextEditingController(
-    text: 'transaction_date,direction,amount,description',
-  );
+  final _csvText = TextEditingController();
 
   @override
   void initState() {
@@ -4062,8 +4064,15 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
   @override
   void dispose() {
     for (final c in [
-      _search, _bankAcctId, _statementId, _startDate, _endDate,
-      _openingBal, _closingBal, _currency, _csvText,
+      _search,
+      _bankAcctId,
+      _statementId,
+      _startDate,
+      _endDate,
+      _openingBal,
+      _closingBal,
+      _currency,
+      _csvText,
     ]) {
       c.dispose();
     }
@@ -4079,12 +4088,39 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
     try {
       final res = await Future.wait([
         api.get('/banking'),
-        WorkspaceLookup.load(api, includeParties: false, includeAccounting: true),
+        WorkspaceLookup.load(
+          api,
+          includeParties: false,
+          includeAccounting: true,
+        ),
       ]);
       if (!mounted) return;
+      final rawBank = asMap(res[0]);
+      final lk = res[1] as WorkspaceLookup;
+      final explicitBanks = asList(
+        rawBank['bankAccounts'] ?? rawBank['accounts'],
+      )
+          .map(
+            (b) => LookupOption(
+              id: '${b['id'] ?? ''}',
+              label:
+                  '${b['code'] ?? b['accountNumber'] ?? ''} ${b['name'] ?? b['bankName'] ?? 'Bank Account'}'
+                      .trim(),
+              raw: b,
+            ),
+          )
+          .where((o) => o.id.isNotEmpty)
+          .toList();
+
       setState(() {
-        _statements = asList(res[0], keys: const ['statements', 'bankStatements', 'items']);
-        _lk = res[1] as WorkspaceLookup;
+        _statements = asList(
+          res[0],
+          keys: const ['statements', 'bankStatements', 'items'],
+        );
+        _bankAccounts = explicitBanks.isNotEmpty
+            ? explicitBanks
+            : lk.accountsByControl(const ['BANK', 'ASSET']);
+        _lk = lk;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -4093,13 +4129,37 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
     }
   }
 
+  void _insertCsvHeader() {
+    if (_csvText.text.trim().isEmpty) {
+      setState(() {
+        _csvText.text =
+            'transaction_date,direction,amount,description,value_date,reference,bank_transaction_id\n';
+      });
+      toast(context, 'Normalized CSV header inserted.');
+    }
+  }
+
+  Future<void> _pasteCsvClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final txt = (data?.text ?? '').trim();
+    if (txt.isEmpty) {
+      if (mounted) toast(context, 'Clipboard is empty.', error: true);
+      return;
+    }
+    setState(() => _csvText.text = txt);
+    if (mounted) toast(context, 'CSV statement pasted from clipboard.');
+  }
+
   Future<void> _importStatement() async {
     if (_bankAcctId.text.trim().isEmpty ||
         _statementId.text.trim().isEmpty ||
         _openingBal.text.trim().isEmpty ||
         _closingBal.text.trim().isEmpty ||
         _csvText.text.trim().isEmpty) {
-      setState(() => _error = 'Complete Bank account UUID, Statement ID, Opening/Closing balances, and CSV rows.');
+      setState(
+        () => _error =
+            'Complete Bank account UUID, Statement ID, Opening/Closing balances, and normalized CSV statement content.',
+      );
       return;
     }
     setState(() {
@@ -4115,18 +4175,16 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
           'externalStatementId': _statementId.text.trim(),
           'startDate': _startDate.text.trim(),
           'endDate': _endDate.text.trim(),
-          'openingBalance': _openingBal.text.trim(),
-          'closingBalance': _closingBal.text.trim(),
+          'openingBalance': normAmount(_openingBal.text),
+          'closingBalance': normAmount(_closingBal.text),
           'currency': _currency.text.trim().toUpperCase(),
           'csvContent': _csvText.text.trim(),
         },
       );
       if (!mounted) return;
       _statementId.clear();
-      setState(() => _showImport = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bank statement imported.')),
-      );
+      _csvText.clear();
+      toast(context, 'Normalized bank CSV statement imported.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -4135,8 +4193,448 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Reconciliation Lifecycle Modal: Auto-Match, Line Match, Exception, Close
+  // -------------------------------------------------------------------------
+  Future<void> _openStatementManageSheet(Map<String, dynamic> stmt) async {
+    var actionTab = 'MATCH';
+    final lines = asList(stmt['lines'] ?? stmt['statementLines']);
+    final lineOpts = [
+      for (final l in lines)
+        if ('${l['id'] ?? ''}'.isNotEmpty)
+          LookupOption(
+            id: '${l['id']}',
+            label:
+                '${fmtDate('${l['transactionDate'] ?? ''}')} · ${l['direction'] ?? ''} ${inr(l['amount'])} · ${l['description'] ?? ''}',
+            raw: l,
+          ),
+    ];
+
+    final lineIdCtrl = TextEditingController(
+      text: lineOpts.isNotEmpty ? lineOpts.first.id : '',
+    );
+    final journalIdCtrl = TextEditingController();
+    var excKind = 'BANK_CHARGES';
+    final offsetAcctCtrl = TextEditingController(
+      text: _lk.accountsByControl(const ['EXPENSE']).isNotEmpty
+          ? _lk.accountsByControl(const ['EXPENSE']).first.id
+          : '',
+    );
+    final periodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final jrnSeriesCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final reasonCtrl = TextEditingController();
+
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Reconcile · ${stmt['externalStatementId'] ?? shortId('${stmt['id']}')}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill(
+                      '${stmt['state'] ?? stmt['status'] ?? 'IMPORTED'}',
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: actionTab,
+                  onChanged: (v) => setSheet(() {
+                    actionTab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('MATCH', 'Ledger Match'),
+                    ('EXCEPTION', 'Exceptions'),
+                    ('CLOSE', 'Maker-Checker Close'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (actionTab == 'MATCH') ...[
+                  Text(
+                    'Run deterministic auto-matching against posted GL bank entries, or link a specific statement line.',
+                    style: T.body(12, color: Pal.muted),
+                  ),
+                  const SizedBox(height: 10),
+                  RoyalGoldButton(
+                    label: 'Run Deterministic Auto-Match',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/banking/statements/${stmt['id']}/auto-match',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(stmt['version'], fallback: 1),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(
+                                context,
+                                'Deterministic ledger auto-match completed.',
+                              );
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                  const Divider(height: 24),
+                  LookupField(
+                    label: 'Statement line UUID',
+                    controller: lineIdCtrl,
+                    options: lineOpts,
+                    optional: true,
+                    hint: 'Select statement line...',
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Posted GL journal / line UUID',
+                    controller: journalIdCtrl,
+                    mono: true,
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Match audit reason (min 10 chars)',
+                    controller: reasonCtrl,
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (lineIdCtrl.text.trim().isEmpty ||
+                                journalIdCtrl.text.trim().isEmpty ||
+                                reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select statement line, GL journal UUID, and enter reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/banking/statement-lines/${lineIdCtrl.text.trim()}/match',
+                                idempotent: true,
+                                body: {
+                                  'journalId': journalIdCtrl.text.trim(),
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Statement line matched to GL.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                    child: const Text('Match Selected Line to Ledger'),
+                  ),
+                ] else if (actionTab == 'EXCEPTION') ...[
+                  LookupField(
+                    label: 'Unmatched statement line',
+                    controller: lineIdCtrl,
+                    options: lineOpts,
+                    hint: 'Select statement line...',
+                  ),
+                  const SizedBox(height: 10),
+                  SaasDropdown(
+                    label: 'Exception classification',
+                    value: excKind,
+                    options: const {
+                      'BANK_CHARGES': 'Bank charges / fee adjustment',
+                      'INTEREST_CREDIT': 'Bank interest credit',
+                      'TIMING_DIFFERENCE': 'Timing difference carry-forward',
+                      'DUPLICATE_OR_REVERSAL': 'Bank error / reversal pair',
+                    },
+                    onChanged: (v) => setSheet(() => excKind = v),
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Offset GL account (for adjustment)',
+                    controller: offsetAcctCtrl,
+                    options: _lk.accounts,
+                    optional: true,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LookupField(
+                          label: 'Posting period',
+                          controller: periodCtrl,
+                          options: _lk.openPeriods(),
+                          optional: true,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: LookupField(
+                          label: 'Journal series',
+                          controller: jrnSeriesCtrl,
+                          options: _lk.seriesFor(const ['JOURNAL']),
+                          optional: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Controlled exception reason (min 10 chars)',
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Resolve Controlled Exception',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (lineIdCtrl.text.trim().isEmpty ||
+                                reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select statement line and enter reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/banking/statement-lines/${lineIdCtrl.text.trim()}/exception',
+                                idempotent: true,
+                                body: {
+                                  'classification': excKind,
+                                  if (offsetAcctCtrl.text.trim().isNotEmpty)
+                                    'offsetAccountId':
+                                        offsetAcctCtrl.text.trim(),
+                                  if (periodCtrl.text.trim().isNotEmpty)
+                                    'postingPeriodId': periodCtrl.text.trim(),
+                                  if (jrnSeriesCtrl.text.trim().isNotEmpty)
+                                    'journalSeriesId':
+                                        jrnSeriesCtrl.text.trim(),
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(
+                                context,
+                                'Controlled exception resolution recorded.',
+                              );
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else ...[
+                  Text(
+                    'Maker submits reconciled statement for review; independent Checker approves & closes reconciliation.',
+                    style: T.body(12, color: Pal.muted),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Maker / Checker sign-off reason (min 10 chars)',
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  if (reasonCtrl.text.trim().length < 10) {
+                                    setSheet(
+                                      () => sheetErr =
+                                          'Enter sign-off reason (10+ chars).',
+                                    );
+                                    return;
+                                  }
+                                  setSheet(() {
+                                    saving = true;
+                                    sheetErr = null;
+                                  });
+                                  try {
+                                    await context.read<ApiClient>().post(
+                                      '/banking/statements/${stmt['id']}/submit',
+                                      idempotent: true,
+                                      body: {
+                                        'expectedVersion':
+                                            asInt(stmt['version'], fallback: 1),
+                                        'reason': reasonCtrl.text.trim(),
+                                      },
+                                    );
+                                    if (!ctx.mounted) return;
+                                    Navigator.pop(ctx);
+                                    if (!mounted) return;
+                                    toast(
+                                      context,
+                                      'Statement submitted for checker sign-off.',
+                                    );
+                                    _load();
+                                  } on ApiException catch (e) {
+                                    setSheet(() => sheetErr = e.message);
+                                  } finally {
+                                    if (ctx.mounted) {
+                                      setSheet(() => saving = false);
+                                    }
+                                  }
+                                },
+                          child: const Text('Maker Submit'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: RoyalGoldButton(
+                          label: 'Checker Close',
+                          busy: saving,
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  if (reasonCtrl.text.trim().length < 10) {
+                                    setSheet(
+                                      () => sheetErr =
+                                          'Enter checker approval reason (10+ chars).',
+                                    );
+                                    return;
+                                  }
+                                  setSheet(() {
+                                    saving = true;
+                                    sheetErr = null;
+                                  });
+                                  try {
+                                    await context.read<ApiClient>().post(
+                                      '/banking/statements/${stmt['id']}/close',
+                                      idempotent: true,
+                                      body: {
+                                        'expectedVersion':
+                                            asInt(stmt['version'], fallback: 1),
+                                        'reason': reasonCtrl.text.trim(),
+                                      },
+                                    );
+                                    if (!ctx.mounted) return;
+                                    Navigator.pop(ctx);
+                                    if (!mounted) return;
+                                    toast(
+                                      context,
+                                      'Bank statement reconciliation closed.',
+                                    );
+                                    _load();
+                                  } on ApiException catch (e) {
+                                    setSheet(() => sheetErr = e.message);
+                                  } finally {
+                                    if (ctx.mounted) {
+                                      setSheet(() => saving = false);
+                                    }
+                                  }
+                                },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final c in [
+      lineIdCtrl,
+      journalIdCtrl,
+      offsetAcctCtrl,
+      periodCtrl,
+      jrnSeriesCtrl,
+      reasonCtrl,
+    ]) {
+      c.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final q = _search.text.trim().toLowerCase();
     bool isRecon(Map<String, dynamic> s) {
       final st = '${s['state'] ?? s['status'] ?? ''}'.toUpperCase();
@@ -4156,6 +4654,7 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
 
     return LuxuryModuleScaffold(
       title: 'Banking & Reconciliation',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.account_balance_rounded,
       searchController: _search,
       searchHint: 'Search by Statement ID / Reference...',
@@ -4175,113 +4674,259 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
           ('RECONCILED', 'Reconciled ($recCnt)'),
         ],
       ),
-      floatingActionButton: GoldAddFab(
-        icon: _showImport ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'Import Bank Statement CSV',
-        onPressed: () => setState(() => _showImport = !_showImport),
-      ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-            if (_showImport) ...[
-              SaasFormCard(
-                title: 'Import normalized bank CSV',
-                subtitle:
-                    'Required columns: transaction_date, direction, amount, description. Optional: value_date, reference, bank_transaction_id.',
-                icon: Icons.upload_rounded,
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showImport = false),
-                  child: const Text('Close'),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LookupField(
-                      label: 'Bank account UUID',
-                      controller: _bankAcctId,
-                      options: _lk.accountsByControl(const ['BANK', 'ASSET']),
-                      hint: 'Bank account UUID',
-                    ),
-                    const SizedBox(height: 10),
-                    SaasField(
-                      label: 'Statement ID',
-                      controller: _statementId,
-                      hint: 'Statement ID',
-                      mono: true,
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: DatePickField(label: 'Start date', controller: _startDate)),
-                        const SizedBox(width: 10),
-                        Expanded(child: DatePickField(label: 'End date', controller: _endDate)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SaasField(
-                            label: 'Opening balance',
-                            controller: _openingBal,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasField(
-                            label: 'Closing balance',
-                            controller: _closingBal,
-                            mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    SaasField(label: 'Currency', controller: _currency, mono: true),
-                    const SizedBox(height: 10),
-                    SaasField(
-                      label: 'Normalized CSV content',
-                      controller: _csvText,
-                      mono: true,
-                      maxLines: 5,
-                    ),
-                    const SizedBox(height: 14),
-                    GoldButton(
-                      label: _busy ? 'Importing…' : 'Import Statement',
-                      busy: _busy,
-                      onPressed: _importStatement,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
             ],
+
+            // Hero Header Card (`Bank Reconciliation` — image-37.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.account_balance_rounded,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Bank Reconciliation',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Deduplicated statement imports, deterministic ledger matching, controlled exceptions and maker-checker close.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // `Import normalized bank CSV` Card (`image-37.png`)
+            SaasFormCard(
+              title: 'Import normalized bank CSV',
+              subtitle:
+                  'Required columns: transaction_date, direction, amount, description. Optional: value_date, reference, bank_transaction_id.',
+              icon: Icons.upload_rounded,
+              trailing: TextButton(
+                onPressed: () =>
+                    setState(() => _importExpanded = !_importExpanded),
+                child: Text(_importExpanded ? 'Hide' : 'Show'),
+              ),
+              child: !_importExpanded
+                  ? Text(
+                      'Tap Show to import a normalized bank CSV statement.',
+                      style: T.body(12.2, color: Pal.muted),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LookupField(
+                          label: 'Bank account UUID',
+                          controller: _bankAcctId,
+                          options: _bankAccounts,
+                          hint: 'Bank account UUID',
+                        ),
+                        const SizedBox(height: 10),
+                        SaasField(
+                          label: 'Statement ID',
+                          controller: _statementId,
+                          hint: 'Statement ID',
+                          mono: true,
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DatePickField(
+                                label: 'From date',
+                                controller: _startDate,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: DatePickField(
+                                label: 'To date',
+                                controller: _endDate,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SaasField(
+                                label: 'Opening balance',
+                                controller: _openingBal,
+                                hint: 'Opening balance',
+                                mono: true,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: SaasField(
+                                label: 'Closing balance',
+                                controller: _closingBal,
+                                hint: 'Closing balance',
+                                mono: true,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        SaasField(
+                          label: 'Currency',
+                          controller: _currency,
+                          mono: true,
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _pasteCsvClipboard,
+                              icon: const Icon(
+                                Icons.content_paste_rounded,
+                                size: 16,
+                              ),
+                              label: const Text('Paste CSV'),
+                            ),
+                            OutlinedButton(
+                              onPressed: _insertCsvHeader,
+                              child: const Text('Insert CSV columns header'),
+                            ),
+                            Text(
+                              'Choose / paste a CSV statement',
+                              style: T.body(11.8, color: Pal.muted),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _csvText,
+                          maxLines: 5,
+                          style: T.mono(12),
+                          decoration: const InputDecoration(
+                            hintText:
+                                'transaction_date,direction,amount,description',
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        RoyalGoldButton(
+                          label: 'Import statement',
+                          busy: _busy,
+                          onPressed: _busy ? null : _importStatement,
+                        ),
+                      ],
+                    ),
+            ),
+
+            const SizedBox(height: 14),
+
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const Panel(child: Skeleton(height: 92))
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No bank statements found. Tap + to import a normalized bank CSV.')
+              const SaasEmptyBox('No bank statements imported.')
             else
               for (final s in filtered)
                 LuxuryRecordCard(
                   icon: Icons.account_balance_rounded,
                   code: '${s['externalStatementId'] ?? shortId('${s['id']}')}',
                   status: '${s['state'] ?? s['status'] ?? 'IMPORTED'}',
+                  onTap: () => _openStatementManageSheet(s),
                   lines: [
-                    ('Period', '${fmtDate('${s['startDate'] ?? ''}')} → ${fmtDate('${s['endDate'] ?? ''}')}'),
-                    ('Opening', inr(s['openingBalance'])),
+                    (
+                      'Statement Period',
+                      '${fmtDate('${s['startDate'] ?? ''}')} → ${fmtDate('${s['endDate'] ?? ''}')}',
+                    ),
+                    ('Opening Balance', inr(s['openingBalance'])),
+                    (
+                      'Lines',
+                      '${asList(s['lines'] ?? s['statementLines']).length} transaction(s)',
+                    ),
                   ],
-                  amountLabel: 'Closing',
+                  amountLabel: 'Closing Balance',
                   amountValue: inr(s['closingBalance']),
+                  actions: [
+                    GoldButton(
+                      label: 'Reconcile Statement',
+                      compact: true,
+                      onPressed: () => _openStatementManageSheet(s),
+                    ),
+                  ],
                 ),
           ],
         ),
@@ -4291,7 +4936,7 @@ class _BankingReconciliationScreenState extends State<BankingReconciliationScree
 }
 
 // ---------------------------------------------------------------------------
-// 4. CONSOLIDATED CHAIN ANALYTICS (`/chain-analytics`) — Screenshot (691)
+// 4. CONSOLIDATED CHAIN ANALYTICS (`/chain-analytics`) — `image-38..39.png`
 // ---------------------------------------------------------------------------
 
 class ConsolidatedChainAnalyticsScreen extends StatefulWidget {
@@ -4304,7 +4949,6 @@ class ConsolidatedChainAnalyticsScreen extends StatefulWidget {
 class _ConsolidatedChainAnalyticsScreenState
     extends State<ConsolidatedChainAnalyticsScreen> {
   final _search = TextEditingController();
-  String _tab = 'OVERVIEW';
   final _fromDate = TextEditingController(text: monthStartIso());
   final _toDate = TextEditingController(text: todayIso());
   Map<String, dynamic> _data = const {};
@@ -4331,12 +4975,15 @@ class _ConsolidatedChainAnalyticsScreenState
       _error = null;
     });
     try {
-      final d = await context.read<ApiClient>().get('/chain-analytics', query: {
-        'from': _fromDate.text.trim(),
-        'to': _toDate.text.trim(),
-        'startDate': _fromDate.text.trim(),
-        'endDate': _toDate.text.trim(),
-      });
+      final d = await context.read<ApiClient>().get(
+        '/chain-analytics',
+        query: {
+          'from': _fromDate.text.trim(),
+          'to': _toDate.text.trim(),
+          'startDate': _fromDate.text.trim(),
+          'endDate': _toDate.text.trim(),
+        },
+      );
       if (!mounted) return;
       setState(() => _data = asMap(d));
     } on ApiException catch (e) {
@@ -4346,32 +4993,128 @@ class _ConsolidatedChainAnalyticsScreenState
     }
   }
 
+  Widget _miniMetricBox(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Pal.bgTint,
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: Pal.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: T.caps(9.6, color: Pal.muted),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: T.mono(13.5, weight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final reported = asMap(_data['reportedTotals'] ?? _data['reportedLedgerTotals']);
-    final consolidated = asMap(_data['consolidatedTotals'] ?? _data['afterEliminations']);
-    final icPairs = asList(_data['intercompanyReconciliation'] ?? _data['entityPairs']);
-    final eliminations = asList(_data['eliminationSchedule'] ?? _data['eliminations']);
-    final entities = asList(_data['legalEntities'] ?? _data['legalEntityComparison']);
-    final balanced = _data['intercompanyBalanced'] != false;
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
 
+    final summary = asMap(_data['summary']).isNotEmpty
+        ? asMap(_data['summary'])
+        : _data;
+    final reported = asMap(
+      _data['reportedTotals'] ?? _data['reportedLedgerTotals'],
+    );
+    final consolidated = asMap(
+      _data['consolidatedTotals'] ??
+          _data['afterEliminations'] ??
+          _data['afterConsolidationEliminations'],
+    );
+    final icPairs = asList(
+      _data['intercompanyReconciliation'] ?? _data['entityPairs'],
+    );
+    final eliminations = asList(
+      _data['eliminationSchedule'] ?? _data['eliminations'],
+    );
+    final entities = asList(
+      _data['legalEntities'] ?? _data['legalEntityComparison'],
+    );
+
+    // Flatten or read `branchOperatingView` (`image-39.png`)
+    final rawBranches = asList(
+      _data['branches'] ?? _data['branchOperatingView'],
+    );
+    final branches = rawBranches.isNotEmpty
+        ? rawBranches
+        : [
+            for (final e in entities)
+              for (final b in asList(e['branches']))
+                {
+                  ...b,
+                  if (b['legalEntityName'] == null)
+                    'legalEntityName': e['legalName'] ?? e['name'],
+                },
+          ];
+
+    final balanced = _data['intercompanyBalanced'] != false;
     final q = _search.text.trim().toLowerCase();
+
     final fEntities = entities.where((e) {
       if (q.isEmpty) return true;
       return '${e['legalName'] ?? ''} ${e['name'] ?? ''} ${e['currency'] ?? ''}'
           .toLowerCase()
           .contains(q);
     }).toList();
-    final fElims = eliminations.where((el) {
+
+    final fBranches = branches.where((b) {
       if (q.isEmpty) return true;
-      return '${el['description'] ?? ''} ${el['reference'] ?? ''}'.toLowerCase().contains(q);
+      return '${b['code'] ?? ''} ${b['name'] ?? ''} ${b['branchName'] ?? ''} ${b['legalEntityName'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
     }).toList();
+
+    final authEntitiesCnt =
+        summary['authorizedEntities'] ??
+        _data['authorizedEntityCount'] ??
+        entities.length;
+    final authBranchesCnt =
+        summary['authorizedBranches'] ??
+        _data['authorizedBranchCount'] ??
+        branches.length;
+    final repProfit =
+        reported['profit'] ??
+        reported['netProfit'] ??
+        summary['reportedProfitInr'] ??
+        _data['reportedProfit'] ??
+        '0.00';
+    final conProfit =
+        consolidated['profit'] ??
+        consolidated['netProfit'] ??
+        summary['consolidatedProfitInr'] ??
+        _data['consolidatedProfit'] ??
+        '0.00';
 
     return LuxuryModuleScaffold(
       title: 'Consolidated Chain Analytics',
-      icon: Icons.hub_outlined,
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
+      icon: Icons.bar_chart_rounded,
       searchController: _search,
-      searchHint: 'Search by Legal Entity or Elimination Ref...',
+      searchHint: 'Search Legal Entity or Showroom Branch...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -4379,124 +5122,402 @@ class _ConsolidatedChainAnalyticsScreenState
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
         ),
       ],
-      topFilterBar: PillTabs<String>(
-        value: _tab,
-        onChanged: (v) => setState(() => _tab = v),
-        tabs: [
-          ('OVERVIEW', 'Overview'),
-          ('ENTITIES', 'Entities (${entities.length})'),
-          ('ELIMINATIONS', 'Eliminations (${eliminations.length})'),
-        ],
-      ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: DatePickField(
-                    label: 'From',
-                    controller: _fromDate,
-                    onChanged: (_) => _load(),
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
+
+            // Hero Header Card + `From` / `To` Date Range (`image-38.png`)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: DatePickField(
-                    label: 'To',
-                    controller: _toDate,
-                    onChanged: (_) => _load(),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.bar_chart_rounded,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Consolidated Chain Analytics',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Text(
+                    'Authorization-scoped entity and branch MIS with currency-separated financials, paired intercompany controls and traceable consolidation eliminations.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DatePickField(
+                          label: 'From',
+                          controller: _fromDate,
+                          onChanged: (_) => _load(),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DatePickField(
+                          label: 'To',
+                          controller: _toDate,
+                          onChanged: (_) => _load(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
-            const SizedBox(height: 14),
+
+            const SizedBox(height: 12),
+
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_tab == 'ENTITIES') ...[
-              if (fEntities.isEmpty)
-                const SaasEmptyBox('No legal-entity comparison rows returned.')
-              else
-                for (final e in fEntities)
-                  LuxuryRecordCard(
-                    icon: Icons.domain_rounded,
-                    code: '${e['legalName'] ?? e['name'] ?? 'Entity'}',
-                    status: '${e['currency'] ?? 'INR'}',
-                    lines: [
-                      ('Authorized Branches', '${e['authorizedBranchCount'] ?? asList(e['branches']).length} branch(es)'),
-                      if (e['revenue'] != null) ('Revenue', inr(e['revenue'])),
-                    ],
-                    amountLabel: 'Profit',
-                    amountValue: inr(e['profit'] ?? '0.00'),
-                  ),
-            ] else if (_tab == 'ELIMINATIONS') ...[
-              if (fElims.isEmpty)
-                const SaasEmptyBox('No posted inter-entity elimination entries in the selected range.')
-              else
-                for (final el in fElims)
-                  LuxuryRecordCard(
-                    icon: Icons.compare_arrows_rounded,
-                    code: '${el['reference'] ?? el['description'] ?? 'ELIMINATION'}',
-                    status: 'BALANCED',
-                    lines: [
-                      if ('${el['description'] ?? ''}'.isNotEmpty) ('Description', '${el['description']}'),
-                    ],
-                    amountLabel: 'Eliminated',
-                    amountValue: inr(el['amount']),
-                  ),
-            ] else ...[
+              const Panel(child: Skeleton(height: 120))
+            else ...[
+              // 1. Exact 4 KPI Cards (`image-38.png`)
               SaasKpiGrid(
                 items: [
-                  (
-                    label: 'AUTHORIZED ENTITIES',
-                    value: '${_data['authorizedEntities'] ?? entities.length}',
-                  ),
-                  (
-                    label: 'AUTHORIZED BRANCHES',
-                    value: '${_data['authorizedBranches'] ?? 0}',
-                  ),
-                  (
-                    label: 'REPORTED PROFIT',
-                    value: inr('${reported['profit'] ?? _data['reportedProfit'] ?? '0.00'}'),
-                  ),
-                  (
-                    label: 'CONSOLIDATED PROFIT',
-                    value: inr('${consolidated['profit'] ?? _data['consolidatedProfit'] ?? '0.00'}'),
-                  ),
+                  (label: 'AUTHORIZED ENTITIES', value: '$authEntitiesCnt'),
+                  (label: 'AUTHORIZED BRANCHES', value: '$authBranchesCnt'),
+                  (label: 'REPORTED PROFIT · INR', value: inr(repProfit)),
+                  (label: 'CONSOLIDATED PROFIT · INR', value: inr(conProfit)),
                 ],
               ),
+
               const SizedBox(height: 12),
-              LuxuryRecordCard(
-                icon: Icons.assessment_outlined,
-                code: 'Reported Ledger Totals',
-                status: 'REPORTED',
-                lines: [
-                  ('Revenue', inr(reported['revenue'] ?? '0.00')),
-                  ('Expense', inr(reported['expense'] ?? '0.00')),
-                ],
-                amountLabel: 'Net Profit',
-                amountValue: inr(reported['profit'] ?? _data['reportedProfit'] ?? '0.00'),
+
+              // 2. `Reported ledger totals` & `After consolidation eliminations` (`image-38.png`)
+              SaasFormCard(
+                title: 'Reported ledger totals',
+                child: Column(
+                  children: [
+                    KVRow('Revenue', inr(reported['revenue'] ?? '0.00')),
+                    KVRow('Expense', inr(reported['expense'] ?? '0.00')),
+                    KVRow('Net Profit', inr(repProfit), bold: true),
+                  ],
+                ),
               ),
-              LuxuryRecordCard(
-                icon: Icons.hub_outlined,
-                code: 'After Consolidation Eliminations',
-                status: balanced ? 'BALANCED' : 'VARIANCE',
-                lines: [
-                  ('Consolidated Revenue', inr(consolidated['revenue'] ?? '0.00')),
-                  ('Consolidated Expense', inr(consolidated['expense'] ?? '0.00')),
-                  for (final p in icPairs)
-                    ('${p['entityPair'] ?? 'Pair'}', 'AR ${inr(p['receivable'])} / AP ${inr(p['payable'])}'),
-                ],
-                amountLabel: 'Consolidated Profit',
-                amountValue: inr(consolidated['profit'] ?? _data['consolidatedProfit'] ?? '0.00'),
+
+              const SizedBox(height: 10),
+
+              SaasFormCard(
+                title: 'After consolidation eliminations',
+                child: Column(
+                  children: [
+                    KVRow(
+                      'Consolidated Revenue',
+                      inr(consolidated['revenue'] ?? '0.00'),
+                    ),
+                    KVRow(
+                      'Consolidated Expense',
+                      inr(consolidated['expense'] ?? '0.00'),
+                    ),
+                    KVRow('Consolidated Profit', inr(conProfit), bold: true),
+                  ],
+                ),
               ),
+
+              const SizedBox(height: 12),
+
+              // 3. `Intercompany reconciliation` Card (`image-38.png`)
+              SaasFormCard(
+                title: 'Intercompany reconciliation',
+                icon: Icons.balance_rounded,
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: balanced ? Pal.okWash : Pal.warnWash,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        balanced
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.warning_amber_rounded,
+                        size: 13,
+                        color: balanced ? Pal.ok : Pal.warn,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        balanced ? 'Balanced' : 'Variance',
+                        style: T.body(
+                          11.2,
+                          weight: FontWeight.w700,
+                          color: balanced ? Pal.ok : Pal.warn,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'ENTITY PAIR · CURRENCY · RECEIVABLE · PAYABLE · DIFFERENCE',
+                      style: T.caps(9.8),
+                    ),
+                    const Divider(height: 18),
+                    if (icPairs.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Text(
+                          'No open intercompany balances in the authorized entity set.',
+                          textAlign: TextAlign.center,
+                          style: T.body(12.5, color: Pal.muted),
+                        ),
+                      )
+                    else
+                      for (final p in icPairs)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${p['entityPair'] ?? p['pair'] ?? 'Entity Pair'} (${p['currency'] ?? 'INR'})',
+                                style: T.body(12.8, weight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Receivable ${inr(p['receivable'])} · Payable ${inr(p['payable'])} · Diff ${inr(p['difference'] ?? '0.00')}',
+                                style: T.mono(11.6, color: Pal.muted),
+                              ),
+                            ],
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // 4. `Elimination schedule` Card (`image-38.png` & `image-39.png`)
+              SaasFormCard(
+                title: 'Elimination schedule',
+                subtitle:
+                    'Receivable/payable elimination plus revenue, historical-cost and realized/unrealized transfer-margin adjustments. GST balances remain statutory legal-entity positions.',
+                child: eliminations.isEmpty
+                    ? Text(
+                        'No inter-entity elimination adjustments in the selected period.',
+                        style: T.body(12.2, color: Pal.muted),
+                      )
+                    : Column(
+                        children: [
+                          for (final el in eliminations)
+                            KVRow(
+                              '${el['reference'] ?? ''} ${el['description'] ?? 'Elimination'}'
+                                  .trim(),
+                              inr(el['amount'] ?? '0.00'),
+                            ),
+                        ],
+                      ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // 5. `Legal-entity comparison` (`image-39.png`)
+              Text(
+                'Legal-entity comparison',
+                style: T.body(14.5, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              if (fEntities.isEmpty)
+                const SaasEmptyBox('No authorized legal entities found.')
+              else
+                for (final e in fEntities)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Pal.card,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Pal.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${e['legalName'] ?? e['name'] ?? 'Legal Entity'}',
+                                style: T.body(14.5, weight: FontWeight.w700),
+                              ),
+                            ),
+                            Text(
+                              '${e['currency'] ?? 'INR'}',
+                              style: T.mono(
+                                11.5,
+                                color: Pal.goldDeep,
+                                weight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${e['authorizedBranchCount'] ?? asList(e['branches']).length} authorized branch(es) · ${e['currency'] ?? 'INR'}',
+                          style: T.body(11.8, color: Pal.muted),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _miniMetricBox(
+                                'EXTERNAL SALES',
+                                inr(
+                                  e['externalSales'] ??
+                                      e['sales'] ??
+                                      e['revenue'] ??
+                                      '0.00',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _miniMetricBox(
+                                'GROSS MARGIN',
+                                inr(
+                                  e['grossMargin'] ?? e['margin'] ?? '0.00',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _miniMetricBox(
+                                'TAGGED FINE STOCK',
+                                '${dStr6(dParse(e['taggedFineStockGrams'] ?? e['taggedFineGrams']))} g',
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _miniMetricBox(
+                                'LOT FINE STOCK',
+                                '${dStr6(dParse(e['lotFineStockGrams'] ?? e['lotFineGrams']))} g',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+              const SizedBox(height: 8),
+
+              // 6. `Branch operating view` (`image-39.png`)
+              Text(
+                'Branch operating view',
+                style: T.body(14.5, weight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'BRANCH · ENTITY · SALES · MARGIN · TAGGED FINE · LOT FINE',
+                style: T.caps(9.8),
+              ),
+              const SizedBox(height: 8),
+              if (fBranches.isEmpty)
+                const SaasEmptyBox('No authorized showroom branches found.')
+              else
+                for (final b in fBranches)
+                  LuxuryRecordCard(
+                    icon: Icons.storefront_outlined,
+                    code:
+                        '${b['code'] ?? b['branchCode'] ?? ''} · ${b['name'] ?? b['branchName'] ?? 'Branch'}'
+                            .replaceFirst(RegExp(r'^\s*·\s*'), ''),
+                    status: '${b['currency'] ?? 'INR'}',
+                    lines: [
+                      (
+                        'Entity',
+                        '${b['legalEntityName'] ?? asMap(b['legalEntity'])['legalName'] ?? tenantName}',
+                      ),
+                      (
+                        'Margin',
+                        inr(b['grossMargin'] ?? b['margin'] ?? '0.00'),
+                      ),
+                      (
+                        'Tagged fine',
+                        '${dStr6(dParse(b['taggedFineStockGrams'] ?? b['taggedFineGrams']))} g',
+                      ),
+                      (
+                        'Lot fine',
+                        '${dStr6(dParse(b['lotFineStockGrams'] ?? b['lotFineGrams']))} g',
+                      ),
+                    ],
+                    amountLabel: 'Sales',
+                    amountValue: inr(
+                      b['externalSales'] ?? b['sales'] ?? '0.00',
+                    ),
+                  ),
             ],
           ],
         ),
