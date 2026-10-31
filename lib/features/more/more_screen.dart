@@ -6,7 +6,6 @@ import '../../core/api.dart';
 import '../../core/app_state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
-import '../../core/workspace_lookup.dart';
 import '../customers/customers_screen.dart';
 import '../debug/api_inspector.dart';
 import '../finance/accounting_finance_screens.dart';
@@ -17,16 +16,18 @@ import 'operations_screens.dart';
 import 'reports_screen.dart';
 import 'shift_screen.dart';
 
+/// Full-screen `More` directory mirroring the exact `_PosSaasDrawer` ("side wala")
+/// and `pos.hrpocket.in` sidebar, with Search Module + Tenant & Showroom context.
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key, this.onJump});
   final ValueChanged<int>? onJump;
+
   @override
   State<MoreScreen> createState() => _MoreScreenState();
 }
 
 class _MoreScreenState extends State<MoreScreen> {
   final _searchCtrl = TextEditingController();
-  String _cat = 'ALL';
 
   @override
   void dispose() {
@@ -37,383 +38,544 @@ class _MoreScreenState extends State<MoreScreen> {
   void _open(BuildContext c, Widget w) =>
       Navigator.push(c, MaterialPageRoute<void>(builder: (_) => w));
 
+  void _jumpOrOpen(BuildContext c, int tabIndex, Widget fallback) {
+    if (widget.onJump != null) {
+      widget.onJump!(tabIndex);
+    } else {
+      _open(c, fallback);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final q = _searchCtrl.text.trim().toLowerCase();
 
-    final sections = <({String title, List<_Item> items})>[
+    final initialSource =
+        (app.tenantName.trim().isNotEmpty ? app.tenantName : app.userName).trim();
+    final avatarChar = initialSource.isEmpty ? 'J' : initialSource[0].toUpperCase();
+
+    final showroomContext = [
+      if (app.tenantName.trim().isNotEmpty) app.tenantName.trim(),
+      if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
+      if (app.branchCode.trim().isNotEmpty) '(${app.branchCode.trim()})',
+    ].join(' · ');
+
+    // Exact option groups & items from `_PosSaasDrawer` ("side wala") + `pos.hrpocket.in` sidebar
+    final groups = <({String? header, List<_NavEntry> items})>[
       (
-        title: 'Showroom & Patron Orders',
+        header: null,
         items: [
-          _Item(
+          _NavEntry(
             Icons.space_dashboard_outlined,
             'Showroom Dashboard',
-            'Executive metrics, live bullion & showroom overview',
-            () => widget.onJump?.call(0),
+            onTap: () => widget.onJump?.call(0),
           ),
-          _Item(
+          _NavEntry(
             Icons.diamond_outlined,
             'Vault & Tagged Stock',
-            'Barcoded HUID jewellery, fine-metal lots & reservations',
-            () => widget.onJump?.call(1),
+            onTap: () => widget.onJump?.call(1),
           ),
-          _Item(
+          _NavEntry(
             Icons.point_of_sale_outlined,
             'POS & Sales Billing',
-            'Counter POS cart, estimates, GST invoices & credit notes',
-            () => widget.onJump?.call(2),
+            onTap: () => widget.onJump?.call(2),
           ),
-          _Item(
-            Icons.point_of_sale_rounded,
+          _NavEntry(
+            Icons.lock_clock_rounded,
             'POS Counter Shifts',
-            'Open cash float, reconcile & close drawer',
-            () => _open(context, const ShiftScreen()),
+            onTap: () => _open(context, const ShiftScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.recycling_rounded,
             'Old Metal Exchange',
-            'Assay purity, melt loss & purchase vouchers',
-            () => _open(context, const OldGoldScreen()),
+            onTap: () => _open(context, const OldGoldScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.auto_awesome_outlined,
             'Custom Orders',
-            'Bespoke patron specifications, target weight & delivery',
-            () => _open(context, const CustomOrdersScreen()),
+            onTap: () => _open(context, const CustomOrdersScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.build_outlined,
             'Repairs & Custody',
-            'Customer ornament repair intake & custody register',
-            () => _open(context, const RepairsCustodyScreen()),
+            onTap: () => _open(context, const RepairsCustodyScreen()),
           ),
         ],
       ),
       (
-        title: 'Supply & Production',
+        header: 'SUPPLY & PRODUCTION',
         items: [
-          _Item(
+          _NavEntry(
             Icons.toll_rounded,
             'Materials & Bullion Rates',
-            'Precious metals, purity grades & daily rate books',
-            () => _open(context, const MaterialsRatesScreen()),
+            onTap: () => _open(context, const MaterialsRatesScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.shopping_cart_outlined,
             'Procurement & Intake',
-            'POs, GRN QC, supplier bills, debit notes & posting config',
-            () => _open(context, const ProcurementScreen()),
+            onTap: () => _open(context, const ProcurementScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.groups_outlined,
             'Parties & Karigars',
-            'Customers, suppliers, karigars, refiners, KYC & credit',
-            () => widget.onJump != null
-                ? widget.onJump!(3)
-                : _open(context, const CustomersScreen()),
+            onTap: () => _jumpOrOpen(context, 3, const CustomersScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.handyman_outlined,
             'Karigar Job Work',
-            'Fine-metal controlled issue, process loss & reconciliation',
-            () => _open(context, const JobWorkScreen()),
+            onTap: () => _open(context, const JobWorkScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.balance_rounded,
             'Refining & Melting',
-            'Controlled melt batches, assay recovery & FIFO allocation',
-            () => _open(context, const RefiningMeltingScreen()),
+            onTap: () => _open(context, const RefiningMeltingScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.swap_horiz_rounded,
             'Inter-Branch Transfers',
-            'Transit custody stock transfers across showrooms',
-            () => _open(context, const InterBranchTransfersScreen()),
+            onTap: () => _open(context, const InterBranchTransfersScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.handshake_outlined,
             'Approval & Consignment',
-            'Outbound patron approval & inbound supplier consignment',
-            () => _open(context, const ApprovalMemosScreen()),
+            onTap: () => _open(context, const ApprovalMemosScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.domain_rounded,
             'Inter-Entity Trading',
-            'Arm\'s-length related-entity trades, IGST & eliminations',
-            () => _open(context, const InterEntityTradingScreen()),
+            onTap: () => _open(context, const InterEntityTradingScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.trending_up_rounded,
             'Wholesale Rate Fixing',
-            'Metal-denominated unfixed exposure & fixing contracts',
-            () => _open(context, const RateFixingScreen()),
+            onTap: () => _open(context, const RateFixingScreen()),
           ),
         ],
       ),
       (
-        title: 'Financials & GST',
+        header: 'FINANCIALS & GST',
         items: [
-          _Item(
+          _NavEntry(
             Icons.account_balance_outlined,
             'Double-Entry Accounting',
-            'Manual journals, P&L / BS, periods, COA & annual close',
-            () => _open(context, const DoubleEntryAccountingScreen()),
+            onTap: () => _open(context, const DoubleEntryAccountingScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.account_balance_wallet_outlined,
             'Settlements & Cashup',
-            'Open items, receipts, disbursements, refunds & clearings',
-            () => _open(context, const SettlementsCashupScreen()),
+            onTap: () => _open(context, const SettlementsCashupScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.account_balance_rounded,
             'Banking & Reconciliation',
-            'Import normalized bank CSV & reconcile settlements',
-            () => _open(context, const BankingReconciliationScreen()),
+            onTap: () => _open(context, const BankingReconciliationScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.hub_outlined,
             'Consolidated Chain Analytics',
-            'Multi-entity ledger rollup & intercompany eliminations',
-            () => _open(context, const ConsolidatedAnalyticsScreen()),
+            onTap: () => _open(context, const ConsolidatedAnalyticsScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.insights_rounded,
-            'Valuation, Margin & Ageing Reports',
-            'Fine 999 stock valuation, gross margin, TB & AR/AP ageing',
-            () => _open(context, const ReportsScreen()),
+            'Valuation & Ledger Reports',
+            onTap: () => _open(context, const ReportsScreen()),
           ),
-        ],
-      ),
-      (
-        title: 'Integrations, Tax & Governance',
-        items: [
-          _Item(
+          _NavEntry(
             Icons.cloud_sync_outlined,
             'Provider Integrations',
-            'Payment, GST & messaging adapters, webhooks & queue',
-            () => _open(context, const ProviderIntegrationsScreen()),
+            onTap: () => _open(context, const ProviderIntegrationsScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.verified_user_outlined,
             'GST Registration & Transport',
-            'Effective GSTIN profiles, IRN e-invoicing & E-way bills',
-            () => _open(context, const GstRegistrationTransportScreen()),
+            onTap: () => _open(context, const GstRegistrationTransportScreen()),
           ),
-          _Item(
+          _NavEntry(
+            Icons.description_outlined,
+            'GST Returns & ITC Review',
+            onTap: () => _open(context, const GstReturnsItcScreen()),
+          ),
+          _NavEntry(
+            Icons.chat_bubble_outline_rounded,
+            'Customer Messaging',
+            onTap: () => _open(context, const CustomerMessagingScreen()),
+          ),
+          _NavEntry(
             Icons.receipt_long_outlined,
             'GST E-Invoices & Bills',
-            'Prepare IRN e-invoice & E-way bill provider submissions',
-            () => _open(
+            onTap: () => _open(
               context,
               const GstRegistrationTransportScreen(submissionsFocus: true),
             ),
           ),
-          _Item(
-            Icons.description_outlined,
-            'GST Returns & ITC Review',
-            'GSTR-2B import/reconcile, GSTR-1/3B working papers',
-            () => _open(context, const GstReturnsItcScreen()),
-          ),
-          _Item(
-            Icons.chat_bubble_outline_rounded,
-            'Customer Messaging',
-            'Consent-verified WhatsApp, SMS & Email notifications',
-            () => _open(context, const CustomerMessagingScreen()),
-          ),
-          _Item(
+          _NavEntry(
             Icons.print_outlined,
-            'Company & Invoice Print Policy',
-            'A4 & thermal GST invoice templates & HTML print studio',
-            () => _open(context, const DocumentsPolicyScreen()),
+            'Company & Invoice Policy',
+            onTap: () => _open(context, const DocumentsPolicyScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.policy_outlined,
             'Audit & Compliance',
-            'Support access grants, audit attribution & gateway logs',
-            () => _open(context, const AuditComplianceScreen()),
+            onTap: () => _open(context, const AuditComplianceScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.apartment_rounded,
             'Showroom Hierarchy',
-            'Legal entities, functional currencies & showroom branches',
-            () => _open(context, const ShowroomHierarchyScreen()),
+            onTap: () => _open(context, const ShowroomHierarchyScreen()),
           ),
-          _Item(
+          _NavEntry(
             Icons.admin_panel_settings_outlined,
             'Access Control & Roles',
-            'ISO 27001 RBAC roles, permission keys & branch scopes',
-            () => _open(context, const AccessControlScreen()),
+            onTap: () => _open(context, const AccessControlScreen()),
           ),
-        ],
-      ),
-      (
-        title: 'Security & Session',
-        items: [
-          if (!app.mfaEnrolled)
-            _Item(
-              Icons.shield_outlined,
-              'Enroll Authenticator 2FA',
-              'Required for high-assurance vault & ledger actions',
-              () => _showMfaEnrollment(context),
-            ),
-          if (app.branchCount > 1)
-            _Item(
-              Icons.swap_horiz_rounded,
-              'Switch Showroom Context',
-              app.branchName.isEmpty ? 'Select branch' : 'Active: ${app.branchName}',
-              app.switchShowroom,
-            ),
-          _Item(
+          _NavEntry(
             Icons.monitor_heart_outlined,
             'API Gateway Diagnostics',
-            Uri.tryParse(app.api.baseUrl)?.host ?? app.api.baseUrl,
-            () => _open(context, const ApiInspector()),
+            onTap: () => _open(context, const ApiInspector()),
           ),
-          _Item(
-            Icons.logout_rounded,
-            'Sign Out of Workspace',
-            'Revoke active session cookie on this device',
-            () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  backgroundColor: Pal.card,
-                  title: Text('Sign out of workspace?', style: T.display(20)),
-                  content: Text(
-                    'Your session will be closed safely. Unsubmitted cart items on this device will be cleared.',
-                    style: T.body(13.5, color: Pal.muted),
-                  ),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Pal.danger,
-                        minimumSize: const Size(110, 42),
-                      ),
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('Sign out'),
-                    ),
-                  ],
-                ),
-              );
-              if (ok == true) app.logout();
-            },
-            danger: true,
-          ),
+          if (!app.mfaEnrolled)
+            _NavEntry(
+              Icons.shield_outlined,
+              'Enroll Authenticator 2FA',
+              onTap: () => _showMfaEnrollment(context),
+            ),
+          if (app.branchCount > 1)
+            _NavEntry(
+              Icons.storefront_outlined,
+              'Switch Showroom Context',
+              onTap: app.switchShowroom,
+            ),
         ],
       ),
     ];
 
-    return LuxuryModuleScaffold(
-      title: 'Enterprise SaaS Suite',
-      icon: Icons.grid_view_rounded,
-      searchController: _searchCtrl,
-      searchHint: 'Search SaaS module (GST, Refining, Accounting, Bank...)',
-      onSearchChanged: (_) => setState(() {}),
-      topFilterBar: PillTabs<String>(
-        value: _cat,
-        onChanged: (v) => setState(() => _cat = v),
-        tabs: const [
-          ('ALL', 'All Suite'),
-          ('Showroom & Patron Orders', 'Showroom'),
-          ('Supply & Production', 'Supply'),
-          ('Financials & GST', 'Financials'),
-          ('Integrations, Tax & Governance', 'Tax & Admin'),
-          ('Security & Session', 'Security'),
-        ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFFAF6EE),
+        body: Column(
+          children: [
+            // 1. Exact `_PosSaasDrawer` Dark Espresso-Bronze & Radiant Gold Header
+            //    with Website Logo + Tenant/Showroom (`Kalyan Jewellers · Headquarters Showroom`) + Search Module Bar
+            Container(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                MediaQuery.of(context).padding.top + 12,
+                16,
+                16,
+              ),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF150F09), Color(0xFF281C0E), Color(0xFF3A2812)],
+                ),
+                border: Border(bottom: BorderSide(color: Color(0xFF4C3618))),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const GemMark(size: 40, darkSurface: true),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    'Jewellery ERP',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: T.display(18, color: Colors.white, w: FontWeight.w700),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Pal.goldBright.withValues(alpha: 0.16),
+                                    borderRadius: BorderRadius.circular(5),
+                                    border: Border.all(
+                                      color: Pal.goldBright.withValues(alpha: 0.45),
+                                    ),
+                                  ),
+                                  child: Text('SAAS', style: T.caps(8.8, color: Pal.goldSoft)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            InkWell(
+                              onTap: app.branchCount > 1 ? app.switchShowroom : null,
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.storefront_outlined,
+                                    size: 13.5,
+                                    color: Pal.goldSoft,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Expanded(
+                                    child: Text(
+                                      showroomContext.isEmpty
+                                          ? 'Enterprise Workspace'
+                                          : showroomContext,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: T.body(
+                                        12.2,
+                                        color: Colors.white.withValues(alpha: 0.85),
+                                        w: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      StatusPill(app.mfaEnrolled ? '2FA ON' : 'ACTIVE'),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Search Module Option
+                  Container(
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFAF6EE),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Pal.goldBright.withValues(alpha: 0.45),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.20),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      onChanged: (_) => setState(() {}),
+                      style: T.body(13.5, color: Pal.text, w: FontWeight.w600),
+                      decoration: InputDecoration(
+                        filled: false,
+                        hintText: 'Search module (GST, Refining, Accounting, Bank...)',
+                        hintStyle: T.body(13, color: Pal.muted),
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          color: Pal.muted,
+                          size: 20,
+                        ),
+                        suffixIcon: _searchCtrl.text.isEmpty
+                            ? null
+                            : IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(
+                                  Icons.close_rounded,
+                                  size: 18,
+                                  color: Pal.muted,
+                                ),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() {});
+                                },
+                              ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 11,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // 2. Scrollable SaaS Navigation List — identical to `_PosSaasDrawer` ("side wala")
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                children: [
+                  for (final grp in groups)
+                    Builder(builder: (_) {
+                      final visible = q.isEmpty
+                          ? grp.items
+                          : grp.items
+                              .where((it) =>
+                                  it.label.toLowerCase().contains(q) ||
+                                  (grp.header?.toLowerCase().contains(q) ?? false))
+                              .toList();
+                      if (visible.isEmpty) return const SizedBox.shrink();
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (grp.header != null) _groupHeader(grp.header!),
+                          for (final it in visible)
+                            _navTile(
+                              it.icon,
+                              it.label,
+                              onTap: it.onTap,
+                            ),
+                        ],
+                      );
+                    }),
+                ],
+              ),
+            ),
+
+            // 3. Exact `_PosSaasDrawer` Footer Account, Showroom & Sign-Out Bar
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: Pal.line)),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 17,
+                    backgroundColor: Pal.goldWash,
+                    child: Text(
+                      avatarChar,
+                      style: T.body(13.5, color: Pal.goldDeep, w: FontWeight.w800),
+                    ),
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: InkWell(
+                      onTap: !app.mfaEnrolled ? () => _showMfaEnrollment(context) : null,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            app.tenantName.trim().isNotEmpty
+                                ? app.tenantName.trim()
+                                : (app.userName.isEmpty ? 'Account' : app.userName),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(13.2, w: FontWeight.w800, color: Pal.ink),
+                          ),
+                          Text(
+                            [
+                              if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
+                              if (app.userName.trim().isNotEmpty) app.userName.trim()
+                              else if (app.userEmail.trim().isNotEmpty) app.userEmail.trim(),
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(11.4, color: Pal.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (app.branchCount > 1)
+                    IconButton(
+                      tooltip: 'Switch Showroom',
+                      onPressed: app.switchShowroom,
+                      icon: const Icon(Icons.swap_horiz_rounded, size: 20, color: Pal.goldDeep),
+                    ),
+                  IconButton(
+                    tooltip: 'Sign out',
+                    onPressed: () async {
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          backgroundColor: Pal.card,
+                          title: Text('Sign out of workspace?', style: T.display(20)),
+                          content: Text(
+                            'Your session will be closed safely. Unsubmitted cart items on this device will be cleared.',
+                            style: T.body(13.5, color: Pal.muted),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Pal.danger,
+                                minimumSize: const Size(110, 42),
+                              ),
+                              onPressed: () => Navigator.pop(ctx, true),
+                              child: const Text('Sign out'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (ok == true) app.logout();
+                    },
+                    icon: const Icon(Icons.logout_rounded, size: 20, color: Pal.danger),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        children: [
-          LuxuryHeroCard(
-            padding: const EdgeInsets.all(18),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                const GemMark(size: 42, darkSurface: true),
+    );
+  }
+
+  Widget _groupHeader(String title) => Padding(
+        padding: const EdgeInsets.fromLTRB(10, 16, 10, 6),
+        child: Text(title, style: T.caps(10.2, color: Pal.muted, letterSpacing: 1.0)),
+      );
+
+  Widget _navTile(
+    IconData icon,
+    String label, {
+    bool selected = false,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Material(
+        color: selected ? Pal.goldWash : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11.5),
+            decoration: selected
+                ? BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Pal.goldBorder),
+                  )
+                : null,
+            child: Row(
+              children: [
+                Icon(icon, size: 19, color: selected ? Pal.goldDeep : Pal.goldDeep.withValues(alpha: 0.82)),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(children: [
-                      Flexible(
-                        child: Text(
-                          'Jewellery ERP',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: T.display(18.5, color: Colors.white, w: FontWeight.w700),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Pal.goldBright.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(5),
-                          border: Border.all(color: Pal.goldBright.withValues(alpha: 0.45)),
-                        ),
-                        child: Text('SAAS', style: T.caps(8.8, color: Pal.goldSoft)),
-                      ),
-                    ]),
-                    const SizedBox(height: 2),
-                    Text(
-                      app.userName.isEmpty
-                          ? (app.tenantName.isEmpty ? 'Enterprise Workspace' : app.tenantName)
-                          : '${app.userName}${app.userEmail.isNotEmpty ? ' · ${app.userEmail}' : ''}',
-                      style: T.body(12.2, color: Colors.white70),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ]),
-                ),
-                const SizedBox(width: 8),
-                StatusPill(app.mfaEnrolled ? '2FA ON' : 'ACTIVE'),
-              ]),
-              const SizedBox(height: 12),
-              const BullionHeaderBadge(dark: true),
-              const SizedBox(height: 12),
-              Divider(color: Colors.white.withValues(alpha: 0.14)),
-              const SizedBox(height: 10),
-              Row(children: [
-                const Icon(Icons.storefront_outlined, size: 15, color: Pal.goldSoft),
-                const SizedBox(width: 7),
-                Expanded(
                   child: Text(
-                    [
-                      if (app.tenantName.isNotEmpty) app.tenantName,
-                      if (app.branchName.isNotEmpty) app.branchName,
-                      if (app.branchCode.isNotEmpty) '(${app.branchCode})',
-                    ].join(' · '),
-                    style: T.body(12.5, color: Colors.white, w: FontWeight.w600),
-                    maxLines: 2,
+                    label,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: T.body(
+                      13.8,
+                      color: selected ? Pal.goldDeep : Pal.ink,
+                      w: selected ? FontWeight.w800 : FontWeight.w600,
+                    ),
                   ),
                 ),
-              ]),
-            ]),
+                const Icon(Icons.chevron_right_rounded, size: 18, color: Pal.muted),
+              ],
+            ),
           ),
-          for (final sec in sections) ...[
-            if (_cat == 'ALL' || _cat == sec.title)
-              Builder(builder: (_) {
-                final filtered = q.isEmpty
-                    ? sec.items
-                    : sec.items
-                        .where((i) =>
-                            i.title.toLowerCase().contains(q) ||
-                            i.sub.toLowerCase().contains(q) ||
-                            sec.title.toLowerCase().contains(q))
-                        .toList();
-                if (filtered.isEmpty) return const SizedBox.shrink();
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SectionLabel(sec.title),
-                    _group(filtered),
-                  ],
-                );
-              }),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -425,66 +587,13 @@ class _MoreScreenState extends State<MoreScreen> {
       builder: (_) => const _MfaEnrollSheet(),
     );
   }
-
-  Widget _group(List<_Item> items) => Panel(
-        padding: EdgeInsets.zero,
-        child: Column(children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const Divider(indent: 62),
-            InkWell(
-              onTap: items[i].onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-                child: Row(children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: items[i].danger ? Pal.dangerWash : Pal.goldWash,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: items[i].danger
-                            ? Pal.danger.withValues(alpha: 0.22)
-                            : Pal.goldBorder,
-                      ),
-                    ),
-                    child: Icon(
-                      items[i].icon,
-                      size: 19,
-                      color: items[i].danger ? Pal.danger : Pal.goldDeep,
-                    ),
-                  ),
-                  const SizedBox(width: 13),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(
-                        items[i].title,
-                        style: T.body(
-                          14.2,
-                          w: FontWeight.w700,
-                          color: items[i].danger ? Pal.danger : Pal.text,
-                        ),
-                      ),
-                      if (items[i].sub.isNotEmpty)
-                        Text(items[i].sub, style: T.body(12, color: Pal.muted)),
-                    ]),
-                  ),
-                  const Icon(Icons.chevron_right_rounded, size: 19, color: Pal.muted),
-                ]),
-              ),
-            ),
-          ],
-        ]),
-      );
 }
 
-class _Item {
-  const _Item(this.icon, this.title, this.sub, this.onTap, {this.danger = false});
+class _NavEntry {
+  const _NavEntry(this.icon, this.label, {required this.onTap});
   final IconData icon;
-  final String title;
-  final String sub;
+  final String label;
   final VoidCallback onTap;
-  final bool danger;
 }
 
 class _MfaEnrollSheet extends StatefulWidget {
@@ -563,61 +672,74 @@ class _MfaEnrollSheetState extends State<_MfaEnrollSheet> {
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-        Text('Two-Factor Authentication (TOTP)', style: T.display(22)),
-        const SizedBox(height: 8),
-        if (_loading)
-          const Padding(padding: EdgeInsets.symmetric(vertical: 24), child: Center(child: CircularProgressIndicator()))
-        else if (_recoveryCodes != null) ...[
-          Text(
-            '2FA is now active! Store these recovery codes safely — each can be used once if you lose your phone:',
-            style: T.body(13.5, color: Pal.ok, w: FontWeight.w700),
-          ),
-          const SizedBox(height: 12),
-          Panel(
-            color: Pal.surfaceAlt,
-            child: SelectableText(_recoveryCodes!.join('\n'), style: T.mono(13)),
-          ),
-          const SizedBox(height: 14),
-          FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
-        ] else ...[
-          Text(
-            'Add this secret key in Google Authenticator, Authy, or 1Password, then enter the 6-digit code:',
-            style: T.body(13, color: Pal.muted),
-          ),
-          if (_secret != null && _secret!.isNotEmpty) ...[
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Two-Factor Authentication (TOTP)', style: T.display(22)),
+          const SizedBox(height: 8),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_recoveryCodes != null) ...[
+            Text(
+              '2FA is now active! Store these recovery codes safely — each can be used once if you lose your phone:',
+              style: T.body(13.5, color: Pal.ok, w: FontWeight.w700),
+            ),
             const SizedBox(height: 12),
             Panel(
               color: Pal.surfaceAlt,
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: _secret!));
-                toast(context, 'TOTP secret copied.');
-              },
-              child: Row(children: [
-                Expanded(child: SelectableText(_secret!, style: T.mono(13.5, w: FontWeight.w700))),
-                const Icon(Icons.copy_rounded, size: 17, color: Pal.goldDeep),
-              ]),
+              child: SelectableText(_recoveryCodes!.join('\n'), style: T.mono(13)),
+            ),
+            const SizedBox(height: 14),
+            FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
+          ] else ...[
+            Text(
+              'Add this secret key in Google Authenticator, Authy, or 1Password, then enter the 6-digit code:',
+              style: T.body(13, color: Pal.muted),
+            ),
+            if (_secret != null && _secret!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Panel(
+                color: Pal.surfaceAlt,
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: _secret!));
+                  toast(context, 'TOTP secret copied.');
+                },
+                child: Row(children: [
+                  Expanded(child: SelectableText(_secret!, style: T.mono(13.5, w: FontWeight.w700))),
+                  const Icon(Icons.copy_rounded, size: 17, color: Pal.goldDeep),
+                ]),
+              ),
+            ],
+            const SizedBox(height: 14),
+            const FieldLabel('6-Digit Verification Code'),
+            TextField(
+              controller: _code,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(6),
+              ],
+              style: T.mono(22, w: FontWeight.w700),
+              decoration: const InputDecoration(hintText: '000000'),
+            ),
+            if (_err != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(_err!, style: T.body(13, color: Pal.danger, w: FontWeight.w700)),
+              ),
+            const SizedBox(height: 16),
+            RoyalGoldButton(
+              label: 'Verify & Activate 2FA',
+              busy: _verifying,
+              onPressed: _verifying ? null : _verify,
             ),
           ],
-          const SizedBox(height: 14),
-          const FieldLabel('6-Digit Verification Code'),
-          TextField(
-            controller: _code,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(6)],
-            style: T.mono(22, w: FontWeight.w700),
-            decoration: const InputDecoration(hintText: '000000'),
-          ),
-          if (_err != null)
-            Padding(padding: const EdgeInsets.only(top: 10), child: Text(_err!, style: T.body(13, color: Pal.danger, w: FontWeight.w700))),
-          const SizedBox(height: 16),
-          RoyalGoldButton(
-            label: 'Verify & Activate 2FA',
-            busy: _verifying,
-            onPressed: _verifying ? null : _verify,
-          ),
         ],
-      ]),
+      ),
     );
   }
 }
