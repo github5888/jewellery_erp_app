@@ -8,7 +8,6 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/workspace_lookup.dart';
 import '../customers/customers_screen.dart';
-import '../debug/api_inspector.dart';
 import '../finance/accounting_finance_screens.dart';
 import '../governance/tax_governance_screens.dart';
 import '../supply/supply_production_screens.dart';
@@ -18,7 +17,9 @@ import 'reports_screen.dart';
 import 'shift_screen.dart';
 
 class MoreScreen extends StatefulWidget {
-  const MoreScreen({super.key});
+  const MoreScreen({super.key, this.onJump});
+  final ValueChanged<int>? onJump;
+
   @override
   State<MoreScreen> createState() => _MoreScreenState();
 }
@@ -36,32 +37,59 @@ class _MoreScreenState extends State<MoreScreen> {
   void _open(BuildContext c, Widget w) =>
       Navigator.push(c, MaterialPageRoute<void>(builder: (_) => w));
 
+  void _jumpOrOpen(BuildContext c, int tabIndex, Widget fallback) {
+    if (widget.onJump != null) {
+      widget.onJump!(tabIndex);
+    } else {
+      _open(c, fallback);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final initial = app.userName.trim().isEmpty ? 'J' : app.userName.trim()[0].toUpperCase();
     final q = _searchCtrl.text.trim().toLowerCase();
 
+    // Exact 1:1 navigation directory from `pos.hrpocket.in` sidebar (`Screenshots 677–696`)
     final sections = <({String title, List<_Item> items})>[
       (
-        title: 'Showroom & Patron Orders',
+        title: 'Showroom & Retail',
         items: [
           _Item(
-            Icons.point_of_sale_rounded,
+            Icons.space_dashboard_outlined,
+            'Showroom Dashboard',
+            'Executive metrics, live bullion & showroom overview',
+            () => widget.onJump?.call(0),
+          ),
+          _Item(
+            Icons.diamond_outlined,
+            'Vault & Tagged Stock',
+            'Barcoded HUID jewellery, fine-metal lots & reservations',
+            () => widget.onJump?.call(1),
+          ),
+          _Item(
+            Icons.point_of_sale_outlined,
+            'POS & Sales Billing',
+            'Counter POS cart, estimates, GST invoices, credit notes & tax profiles',
+            () => widget.onJump?.call(2),
+          ),
+          _Item(
+            Icons.lock_clock_rounded,
             'POS Counter Shifts',
-            'Open cash float, reconcile & close drawer',
+            'Open cash float, reconcile & close showroom shift',
             () => _open(context, const ShiftScreen()),
           ),
           _Item(
             Icons.recycling_rounded,
             'Old Metal Exchange',
-            'Assay purity, melt loss & purchase vouchers',
+            'Assay purity, melt loss & customer exchange vouchers',
             () => _open(context, const OldGoldScreen()),
           ),
           _Item(
             Icons.auto_awesome_outlined,
             'Custom Orders',
-            'Bespoke patron specifications, target weight & delivery',
+            'Customer design orders, target weight & promised delivery',
             () => _open(context, const CustomOrdersScreen()),
           ),
           _Item(
@@ -69,6 +97,12 @@ class _MoreScreenState extends State<MoreScreen> {
             'Repairs & Custody',
             'Customer ornament repair intake & custody register',
             () => _open(context, const RepairsCustodyScreen()),
+          ),
+          _Item(
+            Icons.insights_rounded,
+            'MIS & Statutory Reports',
+            'Stock valuation, gross margin, trial balance, GL & AR/AP ageing',
+            () => _open(context, const ReportsScreen()),
           ),
         ],
       ),
@@ -78,55 +112,55 @@ class _MoreScreenState extends State<MoreScreen> {
           _Item(
             Icons.toll_rounded,
             'Materials & Bullion Rates',
-            'Precious metals, purity grades & daily rate books',
+            'Precious metals, purity grades, rate books & price check',
             () => _open(context, const MaterialsRatesScreen()),
           ),
           _Item(
             Icons.shopping_cart_outlined,
             'Procurement & Intake',
-            'POs, GRN QC, supplier bills, debit notes & posting config',
+            'Purchase orders, goods receipts, supplier bills & returns / debits',
             () => _open(context, const ProcurementScreen()),
           ),
           _Item(
             Icons.groups_outlined,
             'Parties & Karigars',
-            'Customers, suppliers, karigars, refiners, KYC & credit',
-            () => _open(context, const CustomersScreen()),
+            'Customers, suppliers, karigars & refiners — KYC & credit policy',
+            () => _jumpOrOpen(context, 3, const CustomersScreen()),
           ),
           _Item(
             Icons.handyman_outlined,
             'Karigar Job Work',
-            'Fine-metal controlled issue, process loss & reconciliation',
+            'Fine-metal controlled work orders, issue, receipt & loss recovery',
             () => _open(context, const JobWorkScreen()),
           ),
           _Item(
             Icons.balance_rounded,
             'Refining & Melting',
-            'Controlled melt batches, assay recovery & FIFO allocation',
+            'Controlled melt batches, assay recovery & FIFO fine allocation',
             () => _open(context, const RefiningMeltingScreen()),
           ),
           _Item(
             Icons.swap_horiz_rounded,
             'Inter-Branch Transfers',
-            'Transit custody stock transfers across showrooms',
+            'Transit custody stock transfers across authorized showrooms',
             () => _open(context, const InterBranchTransfersScreen()),
           ),
           _Item(
             Icons.handshake_outlined,
             'Approval & Consignment',
-            'Outbound patron approval & inbound supplier consignment',
+            'Outbound customer approval & inbound supplier consignment memos',
             () => _open(context, const ApprovalMemosScreen()),
           ),
           _Item(
             Icons.domain_rounded,
             'Inter-Entity Trading',
-            'Arm\'s-length related-entity trades, IGST & eliminations',
+            'Arm\'s-length related-entity trades, IGST & new destination tags',
             () => _open(context, const InterEntityTradingScreen()),
           ),
           _Item(
             Icons.trending_up_rounded,
             'Wholesale Rate Fixing',
-            'Metal-denominated unfixed exposure & fixing contracts',
+            'Metal-denominated contracts, unfixed exposure & fixing allocations',
             () => _open(context, const RateFixingScreen()),
           ),
         ],
@@ -135,74 +169,66 @@ class _MoreScreenState extends State<MoreScreen> {
         title: 'Financials & GST',
         items: [
           _Item(
-            Icons.account_balance_outlined,
+            Icons.menu_book_rounded,
             'Double-Entry Accounting',
-            'Manual journals, P&L / BS, periods, COA & annual close',
+            'Manual journals, P&L / BS, period control & annual close',
             () => _open(context, const DoubleEntryAccountingScreen()),
           ),
           _Item(
             Icons.account_balance_wallet_outlined,
             'Settlements & Cashup',
-            'Open items, receipts, disbursements, refunds & clearings',
+            'Open items, receipts, disbursements, refunds & provider clearings',
             () => _open(context, const SettlementsCashupScreen()),
           ),
           _Item(
             Icons.account_balance_rounded,
             'Banking & Reconciliation',
-            'Import normalized bank CSV & reconcile settlements',
+            'Import normalized bank CSV statements & reconcile ledger lines',
             () => _open(context, const BankingReconciliationScreen()),
           ),
           _Item(
             Icons.hub_outlined,
             'Consolidated Chain Analytics',
-            'Multi-entity ledger rollup & intercompany eliminations',
+            'Authorized entities, intercompany reconciliation & eliminations',
             () => _open(context, const ConsolidatedAnalyticsScreen()),
           ),
           _Item(
-            Icons.insights_rounded,
-            'Valuation, Margin & Ageing Reports',
-            'Fine 999 stock valuation, gross margin, TB & AR/AP ageing',
-            () => _open(context, const ReportsScreen()),
-          ),
-        ],
-      ),
-      (
-        title: 'Integrations, Tax & Governance',
-        items: [
-          _Item(
             Icons.cloud_sync_outlined,
             'Provider Integrations',
-            'Payment, GST & messaging adapters, webhooks & queue',
+            'Payment, GST, messaging & export connections, queue & webhooks',
             () => _open(context, const ProviderIntegrationsScreen()),
           ),
           _Item(
             Icons.verified_user_outlined,
             'GST Registration & Transport',
-            'Effective GSTIN profiles, IRN e-invoicing & E-way bills',
+            'Effective GSTIN profiles, reporting window & threshold controls',
             () => _open(context, const GstRegistrationTransportScreen()),
+          ),
+          _Item(
+            Icons.receipt_long_outlined,
+            'GST E-Invoices & Bills',
+            'Prepare IRN e-invoice & E-way bill provider submissions',
+            () => _open(
+              context,
+              const GstRegistrationTransportScreen(submissionsFocus: true),
+            ),
           ),
           _Item(
             Icons.description_outlined,
             'GST Returns & ITC Review',
-            'GSTR-2B import/reconcile, GSTR-1/3B working papers',
+            'Import & reconcile GSTR-2B, prepare GSTR working papers & exports',
             () => _open(context, const GstReturnsItcScreen()),
           ),
           _Item(
             Icons.chat_bubble_outline_rounded,
             'Customer Messaging',
-            'Consent-verified WhatsApp, SMS & Email notifications',
+            'Consent-verified WhatsApp, SMS & Email customer notifications',
             () => _open(context, const CustomerMessagingScreen()),
-          ),
-          _Item(
-            Icons.print_outlined,
-            'Company & Invoice Print Policy',
-            'A4 & thermal GST invoice templates & HTML print studio',
-            () => _open(context, const DocumentsPolicyScreen()),
           ),
           _Item(
             Icons.policy_outlined,
             'Audit & Compliance',
-            'Support access grants, audit attribution & gateway logs',
+            'Tenant support access grants, review & revoke controls',
             () => _open(context, const AuditComplianceScreen()),
           ),
           _Item(
@@ -214,14 +240,26 @@ class _MoreScreenState extends State<MoreScreen> {
           _Item(
             Icons.admin_panel_settings_outlined,
             'Access Control & Roles',
-            'ISO 27001 RBAC roles, permission keys & branch scopes',
+            'Tenant RBAC roles, permission keys & branch memberships',
             () => _open(context, const AccessControlScreen()),
+          ),
+          _Item(
+            Icons.print_outlined,
+            'Company & Invoice Policy',
+            'Official A4 & thermal invoice print templates & document preview',
+            () => _open(context, const DocumentsPolicyScreen()),
           ),
         ],
       ),
       (
-        title: 'Security & Session',
+        title: 'Account & Session',
         items: [
+          _Item(
+            Icons.manage_accounts_outlined,
+            'Account & Password',
+            app.userEmail.isEmpty ? 'Workspace profile & password security' : app.userEmail,
+            () => _showAccountPasswordSheet(context),
+          ),
           if (!app.mfaEnrolled)
             _Item(
               Icons.shield_outlined,
@@ -232,20 +270,14 @@ class _MoreScreenState extends State<MoreScreen> {
           if (app.branchCount > 1)
             _Item(
               Icons.swap_horiz_rounded,
-              'Switch Showroom Context',
-              app.branchName.isEmpty ? 'Select branch' : 'Active: ${app.branchName}',
+              'Switch Showroom',
+              app.branchName.isEmpty ? 'Select showroom' : 'Active: ${app.branchName}',
               app.switchShowroom,
             ),
           _Item(
-            Icons.monitor_heart_outlined,
-            'API Gateway Diagnostics',
-            Uri.tryParse(app.api.baseUrl)?.host ?? app.api.baseUrl,
-            () => _open(context, const ApiInspector()),
-          ),
-          _Item(
             Icons.logout_rounded,
-            'Sign Out of Workspace',
-            'Revoke active session cookie on this device',
+            'Sign out',
+            'Close active workspace session on this device',
             () async {
               final ok = await showDialog<bool>(
                 context: context,
@@ -253,7 +285,7 @@ class _MoreScreenState extends State<MoreScreen> {
                   backgroundColor: Pal.card,
                   title: Text('Sign out of workspace?', style: T.display(20)),
                   content: Text(
-                    'Your session will be closed safely. Unsubmitted cart items on this device will be cleared.',
+                    'Your session will be closed safely on this device.',
                     style: T.body(13.5, color: Pal.muted),
                   ),
                   actions: [
@@ -278,21 +310,20 @@ class _MoreScreenState extends State<MoreScreen> {
     ];
 
     return LuxuryModuleScaffold(
-      title: 'Enterprise SaaS Suite',
+      title: 'More · All Modules',
       icon: Icons.grid_view_rounded,
       searchController: _searchCtrl,
-      searchHint: 'Search SaaS module (GST, Refining, Accounting, Bank...)',
+      searchHint: 'Search module (Procurement, GST, Accounting, Refining...)',
       onSearchChanged: (_) => setState(() {}),
       topFilterBar: PillTabs<String>(
         value: _cat,
         onChanged: (v) => setState(() => _cat = v),
         tabs: const [
-          ('ALL', 'All Suite'),
-          ('Showroom & Patron Orders', 'Showroom'),
-          ('Supply & Production', 'Supply'),
-          ('Financials & GST', 'Financials'),
-          ('Integrations, Tax & Governance', 'Tax & Admin'),
-          ('Security & Session', 'Security'),
+          ('ALL', 'All Modules'),
+          ('Showroom & Retail', 'Showroom'),
+          ('Supply & Production', 'Supply & Prod'),
+          ('Financials & GST', 'Financials & GST'),
+          ('Account & Session', 'Account'),
         ],
       ),
       body: ListView(
@@ -302,57 +333,47 @@ class _MoreScreenState extends State<MoreScreen> {
             padding: const EdgeInsets.all(18),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
+                WebsiteBrandLockup(
+                  badgeSize: 38,
+                  fontSize: 17.5,
+                  subtitle: app.tenantName.isEmpty ? 'Enterprise Workspace' : app.tenantName,
+                  darkSurface: true,
+                ),
+              ]),
+              const SizedBox(height: 14),
+              Divider(color: Colors.white.withValues(alpha: 0.14), height: 1),
+              const SizedBox(height: 12),
+              Row(children: [
                 Container(
-                  width: 46,
-                  height: 46,
+                  width: 38,
+                  height: 38,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: Pal.goldBright.withValues(alpha: 0.16),
                     shape: BoxShape.circle,
                     border: Border.all(color: Pal.goldBright.withValues(alpha: 0.45)),
                   ),
-                  child: Text(initial, style: T.display(21, color: Pal.goldSoft)),
+                  child: Text(initial, style: T.display(18, color: Pal.goldSoft)),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 11),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(
                       app.userName.isEmpty ? 'Workspace User' : app.userName,
-                      style: T.display(19, color: Colors.white),
+                      style: T.body(14.5, color: Colors.white, w: FontWeight.w700),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      app.userEmail,
-                      style: T.body(12.5, color: Colors.white70),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    if (app.branchName.isNotEmpty)
+                      Text(
+                        '${app.branchName}${app.branchCode.isNotEmpty ? ' · ${app.branchCode}' : ''}',
+                        style: T.body(12, color: Colors.white70),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                   ]),
                 ),
                 StatusPill(app.mfaEnrolled ? '2FA ON' : 'ACTIVE'),
-              ]),
-              const SizedBox(height: 12),
-              const BullionHeaderBadge(dark: true),
-              const SizedBox(height: 12),
-              Divider(color: Colors.white.withValues(alpha: 0.14)),
-              const SizedBox(height: 10),
-              Row(children: [
-                const Icon(Icons.storefront_outlined, size: 15, color: Pal.goldSoft),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    [
-                      if (app.tenantName.isNotEmpty) app.tenantName,
-                      if (app.branchName.isNotEmpty) app.branchName,
-                      if (app.branchCode.isNotEmpty) '(${app.branchCode})',
-                    ].join(' · '),
-                    style: T.body(12.5, color: Colors.white, w: FontWeight.w600),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
               ]),
             ]),
           ),
@@ -378,6 +399,19 @@ class _MoreScreenState extends State<MoreScreen> {
               }),
           ],
         ],
+      ),
+    );
+  }
+
+  Future<void> _showAccountPasswordSheet(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _AccountPasswordSheet(
+        onEnrollMfa: () {
+          Navigator.pop(context);
+          _showMfaEnrollment(context);
+        },
       ),
     );
   }
@@ -449,6 +483,123 @@ class _Item {
   final String sub;
   final VoidCallback onTap;
   final bool danger;
+}
+
+class _AccountPasswordSheet extends StatefulWidget {
+  const _AccountPasswordSheet({required this.onEnrollMfa});
+  final VoidCallback onEnrollMfa;
+
+  @override
+  State<_AccountPasswordSheet> createState() => _AccountPasswordSheetState();
+}
+
+class _AccountPasswordSheetState extends State<_AccountPasswordSheet> {
+  final _current = TextEditingController();
+  final _next = TextEditingController();
+  final _confirm = TextEditingController();
+  bool _busy = false;
+  String? _err;
+
+  @override
+  void dispose() {
+    _current.dispose();
+    _next.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  Future<void> _changePassword() async {
+    if (_current.text.isEmpty || _next.text.length < 12) {
+      setState(() => _err = 'Enter your current password and a new password (min 12 characters).');
+      return;
+    }
+    if (_next.text != _confirm.text) {
+      setState(() => _err = 'New password and confirmation do not match.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _err = null;
+    });
+    final api = context.read<ApiClient>();
+    try {
+      try {
+        await api.post('/auth/password/change', body: {
+          'currentPassword': _current.text,
+          'newPassword': _next.text,
+        });
+      } on ApiException catch (e) {
+        if (e.status == 404) {
+          await api.post('/auth/password', body: {
+            'currentPassword': _current.text,
+            'newPassword': _next.text,
+          });
+        } else {
+          rethrow;
+        }
+      }
+      if (!mounted) return;
+      Navigator.pop(context);
+      toast(context, 'Password updated successfully.');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _err = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Account & Password', style: T.display(21)),
+          const SizedBox(height: 10),
+          Panel(
+            color: Pal.surfaceAlt,
+            child: Column(
+              children: [
+                KVRow('Name', app.userName.isEmpty ? 'Workspace User' : app.userName, bold: true),
+                KVRow('Email', app.userEmail),
+                KVRow('Tenant', app.tenantName),
+                KVRow('Legal Entity', app.entityName),
+                KVRow('Showroom', '${app.branchName} (${app.branchCode})'),
+                KVRow('2FA Security', app.mfaEnrolled ? 'Enrolled (TOTP)' : 'Not enrolled'),
+              ],
+            ),
+          ),
+          if (!app.mfaEnrolled) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: widget.onEnrollMfa,
+              icon: const Icon(Icons.shield_outlined, size: 17),
+              label: const Text('Enroll Two-Factor Authentication (2FA)'),
+            ),
+          ],
+          const SizedBox(height: 14),
+          SaasField(label: 'Current password', controller: _current, obscureText: true),
+          const SizedBox(height: 10),
+          SaasField(label: 'New password (min 12 chars)', controller: _next, obscureText: true),
+          const SizedBox(height: 10),
+          SaasField(label: 'Confirm new password', controller: _confirm, obscureText: true),
+          if (_err != null) ...[
+            const SizedBox(height: 10),
+            Text(_err!, style: T.body(12.8, color: Pal.danger, w: FontWeight.w700)),
+          ],
+          const SizedBox(height: 14),
+          RoyalGoldButton(
+            label: _busy ? 'Updating…' : 'Update Password',
+            busy: _busy,
+            onPressed: _changePassword,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _MfaEnrollSheet extends StatefulWidget {

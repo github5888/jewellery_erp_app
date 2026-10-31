@@ -680,78 +680,47 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       return true;
     }
 
-    int countState(List<Map<String, dynamic>> src, String bucket) {
-      return src.where((m) {
-        final st = '${m['state'] ?? m['status'] ?? 'DRAFT'}'.toUpperCase();
-        if (bucket == 'PENDING') return st == 'DRAFT' || st == 'PENDING' || st == 'SUBMITTED';
-        if (bucket == 'DONE') return st == 'APPROVED' || st == 'POSTED' || st == 'RECEIVED' || st == 'CONFIRMED';
-        if (bucket == 'CLOSED') return st == 'CLOSED' || st == 'CANCELLED';
-        return true;
-      }).length;
-    }
-
     final fPos = pos.where((m) => matchesState(m) && matches(m, const ['documentNumber', 'orderNumber', 'id', 'state'])).toList();
     final fGrns = grns.where((m) => matchesState(m) && matches(m, const ['documentNumber', 'supplierDeliveryNote', 'id', 'state'])).toList();
     final fBills = bills.where((m) => matchesState(m) && matches(m, const ['supplierInvoiceNumber', 'documentNumber', 'id', 'state'])).toList();
     final fRets = rets.where((m) => matchesState(m) && matches(m, const ['documentNumber', 'reason', 'id', 'state'])).toList();
 
-    final (pageTitle, pageIcon, searchHint, formTarget, statusTabs) = switch (_tab) {
+    final (pageTitle, pageIcon, searchHint, formTarget) = switch (_tab) {
       'GRN' => (
           'Goods Receipts',
           Icons.inventory_outlined,
           'Search by GRN / Supplier...',
           'GRN',
-          [
-            ('ALL', 'All (${grns.length})'),
-            ('DONE', 'Received (${countState(grns, 'DONE')})'),
-            ('PENDING', 'Pending (${countState(grns, 'PENDING')})'),
-          ],
         ),
       'BILLS' => (
           'Supplier Bills',
           Icons.receipt_long_outlined,
           'Search by Bill No. / Supplier...',
           'BILL',
-          [
-            ('ALL', 'All (${bills.length})'),
-            ('DONE', 'Posted (${countState(bills, 'DONE')})'),
-            ('PENDING', 'Pending (${countState(bills, 'PENDING')})'),
-          ],
         ),
       'RETURNS' => (
           'Returns / Debits',
           Icons.assignment_return_outlined,
           'Search by Return / Debit No...',
           'RETURN',
-          [
-            ('ALL', 'All (${rets.length})'),
-            ('DONE', 'Posted (${countState(rets, 'DONE')})'),
-            ('PENDING', 'Pending (${countState(rets, 'PENDING')})'),
-          ],
         ),
       _ => (
           'Purchase Orders',
           Icons.shopping_bag_outlined,
           'Search by PO No. / Supplier...',
           'PO',
-          [
-            ('ALL', 'All (${pos.length})'),
-            ('PENDING', 'Pending (${countState(pos, 'PENDING')})'),
-            ('DONE', 'Approved (${countState(pos, 'DONE')})'),
-            ('CLOSED', 'Closed (${countState(pos, 'CLOSED')})'),
-          ],
         ),
     };
 
     return LuxuryModuleScaffold(
-      title: pageTitle,
+      title: 'Procurement & Intake',
       icon: pageIcon,
       searchController: _search,
       searchHint: searchHint,
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
-          tooltip: 'Posting Series & Period',
+          tooltip: 'Controlled Posting Configuration',
           onPressed: () => setState(() => _showPostingConfig = !_showPostingConfig),
           icon: Icon(
             _showPostingConfig ? Icons.tune_rounded : Icons.settings_outlined,
@@ -765,18 +734,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         ),
       ],
       topFilterBar: PillTabs<String>(
-        value: _statusFilter,
-        onChanged: (v) => setState(() => _statusFilter = v),
-        tabs: statusTabs,
-      ),
-      secondaryFilterBar: LuxurySubChips<String>(
         value: _tab,
         onChanged: (v) => setState(() {
           _tab = v;
           _statusFilter = 'ALL';
           _activeForm = null;
         }),
-        items: [
+        tabs: [
           ('PO', 'Purchase Orders (${pos.length})'),
           ('GRN', 'Goods Receipts (${grns.length})'),
           ('BILLS', 'Supplier Bills (${bills.length})'),
@@ -1628,7 +1592,7 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
                             options: const {
                               'MIXED': 'MIXED',
                               'CASH': 'CASH',
-                              'FINE_METAL': 'FINE_METAL',
+                              'METAL': 'METAL',
                             },
                             onChanged: (v) => setState(() => _settlement = v),
                           ),
@@ -1666,7 +1630,7 @@ class _JobWorkScreenState extends State<JobWorkScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No work orders found. Tap + to create a Karigar work order.')
+              const SaasEmptyBox('No work orders yet.')
             else
               for (final w in filtered)
                 LuxuryRecordCard(
@@ -2274,7 +2238,7 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
                 (label: 'ACTIVE CONTRACTS', value: activeCount),
                 (label: 'UNFIXED FINE EXPOSURE', value: unfixedFine),
                 (label: 'UNDELIVERED FINE', value: undeliveredFine),
-                (label: 'UNSETTLED MATCHED', value: unsettledVal),
+                (label: 'UNSETTLED MATCHED VALUE', value: unsettledVal),
               ],
             ),
             const SizedBox(height: 12),
@@ -2294,7 +2258,7 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
                       value: _direction,
                       options: const {
                         'CUSTOMER_SALE': 'Wholesale customer sale',
-                        'SUPPLIER_PURCHASE': 'Bullion supplier purchase',
+                        'SUPPLIER_PURCHASE': 'Supplier bullion purchase',
                       },
                       onChanged: (v) => setState(() {
                         _direction = v;
@@ -2423,7 +2387,7 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (filtered.isEmpty)
-              const SaasEmptyBox('No wholesale metal contracts found. Tap + to create a contract.')
+              const SaasEmptyBox('No rate-fixing contracts recorded yet.')
             else
               for (final c in filtered)
                 LuxuryRecordCard(

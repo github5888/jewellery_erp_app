@@ -10,7 +10,6 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/workspace_lookup.dart';
 import '../billing/billing_controller.dart';
-import '../debug/api_inspector.dart';
 
 class ContextScreen extends StatefulWidget {
   const ContextScreen({super.key});
@@ -92,14 +91,6 @@ class _ContextScreenState extends State<ContextScreen> {
       searchHint: 'Search by Showroom, Code or Legal Entity...',
       onSearchChanged: app.options.length > 2 ? (_) => setState(() {}) : null,
       actions: [
-        IconButton(
-          tooltip: 'API Diagnostics',
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute<void>(builder: (_) => const ApiInspector()),
-          ),
-          icon: const Icon(Icons.monitor_heart_outlined, color: Pal.goldSoft),
-        ),
         TextButton.icon(
           onPressed: app.logout,
           icon: const Icon(Icons.logout_rounded, size: 17, color: Pal.goldSoft),

@@ -920,70 +920,193 @@ class EmptyBlock extends StatelessWidget {
       );
 }
 
-/// Brilliant-cut Haute Joaillerie emblem drawn in vector code.
+/// Exact `pos.hrpocket.in` website brand emblem:
+/// Rounded 24K burnished-gold square badge (`#E5BD50` → `#B8860B`) containing a
+/// crisp white faceted cut-diamond icon matching the live web portal 1:1.
 class GemMark extends StatelessWidget {
   const GemMark({
     super.key,
     this.color,
     this.size,
     this.darkSurface = false,
+    this.plainIconOnly = false,
   });
   final Color? color;
   final double? size;
   final bool darkSurface;
+  final bool plainIconOnly;
+
   @override
   Widget build(BuildContext context) {
-    final paint = CustomPaint(
-      painter: _GemPainter(color ?? (darkSurface ? Pal.goldSoft : Pal.goldBright)),
-    );
-    if (size != null) {
-      return SizedBox(width: size, height: size, child: paint);
+    final s = size ?? 38;
+    if (plainIconOnly) {
+      return SizedBox(
+        width: s,
+        height: s,
+        child: CustomPaint(
+          painter: _WebsiteDiamondPainter(color ?? Colors.white),
+        ),
+      );
     }
-    return paint;
+    final radius = BorderRadius.circular(s * 0.27);
+    return Container(
+      width: s,
+      height: s,
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFE7C45E), Color(0xFFCA9822), Color(0xFFB8860B)],
+        ),
+        border: Border.all(
+          color: darkSurface
+              ? const Color(0xFFF6DE96).withValues(alpha: 0.55)
+              : const Color(0xFFD6AE43).withValues(alpha: 0.45),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB8860B).withValues(alpha: darkSurface ? 0.34 : 0.22),
+            blurRadius: s * 0.30,
+            offset: Offset(0, s * 0.08),
+          ),
+        ],
+      ),
+      padding: EdgeInsets.all(s * 0.21),
+      child: CustomPaint(
+        painter: _WebsiteDiamondPainter(color ?? Colors.white),
+      ),
+    );
   }
 }
 
-class _GemPainter extends CustomPainter {
-  const _GemPainter(this.color);
+/// Exact `pos.hrpocket.in` website header brand lockup:
+/// `[Gold Diamond Square Logo]  Jewellery ERP [SAAS]` (+ optional tenant subtitle).
+class WebsiteBrandLockup extends StatelessWidget {
+  const WebsiteBrandLockup({
+    super.key,
+    this.badgeSize = 38,
+    this.fontSize = 18.5,
+    this.subtitle,
+    this.darkSurface = true,
+    this.centered = false,
+  });
+
+  final double badgeSize;
+  final double fontSize;
+  final String? subtitle;
+  final bool darkSurface;
+  final bool centered;
+
+  @override
+  Widget build(BuildContext context) {
+    final titleColor = darkSurface ? Colors.white : Pal.ink;
+    final subColor = darkSurface ? Colors.white.withValues(alpha: 0.72) : Pal.muted;
+    final pillBg = darkSurface
+        ? Pal.goldBright.withValues(alpha: 0.16)
+        : const Color(0xFFFBF3DC);
+    final pillBorder = darkSurface
+        ? Pal.goldBright.withValues(alpha: 0.48)
+        : const Color(0xFFE3C878);
+    final pillFg = darkSurface ? Pal.goldSoft : Pal.goldDeep;
+
+    return Row(
+      mainAxisSize: centered ? MainAxisSize.min : MainAxisSize.max,
+      children: [
+        GemMark(size: badgeSize, darkSurface: darkSurface),
+        const SizedBox(width: 11),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: centered ? MainAxisSize.min : MainAxisSize.max,
+                children: [
+                  Flexible(
+                    child: Text(
+                      'Jewellery ERP',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: T.body(fontSize, color: titleColor, w: FontWeight.w800),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6.5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: pillBg,
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(color: pillBorder),
+                    ),
+                    child: Text(
+                      'SAAS',
+                      style: T.caps(9.2, color: pillFg, letterSpacing: 0.9),
+                    ),
+                  ),
+                ],
+              ),
+              if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: T.body(12.2, color: subColor, w: FontWeight.w600),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WebsiteDiamondPainter extends CustomPainter {
+  const _WebsiteDiamondPainter(this.color);
   final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final r = size.width / 2 - 2;
-    Offset pt(double radius, int i, double offsetDeg) {
-      final a = (i * 45 + offsetDeg) * math.pi / 180;
-      return c + Offset(math.cos(a), math.sin(a)) * radius;
-    }
+    // Exact 24x24 Lucide `Gem` cut-diamond geometry used on `pos.hrpocket.in`:
+    // Outer silhouette: M6 3 h12 l4 6 -10 13 L2 9 Z
+    // Girdle: M2 9 h20
+    // Facets: M11 3 L8 9 L12 22 L16 9 L13 3
+    final sx = size.width / 24.0;
+    final sy = size.height / 24.0;
+    Offset p(double x, double y) => Offset(x * sx, y * sy);
 
-    final outer = List.generate(8, (i) => pt(r, i, 22.5));
-    final inner = List.generate(8, (i) => pt(r * 0.52, i, 0));
     final stroke = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
+      ..strokeWidth = math.max(1.6, size.shortestSide * 0.095)
+      ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..color = color;
-    final fill = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          color.withValues(alpha: 0.30),
-          color.withValues(alpha: 0.06),
-        ],
-      ).createShader(Rect.fromCircle(center: c, radius: r));
 
-    final op = Path()..addPolygon(outer, true);
-    final ip = Path()..addPolygon(inner, true);
-    canvas.drawPath(op, fill);
-    canvas.drawPath(op, stroke);
-    canvas.drawPath(ip, stroke);
-    for (var i = 0; i < 8; i++) {
-      canvas.drawLine(outer[i], inner[i], stroke);
-      canvas.drawLine(outer[i], inner[(i + 7) % 8], stroke);
-    }
+    final outer = Path()
+      ..moveTo(6 * sx, 3.2 * sy)
+      ..lineTo(18 * sx, 3.2 * sy)
+      ..lineTo(22 * sx, 9.2 * sy)
+      ..lineTo(12 * sx, 21.6 * sy)
+      ..lineTo(2 * sx, 9.2 * sy)
+      ..close();
+
+    final facets = Path()
+      ..moveTo(10.6 * sx, 3.2 * sy)
+      ..lineTo(8.0 * sx, 9.2 * sy)
+      ..lineTo(12.0 * sx, 21.6 * sy)
+      ..lineTo(16.0 * sx, 9.2 * sy)
+      ..lineTo(13.4 * sx, 3.2 * sy);
+
+    canvas.drawPath(outer, stroke);
+    canvas.drawLine(p(2, 9.2), p(22, 9.2), stroke);
+    canvas.drawPath(facets, stroke);
   }
 
   @override
-  bool shouldRepaint(covariant _GemPainter old) => old.color != color;
+  bool shouldRepaint(covariant _WebsiteDiamondPainter old) => old.color != color;
 }
 
 class FieldLabel extends StatelessWidget {

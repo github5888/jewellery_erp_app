@@ -100,7 +100,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
       title: widget.picker ? 'Select Party' : 'Parties & Karigars',
       icon: Icons.groups_rounded,
       searchController: _q,
-      searchHint: 'Search by Name, Mobile, or Code...',
+      searchHint: 'Search name, code or contact...',
       onSearchChanged: _onChanged,
       actions: [
         IconButton(

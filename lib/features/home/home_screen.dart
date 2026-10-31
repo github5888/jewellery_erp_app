@@ -1,4 +1,3 @@
-import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -10,12 +9,8 @@ import '../../core/models.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
-import '../../core/workspace_lookup.dart';
-import '../billing/billing_controller.dart';
-import '../debug/api_inspector.dart';
 import '../finance/accounting_finance_screens.dart';
 import '../governance/tax_governance_screens.dart';
-import '../inventory/scanner_page.dart';
 import '../more/old_gold_screen.dart';
 import '../more/operations_screens.dart';
 import '../more/reports_screen.dart';
@@ -23,160 +18,144 @@ import '../more/shift_screen.dart';
 import '../supply/supply_production_screens.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.onJump, this.onOpenDrawer});
+  const HomeScreen({super.key, required this.onJump});
   final ValueChanged<int> onJump;
-  final VoidCallback? onOpenDrawer;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool _perTenGram = false;
-  Map<String, dynamic>? _stockSummary;
+  String _stockGross = '—';
+  String _stockFine = '—';
+  String _stockValue = '—';
+  int _articleCount = 0;
   int _invoiceCount = 0;
-  Decimal _salesTotal = Decimal.zero;
-  int _pendingOrders = 0;
-  int _activeBatches = 0;
-  bool _kpiLoading = true;
+  int _partyCount = 0;
+  String? _shiftNo;
+  bool _loading = true;
+  String? _err;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshAll());
+    _load();
   }
 
-  Future<void> _refreshAll() async {
-    final rates = context.read<RatesController>();
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _err = null;
+    });
     final api = context.read<ApiClient>();
-    await Future.wait([
-      rates.refresh(),
-      _loadKpis(api),
-    ]);
-  }
+    final rates = context.read<RatesController>();
+    rates.refresh();
 
-  Future<void> _loadKpis(ApiClient api) async {
-    if (mounted) setState(() => _kpiLoading = true);
     try {
       final results = await Future.wait<dynamic>([
         api.get('/reports/stock-valuation').catchError((_) => null),
+        api.get('/inventory').catchError((_) => null),
+        api.get('/pos-shifts').catchError((_) => null),
         api.get('/sales').catchError((_) => null),
-        api.get('/procurement').catchError((_) => null),
-        api.get('/custom-orders').catchError((_) => null),
-        api.get('/job-work').catchError((_) => null),
-        api.get('/refining').catchError((_) => null),
+        api.get('/parties').catchError((_) => null),
       ]);
-      if (!mounted) return;
 
-      final valMap = asMap(results[0]);
-      final summary = asMap(valMap['summary']);
+      final val = results[0];
+      if (val != null) {
+        final m = asMap(val);
+        final rows = asList(val, keys: const ['rows', 'items', 'lines', 'byMetal', 'summary']);
+        _stockGross =
+            '${m['totalGrossWeight'] ?? m['grossWeightGrams'] ?? m['grossWeight'] ?? _sumField(rows, 'grossWeightGrams', 'grossWeight')}';
+        _stockFine =
+            '${m['totalFineWeight'] ?? m['fineWeightGrams'] ?? m['fineWeight'] ?? _sumField(rows, 'fineWeightGrams', 'fineWeight')}';
+        _stockValue =
+            '${m['totalCarryingValue'] ?? m['totalValue'] ?? m['valuationAmount'] ?? _sumMoney(rows)}';
+      }
 
-      final salesRaw = results[1];
-      final invList = salesRaw is Map
-          ? asList(salesRaw, keys: const ['invoices', 'salesInvoices'])
-          : asList(salesRaw);
-      var rev = Decimal.zero;
-      for (final inv in invList) {
-        if ('${inv['state'] ?? inv['status']}'.toUpperCase() != 'VOID') {
-          rev += decOrZero(inv['totalAmount']);
+      final inv = results[1];
+      if (inv != null) {
+        final arts = asList(inv, keys: const ['articles', 'items', 'taggedArticles']);
+        _articleCount = arts.length;
+        if (_stockGross == '—' || _stockGross.isEmpty || _stockGross == '0.000000') {
+          var g = decOrZero('0');
+          var f = decOrZero('0');
+          var v = decOrZero('0');
+          for (final raw in arts) {
+            final a = Article.fromJson(raw);
+            if (!a.isAvailable) continue;
+            g += decOrZero(a.grossWeight);
+            f += decOrZero(a.fineWeight);
+            v += decOrZero(a.carryingCost);
+          }
+          if (arts.isNotEmpty) {
+            _stockGross = g.toStringAsFixed(3);
+            _stockFine = f.toStringAsFixed(3);
+            if (v > decOrZero('0')) _stockValue = v.toStringAsFixed(2);
+          }
         }
       }
 
-      final procMap = asMap(results[2]);
-      final pos = asList(procMap, keys: const ['purchaseOrders']);
-      final openPos = pos.where((p) {
-        final s = '${p['state'] ?? p['status']}'.toUpperCase();
-        return s != 'CLOSED' && s != 'CANCELLED';
-      }).length;
+      final sh = results[2];
+      _shiftNo = null;
+      if (sh != null) {
+        final list = asList(sh, keys: const ['shifts', 'items']);
+        final open = list
+            .where((x) => '${x['status'] ?? x['state']}'.toUpperCase() == 'OPEN')
+            .firstOrNull;
+        final m = open ?? asMap(sh);
+        if ('${m['status'] ?? m['state']}'.toUpperCase() == 'OPEN') {
+          _shiftNo = '${m['shiftNumber'] ?? m['code'] ?? m['documentNumber'] ?? 'OPEN'}';
+        }
+      }
 
-      final coList = asList(results[3], keys: const ['customOrders', 'orders', 'items']);
-      final openCos = coList.where((o) {
-        final s = '${o['state'] ?? o['status']}'.toUpperCase();
-        return s != 'DELIVERED' && s != 'CANCELLED';
-      }).length;
+      final sales = results[3];
+      if (sales != null) {
+        final sm = asMap(sales);
+        _invoiceCount = asList(sm['invoices'] ?? sales).length;
+      }
 
-      final jwList = asList(results[4], keys: const ['workOrders', 'items']);
-      final activeJw = jwList.where((w) {
-        final s = '${w['state'] ?? w['status']}'.toUpperCase();
-        return s != 'COMPLETED' && s != 'CLOSED' && s != 'CANCELLED';
-      }).length;
-
-      final refList = asList(results[5], keys: const ['batches', 'refiningBatches', 'items']);
-      final activeRef = refList.where((b) {
-        final s = '${b['state'] ?? b['status']}'.toUpperCase();
-        return s != 'SETTLED' && s != 'POSTED' && s != 'CANCELLED';
-      }).length;
-
-      setState(() {
-        _stockSummary = summary.isEmpty ? null : summary;
-        _invoiceCount = invList.length;
-        _salesTotal = rev;
-        _pendingOrders = openPos + openCos;
-        _activeBatches = activeJw + activeRef;
-        _kpiLoading = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _kpiLoading = false);
+      final parties = results[4];
+      if (parties != null) {
+        _partyCount = asList(parties, keys: const ['parties', 'items']).length;
+      }
+    } on ApiException catch (e) {
+      _err = e.message;
     }
+
+    if (mounted) setState(() => _loading = false);
   }
 
-  void _push(Widget w) => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => w));
-
-  Future<void> _quickScanToBill() async {
-    final code = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => const ScannerPage()),
-    );
-    if (code == null || !mounted) return;
-    final billing = context.read<BillingController>();
-    await billing.scanAndAdd(code);
-    if (!mounted) return;
-    widget.onJump(2);
+  String _sumField(List<Map<String, dynamic>> rows, String k1, String k2) {
+    if (rows.isEmpty) return '—';
+    var acc = decOrZero('0');
+    for (final r in rows) {
+      acc += decOrZero(r[k1] ?? r[k2]);
+    }
+    return acc.toStringAsFixed(3);
   }
 
-  void _openCalculator() {
-    showLuxuryFormSheet<void>(
-      context: context,
-      title: 'Counter Jewellery Estimator',
-      subtitle: 'Live showroom bullion valuation with making & 3% GST',
-      icon: Icons.calculate_outlined,
-      builder: (_) => const _MetalPriceCalculatorSheet(),
-    );
+  String _sumMoney(List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) return '—';
+    var acc = decOrZero('0');
+    for (final r in rows) {
+      acc += decOrZero(r['carryingValue'] ?? r['value'] ?? r['amount'] ?? r['carryingCost']);
+    }
+    return acc.toStringAsFixed(2);
   }
 
-  String _greetingText() {
-    final h = DateTime.now().hour;
-    if (h < 12) return 'Good Morning';
-    if (h < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  }
-
-  String _firstName(AppState app) {
-    final raw = app.userName.trim();
-    if (raw.isEmpty) return 'Partner';
-    final clean = raw.contains('@') ? raw.split('@').first : raw;
-    final first = clean.split(RegExp(r'[\s._-]+')).first;
-    if (first.isEmpty) return 'Partner';
-    return first[0].toUpperCase() + first.substring(1);
+  void _open(Widget screen) {
+    Navigator.push(context, MaterialPageRoute<void>(builder: (_) => screen));
   }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final rates = context.watch<RatesController>();
-
-    final storeBrand = app.tenantName.trim().isNotEmpty ? app.tenantName.trim() : 'Jewellery ERP';
-    final branchLabel = [
-      if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
-      if (app.entityName.trim().isNotEmpty) app.entityName.trim(),
-    ].join(' — ');
-    final stockValue = _stockSummary != null
-        ? inr(_stockSummary!['totalCarryingCost'] ?? '0', paise: false)
-        : '₹0';
-    final fineStockGrams = _stockSummary != null
-        ? fineGrams(_stockSummary!['totalFineWeightGrams'] ?? '0')
-        : '0.000 g';
-    final avatarChar = _firstName(app)[0].toUpperCase();
+    final gold24 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24');
+    final gold22 = rates.find('GOLD', '916') ?? rates.find('GOLD', '22');
+    final silver = rates.find('SILVER', '');
+    final initial = (app.userName.isNotEmpty ? app.userName : app.tenantName).trim();
+    final avatarChar = initial.isEmpty ? 'J' : initial[0].toUpperCase();
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -184,13 +163,15 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Pal.ink,
         body: Column(
           children: [
-            // 1. Dark Espresso-Bronze & 24K Gold Executive Header (Screen 2 of image-1.png)
+            // -----------------------------------------------------------------
+            // 1. DARK ESPRESSO-BRONZE LUXURY HEADER WITH EXACT WEBSITE LOGO
+            // -----------------------------------------------------------------
             Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Color(0xFF140E08), Color(0xFF271B0D), Color(0xFF3A2812)],
+                  colors: [Color(0xFF150F09), Color(0xFF281C0E), Color(0xFF3A2812)],
                 ),
               ),
               child: Stack(
@@ -200,8 +181,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     top: -20,
                     child: IgnorePointer(
                       child: Container(
-                        width: 190,
-                        height: 190,
+                        width: 210,
+                        height: 210,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           gradient: RadialGradient(
@@ -217,37 +198,27 @@ class _HomeScreenState extends State<HomeScreen> {
                   SafeArea(
                     bottom: false,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 20),
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Top Brand + Notifications/Diagnostics + Avatar Row
+                          // Top Bar: Exact `pos.hrpocket.in` Brand Lockup + Messaging + Avatar
                           Row(
                             children: [
-                              if (widget.onOpenDrawer != null) ...[
-                                InkWell(
-                                  borderRadius: BorderRadius.circular(10),
-                                  onTap: widget.onOpenDrawer,
-                                  child: const Padding(
-                                    padding: EdgeInsets.only(right: 8, top: 4, bottom: 4),
-                                    child: Icon(Icons.menu_rounded, color: Pal.goldSoft, size: 22),
-                                  ),
-                                ),
-                              ],
-                              const GemMark(size: 24, color: Pal.goldBright),
-                              const SizedBox(width: 9),
                               Expanded(
-                                child: Text(
-                                  storeBrand,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: T.display(19, color: Pal.goldSoft, w: FontWeight.w600),
+                                child: WebsiteBrandLockup(
+                                  badgeSize: 36,
+                                  fontSize: 17.5,
+                                  subtitle: app.tenantName.isEmpty
+                                      ? 'Showroom Dashboard'
+                                      : app.tenantName,
+                                  darkSurface: true,
                                 ),
                               ),
                               IconButton(
                                 visualDensity: VisualDensity.compact,
-                                tooltip: 'API & Live Rate Diagnostics',
-                                onPressed: () => _push(const ApiInspector()),
+                                tooltip: 'Customer Messaging',
+                                onPressed: () => _open(const CustomerMessagingScreen()),
                                 icon: const Icon(
                                   Icons.notifications_none_rounded,
                                   color: Pal.goldSoft,
@@ -257,7 +228,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               const SizedBox(width: 4),
                               InkWell(
                                 borderRadius: BorderRadius.circular(99),
-                                onTap: app.branchCount > 1 ? app.switchShowroom : () => widget.onJump(4),
+                                onTap: app.branchCount > 1
+                                    ? app.switchShowroom
+                                    : () => widget.onJump(4),
                                 child: Container(
                                   width: 34,
                                   height: 34,
@@ -265,9 +238,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     gradient: const LinearGradient(
-                                      colors: [Color(0xFFE5C463), Color(0xFFA87718)],
+                                      colors: [Color(0xFFE7C664), Color(0xFFB8860B)],
                                     ),
-                                    border: Border.all(color: Colors.white30, width: 1.2),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.45),
+                                    ),
                                   ),
                                   child: Text(
                                     avatarChar,
@@ -277,76 +252,154 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 14),
-                          // Greeting
-                          Text(
-                            '${_greetingText()}, ${_firstName(app)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: T.body(21, color: Colors.white, w: FontWeight.w800),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            "Here's your business overview",
-                            style: T.body(12.8, color: Pal.goldSoft.withValues(alpha: 0.78)),
-                          ),
-                          const SizedBox(height: 14),
-                          // Showroom / Branch Selector Pill inside Header
-                          Material(
-                            color: const Color(0xFFFAF6EE),
-                            borderRadius: BorderRadius.circular(13),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(13),
-                              onTap: app.branchCount > 1
-                                  ? app.switchShowroom
-                                  : () => _push(const ShowroomHierarchyScreen()),
-                              child: Container(
-                                height: 44,
-                                padding: const EdgeInsets.symmetric(horizontal: 14),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(13),
-                                  border: Border.all(color: Pal.goldBright.withValues(alpha: 0.45)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.storefront_outlined,
-                                      size: 18,
-                                      color: Pal.goldDeep,
-                                    ),
-                                    const SizedBox(width: 9),
-                                    Expanded(
-                                      child: Text(
-                                        branchLabel.isEmpty ? 'Active Showroom Context' : branchLabel,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: T.body(13.5, color: Pal.ink, w: FontWeight.w700),
-                                      ),
-                                    ),
-                                    if (app.branchCode.isNotEmpty) ...[
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Pal.goldWash,
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(color: Pal.goldBorder),
-                                        ),
-                                        child: Text(
-                                          app.branchCode,
-                                          style: T.mono(10.5, color: Pal.goldDeep, w: FontWeight.w700),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                    ],
-                                    const Icon(
-                                      Icons.keyboard_arrow_down_rounded,
-                                      color: Pal.goldDeep,
-                                      size: 21,
-                                    ),
-                                  ],
+                          const SizedBox(height: 12),
+
+                          // Showroom Context & Shift Status Pill
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.location_on_outlined,
+                                size: 13.5,
+                                color: Pal.goldSoft,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  [
+                                    if (app.branchName.isNotEmpty) app.branchName,
+                                    if (app.branchCode.isNotEmpty) '(${app.branchCode})',
+                                    if (app.entityName.isNotEmpty) app.entityName,
+                                  ].join(' · '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: T.body(12, color: Colors.white70, w: FontWeight.w600),
                                 ),
                               ),
+                              const SizedBox(width: 8),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(99),
+                                onTap: () => _open(const ShiftScreen()),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                    vertical: 3.5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: (_shiftNo != null ? Pal.ok : Pal.warn)
+                                        .withValues(alpha: 0.20),
+                                    borderRadius: BorderRadius.circular(99),
+                                    border: Border.all(
+                                      color: (_shiftNo != null
+                                              ? const Color(0xFF4ADE80)
+                                              : Pal.goldSoft)
+                                          .withValues(alpha: 0.55),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _shiftNo != null ? 'Shift $_shiftNo' : 'Shift Closed',
+                                    style: T.body(
+                                      10.8,
+                                      color: Colors.white,
+                                      w: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Live Bullion Strip (22K · 24K · Silver + Refresh)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.28),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Pal.goldBright.withValues(alpha: 0.32),
+                              ),
                             ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _RateMiniCol(
+                                    label: 'GOLD 22K',
+                                    value: gold22 != null
+                                        ? '${inr(gold22.sell)}/g'
+                                        : 'Unpublished',
+                                  ),
+                                ),
+                                Container(width: 1, height: 26, color: Colors.white12),
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(left: 10),
+                                    child: _RateMiniCol(
+                                      label: 'GOLD 24K',
+                                      value: gold24 != null
+                                          ? '${inr(gold24.sell)}/g'
+                                          : 'Unpublished',
+                                    ),
+                                  ),
+                                ),
+                                Container(width: 1, height: 26, color: Colors.white12),
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(left: 10),
+                                    child: _RateMiniCol(
+                                      label: 'SILVER 999',
+                                      value: silver != null
+                                          ? '${inr(silver.sell)}/g'
+                                          : 'Unpublished',
+                                    ),
+                                  ),
+                                ),
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: _load,
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(4),
+                                    child: Icon(
+                                      Icons.refresh_rounded,
+                                      size: 18,
+                                      color: Pal.goldSoft,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // 4 Executive Metrics Row (Vault Stock · Fine 999 · Invoices · Parties)
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _DarkHeroMetric(
+                                  icon: Icons.diamond_outlined,
+                                  title: 'Vault Stock',
+                                  mainValue: _loading
+                                      ? '…'
+                                      : (_stockValue == '—'
+                                          ? '$_articleCount tags'
+                                          : inr(_stockValue)),
+                                  subValue: _stockGross == '—'
+                                      ? '$_articleCount ornaments'
+                                      : '${grams(_stockGross)} gross',
+                                  onTap: () => widget.onJump(1),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _DarkHeroMetric(
+                                  icon: Icons.point_of_sale_rounded,
+                                  title: 'Sales & Parties',
+                                  mainValue: _loading ? '…' : '$_invoiceCount bills',
+                                  subValue:
+                                      '$_partyCount parties · ${_stockFine == '—' ? 'Fine 999' : '${grams(_stockFine)} fine'}',
+                                  onTap: () => widget.onJump(2),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -356,733 +409,426 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
-            // 2. Curved Warm Cream-Ivory Dashboard Body
+            // -----------------------------------------------------------------
+            // 2. CURVED WARM-CREAM SHEET — ONLY AUTHENTIC WEBSITE MODULES
+            // -----------------------------------------------------------------
             Expanded(
               child: Container(
                 width: double.infinity,
                 decoration: const BoxDecoration(
-                  color: Pal.pearl,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  color: Color(0xFFFAF6EE),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
                 ),
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                  child: RefreshIndicator(
-                    color: Pal.gold,
-                    onRefresh: _refreshAll,
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-                      children: [
-                        // 2x2 Executive KPI Grid (matching Screen 2 of image-1.png)
-                        ResponsiveGrid2(
-                          spacing: 11,
-                          children: [
-                            _OverviewKpiCard(
-                              icon: Icons.inventory_2_outlined,
-                              iconBg: const Color(0xFFFBF2DC),
-                              iconColor: Pal.goldDeep,
-                              label: 'Total Stock Value',
-                              value: _kpiLoading ? '...' : stockValue,
-                              badgeText: fineStockGrams,
-                              badgeColor: Pal.ok,
-                              badgeBg: Pal.okWash,
-                              onTap: () => widget.onJump(1),
-                            ),
-                            _OverviewKpiCard(
-                              icon: Icons.payments_outlined,
-                              iconBg: const Color(0xFFEAF7F0),
-                              iconColor: Pal.ok,
-                              label: 'Total Sales',
-                              value: _kpiLoading
-                                  ? '...'
-                                  : inr(_salesTotal.toStringAsFixed(2), paise: false),
-                              badgeText: '$_invoiceCount bills',
-                              badgeColor: Pal.ok,
-                              badgeBg: Pal.okWash,
-                              onTap: () => widget.onJump(2),
-                            ),
-                            _OverviewKpiCard(
-                              icon: Icons.pending_actions_rounded,
-                              iconBg: const Color(0xFFFEF4E2),
-                              iconColor: Pal.warn,
-                              label: 'Pending Orders',
-                              value: _kpiLoading ? '...' : '$_pendingOrders',
-                              badgeText: 'PO & Custom',
-                              badgeColor: Pal.warn,
-                              badgeBg: Pal.warnWash,
-                              onTap: () => _push(const ProcurementScreen(initialTab: 'PO')),
-                            ),
-                            _OverviewKpiCard(
-                              icon: Icons.precision_manufacturing_outlined,
-                              iconBg: const Color(0xFFEEF3FC),
-                              iconColor: const Color(0xFF28559A),
-                              label: 'Active Batches',
-                              value: _kpiLoading ? '...' : '$_activeBatches',
-                              badgeText: 'Karigar & Melt',
-                              badgeColor: const Color(0xFF28559A),
-                              badgeBg: const Color(0xFFEEF3FC),
-                              onTap: () => _push(const JobWorkScreen()),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 15),
+                clipBehavior: Clip.antiAlias,
+                child: RefreshIndicator(
+                  color: Pal.gold,
+                  onRefresh: _load,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                    children: [
+                      if (_err != null) ...[
+                        ErrorBlock(_err!, onRetry: _load),
+                        const SizedBox(height: 12),
+                      ],
 
-                        // Dark Espresso-Gold "Quick Actions — Access all features in one place →" Banner
-                        Container(
+                      // Quick Actions Gold Banner -> Opens `More` tab directly
+                      InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () => widget.onJump(4),
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(18, 15, 16, 15),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(18),
                             gradient: const LinearGradient(
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                              colors: [Color(0xFF1A120A), Color(0xFF3B2912), Color(0xFF6B4B1B)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color(0xFF3E2B14),
+                                Color(0xFF8C6319),
+                                Color(0xFFD7AF4B),
+                              ],
                             ),
-                            border: Border.all(color: Pal.goldBright.withValues(alpha: 0.42)),
                             boxShadow: [
                               BoxShadow(
-                                color: Pal.ink.withValues(alpha: 0.16),
-                                blurRadius: 14,
+                                color: Pal.gold.withValues(alpha: 0.25),
+                                blurRadius: 16,
                                 offset: const Offset(0, 6),
                               ),
                             ],
                           ),
-                          child: Material(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(16),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(16),
-                              onTap: widget.onOpenDrawer ?? () => widget.onJump(4),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
-                                child: Row(
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Container(
-                                      width: 38,
-                                      height: 38,
-                                      decoration: BoxDecoration(
-                                        color: Pal.goldBright.withValues(alpha: 0.16),
-                                        borderRadius: BorderRadius.circular(11),
-                                        border: Border.all(
-                                          color: Pal.goldBright.withValues(alpha: 0.4),
-                                        ),
-                                      ),
-                                      child: const Icon(
-                                        Icons.hub_outlined,
-                                        color: Pal.goldSoft,
-                                        size: 20,
+                                    Text(
+                                      'Quick Actions',
+                                      style: T.body(
+                                        17,
+                                        color: Colors.white,
+                                        w: FontWeight.w800,
                                       ),
                                     ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Quick Actions',
-                                            style: T.body(14.5, color: Colors.white, w: FontWeight.w800),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            'Access all features in one place',
-                                            style: T.body(
-                                              12,
-                                              color: Pal.goldSoft.withValues(alpha: 0.85),
-                                            ),
-                                          ),
-                                        ],
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      'Access all enterprise features in More  →',
+                                      style: T.body(
+                                        12.2,
+                                        color: Colors.white.withValues(alpha: 0.90),
+                                        w: FontWeight.w600,
                                       ),
-                                    ),
-                                    const Icon(
-                                      Icons.arrow_forward_rounded,
-                                      color: Pal.goldSoft,
-                                      size: 21,
                                     ),
                                   ],
                                 ),
                               ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 15),
-
-                        // Exact 2x4 Module Icon Grid from Screen 2 of image-1.png
-                        _FeatureIconGrid(
-                          items: [
-                            _GridAction(
-                              icon: Icons.shopping_bag_outlined,
-                              label: 'Purchase\nOrders',
-                              onTap: () => _push(const ProcurementScreen(initialTab: 'PO')),
-                            ),
-                            _GridAction(
-                              icon: Icons.inventory_outlined,
-                              label: 'Goods\nReceipts',
-                              onTap: () => _push(const ProcurementScreen(initialTab: 'GRN')),
-                            ),
-                            _GridAction(
-                              icon: Icons.receipt_long_outlined,
-                              label: 'Supplier\nBills',
-                              onTap: () => _push(const ProcurementScreen(initialTab: 'BILLS')),
-                            ),
-                            _GridAction(
-                              icon: Icons.assignment_return_outlined,
-                              label: 'Returns /\nDebits',
-                              onTap: () => _push(const ProcurementScreen(initialTab: 'RETURNS')),
-                            ),
-                            _GridAction(
-                              icon: Icons.groups_outlined,
-                              label: 'Parties &\nKarigars',
-                              onTap: () => widget.onJump(3),
-                            ),
-                            _GridAction(
-                              icon: Icons.handyman_outlined,
-                              label: 'Karigar\nWork',
-                              onTap: () => _push(const JobWorkScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.local_fire_department_outlined,
-                              label: 'Refining &\nMelting',
-                              onTap: () => _push(const RefiningMeltingScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.more_horiz_rounded,
-                              label: 'More\nModules',
-                              onTap: () => widget.onJump(4),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-
-                        // Enterprise Custody, Transfers, Finance & GST Strip
-                        SectionLabel(
-                          'Showroom, Custody & Finance',
-                          trailing: GestureDetector(
-                            onTap: _openCalculator,
-                            child: Text(
-                              'Price Estimator →',
-                              style: T.body(11.8, color: Pal.goldDeep, w: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                        _FeatureIconGrid(
-                          items: [
-                            _GridAction(
-                              icon: Icons.qr_code_scanner_rounded,
-                              label: 'Scan &\nPOS Bill',
-                              onTap: _quickScanToBill,
-                            ),
-                            _GridAction(
-                              icon: Icons.swap_horiz_rounded,
-                              label: 'Branch\nTransfers',
-                              onTap: () => _push(const InterBranchTransfersScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.fact_check_outlined,
-                              label: 'Approval &\nConsign.',
-                              onTap: () => _push(const ApprovalConsignmentScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.domain_rounded,
-                              label: 'Inter-Entity\nTrading',
-                              onTap: () => _push(const InterEntityTradingScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.lock_clock_rounded,
-                              label: 'Rate\nFixing',
-                              onTap: () => _push(const WholesaleRateFixingScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.account_balance_outlined,
-                              label: 'Double-Entry\nLedger',
-                              onTap: () => _push(const DoubleEntryAccountingScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.account_balance_wallet_outlined,
-                              label: 'Settlements\n& Cashup',
-                              onTap: () => _push(const SettlementsCashupScreen()),
-                            ),
-                            _GridAction(
-                              icon: Icons.verified_outlined,
-                              label: 'GST, IRN &\n2B ITC',
-                              onTap: () => _push(const GstRegistrationTransportScreen()),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-
-                        // Live Bullion Rate Board
-                        SectionLabel(
-                          'Live Bullion Board',
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              GestureDetector(
-                                onTap: () => setState(() => _perTenGram = !_perTenGram),
-                                child: Chip2(_perTenGram ? 'Per 10 g' : 'Per 1 g', mono: true),
-                              ),
-                              const SizedBox(width: 6),
-                              GestureDetector(
-                                onTap: () => _push(const MaterialsRatesScreen()),
-                                child: const Chip2('Manage', gold: false),
-                              ),
+                              const GemMark(size: 40, darkSurface: true),
                             ],
                           ),
                         ),
-                        if (rates.loading && rates.rates.isEmpty)
-                          const Panel(child: Skeleton(height: 68))
-                        else if (rates.rates.isEmpty)
-                          Panel(
-                            onTap: () => _push(const MaterialsRatesScreen()),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    color: Pal.goldWash,
-                                    borderRadius: BorderRadius.circular(11),
-                                  ),
-                                  child: const Icon(Icons.toll_rounded, color: Pal.goldDeep),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Publish Showroom Rate Version',
-                                        style: T.body(13.8, w: FontWeight.w800),
-                                      ),
-                                      Text(
-                                        'Tap to configure 24K / 22K / Silver live rates in Materials & Rates.',
-                                        style: T.body(12, color: Pal.muted),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const Icon(Icons.chevron_right_rounded, color: Pal.muted),
-                              ],
-                            ),
-                          )
-                        else
-                          for (final r in rates.rates)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 9),
-                              child: _RateRowCard(rateItem: r, perTenGram: _perTenGram),
-                            ),
+                      ),
+                      const SizedBox(height: 16),
 
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _push(const OldGoldScreen()),
-                                icon: const Icon(Icons.recycling_rounded, size: 17),
-                                label: const Text('Old Gold Buyback'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _push(const ShiftScreen()),
-                                icon: const Icon(Icons.point_of_sale_rounded, size: 17),
-                                label: const Text('Cashier Shift'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: () => _push(const ReportsScreen()),
-                          icon: const Icon(Icons.bar_chart_rounded, size: 17),
-                          label: const Text('Financial, Stock Valuation & Ageing Reports'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+                      // Website Group 1: Showroom & Retail (`pos.hrpocket.in`)
+                      Text(
+                        'SHOWROOM & RETAIL',
+                        style: T.caps(10.8, color: Pal.goldDeep, letterSpacing: 0.9),
+                      ),
+                      const SizedBox(height: 8),
+                      _LuxuryActionGrid(
+                        items: [
+                          _QuickItem(
+                            Icons.diamond_outlined,
+                            'Vault & Stock',
+                            () => widget.onJump(1),
+                          ),
+                          _QuickItem(
+                            Icons.point_of_sale_outlined,
+                            'POS & Sales',
+                            () => widget.onJump(2),
+                          ),
+                          _QuickItem(
+                            Icons.lock_clock_rounded,
+                            'POS Shifts',
+                            () => _open(const ShiftScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.recycling_rounded,
+                            'Old Metal',
+                            () => _open(const OldGoldScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.auto_awesome_outlined,
+                            'Custom Orders',
+                            () => _open(const CustomOrdersScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.build_outlined,
+                            'Repairs',
+                            () => _open(const RepairsCustodyScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.groups_outlined,
+                            'Parties',
+                            () => widget.onJump(3),
+                          ),
+                          _QuickItem(
+                            Icons.insights_rounded,
+                            'Reports',
+                            () => _open(const ReportsScreen()),
+                          ),
+                        ],
+                      ),
 
-class _OverviewKpiCard extends StatelessWidget {
-  const _OverviewKpiCard({
-    required this.icon,
-    required this.iconBg,
-    required this.iconColor,
-    required this.label,
-    required this.value,
-    required this.badgeText,
-    required this.badgeColor,
-    required this.badgeBg,
-    required this.onTap,
-  });
+                      const SizedBox(height: 16),
 
-  final IconData icon;
-  final Color iconBg;
-  final Color iconColor;
-  final String label;
-  final String value;
-  final String badgeText;
-  final Color badgeColor;
-  final Color badgeBg;
-  final VoidCallback onTap;
+                      // Website Group 2: Supply & Production (`pos.hrpocket.in`)
+                      Text(
+                        'SUPPLY & PRODUCTION',
+                        style: T.caps(10.8, color: Pal.goldDeep, letterSpacing: 0.9),
+                      ),
+                      const SizedBox(height: 8),
+                      _LuxuryActionGrid(
+                        items: [
+                          _QuickItem(
+                            Icons.toll_rounded,
+                            'Materials & Rates',
+                            () => _open(const MaterialsRatesScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.shopping_cart_outlined,
+                            'Procurement',
+                            () => _open(const ProcurementScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.handyman_outlined,
+                            'Karigar Job Work',
+                            () => _open(const JobWorkScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.balance_rounded,
+                            'Refining & Melt',
+                            () => _open(const RefiningMeltingScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.swap_horiz_rounded,
+                            'Branch Transfers',
+                            () => _open(const InterBranchTransfersScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.handshake_outlined,
+                            'Approval Memos',
+                            () => _open(const ApprovalMemosScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.domain_rounded,
+                            'Inter-Entity',
+                            () => _open(const InterEntityTradingScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.trending_up_rounded,
+                            'Rate Fixing',
+                            () => _open(const RateFixingScreen()),
+                          ),
+                        ],
+                      ),
 
-  @override
-  Widget build(BuildContext context) {
-    return Panel(
-      onTap: onTap,
-      radius: 16,
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 16, color: iconColor),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: T.body(11.8, color: Pal.muted, w: FontWeight.w600),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: T.body(19.5, color: Pal.ink, w: FontWeight.w800),
-          ),
-          const SizedBox(height: 7),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: badgeBg,
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: Text(
-              badgeText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: T.body(10.8, color: badgeColor, w: FontWeight.w700),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+                      const SizedBox(height: 16),
 
-class _GridAction {
-  const _GridAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-}
-
-class _FeatureIconGrid extends StatelessWidget {
-  const _FeatureIconGrid({required this.items});
-  final List<_GridAction> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, c) {
-        final cols = c.maxWidth >= 520 ? 4 : 4;
-        final spacing = 9.0;
-        final tileW = (c.maxWidth - spacing * (cols - 1)) / cols;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: [
-            for (final item in items)
-              SizedBox(
-                width: tileW,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Pal.card,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Pal.line),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x081A140B),
-                        blurRadius: 8,
-                        offset: Offset(0, 3),
+                      // Website Group 3: Financials & GST (`pos.hrpocket.in`)
+                      Text(
+                        'FINANCIALS & GST',
+                        style: T.caps(10.8, color: Pal.goldDeep, letterSpacing: 0.9),
+                      ),
+                      const SizedBox(height: 8),
+                      _LuxuryActionGrid(
+                        items: [
+                          _QuickItem(
+                            Icons.menu_book_rounded,
+                            'Accounting',
+                            () => _open(const DoubleEntryAccountingScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.account_balance_wallet_outlined,
+                            'Settlements',
+                            () => _open(const SettlementsCashupScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.account_balance_rounded,
+                            'Banking',
+                            () => _open(const BankingReconciliationScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.hub_outlined,
+                            'Chain Analytics',
+                            () => _open(const ConsolidatedAnalyticsScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.cloud_sync_outlined,
+                            'Integrations',
+                            () => _open(const ProviderIntegrationsScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.verified_user_outlined,
+                            'GST & Transport',
+                            () => _open(const GstRegistrationTransportScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.description_outlined,
+                            'GST Returns',
+                            () => _open(const GstReturnsItcScreen()),
+                          ),
+                          _QuickItem(
+                            Icons.grid_view_rounded,
+                            'More',
+                            () => widget.onJump(4),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  child: Material(
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: item.onTap,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                color: Pal.goldWash,
-                                borderRadius: BorderRadius.circular(11),
-                                border: Border.all(
-                                  color: Pal.goldBorder.withValues(alpha: 0.7),
-                                ),
-                              ),
-                              child: Icon(item.icon, size: 19, color: Pal.goldDeep),
-                            ),
-                            const SizedBox(height: 7),
-                            Text(
-                              item.label,
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: T.body(11.0, color: Pal.textSoft, w: FontWeight.w700, height: 1.2),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
                 ),
               ),
+            ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 }
 
-class _RateRowCard extends StatelessWidget {
-  const _RateRowCard({required this.rateItem, required this.perTenGram});
-  final MetalRate rateItem;
-  final bool perTenGram;
+class _RateMiniCol extends StatelessWidget {
+  const _RateMiniCol({required this.label, required this.value});
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    final sellVal = perTenGram ? rateItem.sellPer10g : rateItem.sell;
-    final buyVal = perTenGram ? rateItem.buyPer10g : rateItem.buy;
-    final unitSuffix = perTenGram ? '/ 10g' : '/ g';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: T.caps(9.5, color: Pal.goldSoft, letterSpacing: 0.7)),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: T.mono(12.2, color: Colors.white, w: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+}
 
-    return Panel(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Pal.goldWash,
-              shape: BoxShape.circle,
-              border: Border.all(color: Pal.goldBorder),
-            ),
-            child: Text(
-              rateItem.carat,
-              style: T.mono(11, color: Pal.goldDeep, w: FontWeight.w800),
-            ),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+class _DarkHeroMetric extends StatelessWidget {
+  const _DarkHeroMetric({
+    required this.icon,
+    required this.title,
+    required this.mainValue,
+    required this.subValue,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String mainValue;
+  final String subValue;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Pal.goldBright.withValues(alpha: 0.26)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  '${rateItem.metalName} ${rateItem.karatLabel}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: T.body(14, w: FontWeight.w800),
-                ),
-                if (decOrZero(buyVal) > Decimal.zero)
-                  Text(
-                    'Buyback ${inr(buyVal, paise: false)} $unitSuffix',
+                Icon(icon, size: 15, color: Pal.goldSoft),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: T.mono(11.3, color: Pal.muted),
+                    style: T.body(11.5, color: Colors.white70, w: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              mainValue,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: T.mono(15, color: Colors.white, w: FontWeight.w800),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subValue,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: T.body(11, color: Pal.goldSoft.withValues(alpha: 0.85)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickItem {
+  const _QuickItem(this.icon, this.label, this.onTap);
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+}
+
+class _LuxuryActionGrid extends StatelessWidget {
+  const _LuxuryActionGrid({required this.items});
+  final List<_QuickItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <List<_QuickItem>>[];
+    for (var i = 0; i < items.length; i += 4) {
+      rows.add(items.sublist(i, (i + 4).clamp(0, items.length)));
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE7DFD0)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0A1A140B), blurRadius: 12, offset: Offset(0, 4)),
+        ],
+      ),
+      child: Column(
+        children: [
+          for (var r = 0; r < rows.length; r++) ...[
+            if (r > 0) const SizedBox(height: 14),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var c = 0; c < 4; c++)
+                  Expanded(
+                    child: c < rows[r].length
+                        ? _QuickActionCell(item: rows[r][c])
+                        : const SizedBox.shrink(),
                   ),
               ],
             ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(inr(sellVal, paise: false), style: T.mono(15.5, w: FontWeight.w800)),
-              Text('SELL $unitSuffix', style: T.caps(9, color: Pal.goldDeep)),
-            ],
-          ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// Interactive Counter Price Estimator calling `RatesController.calculateMetalValue`.
-class _MetalPriceCalculatorSheet extends StatefulWidget {
-  const _MetalPriceCalculatorSheet();
-  @override
-  State<_MetalPriceCalculatorSheet> createState() => _MetalPriceCalculatorSheetState();
-}
-
-class _MetalPriceCalculatorSheetState extends State<_MetalPriceCalculatorSheet> {
-  String _metal = 'GOLD';
-  String _purity = '916';
-  final _weight = TextEditingController();
-  double _makingPct = 12;
-  Map<String, String>? _quote;
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _weight.dispose();
-    super.dispose();
-  }
-
-  Future<void> _recalc() async {
-    if (!isValidWeight(_weight.text)) {
-      setState(() => _quote = null);
-      return;
-    }
-    setState(() => _busy = true);
-    final q = await context.read<RatesController>().calculateMetalValue(
-          metal: _metal,
-          purity: _purity,
-          netWeightGrams: _weight.text,
-        );
-    if (mounted) {
-      setState(() {
-        _quote = q;
-        _busy = false;
-      });
-    }
-  }
+class _QuickActionCell extends StatelessWidget {
+  const _QuickActionCell({required this.item});
+  final _QuickItem item;
 
   @override
   Widget build(BuildContext context) {
-    final metalVal = decOrZero(_quote?['metalValue']);
-    final makingVal = (metalVal * Decimal.parse((_makingPct / 100).toStringAsFixed(4))).round(scale: 2);
-    final taxable = metalVal + makingVal;
-    final gst = (taxable * Decimal.parse('0.03')).round(scale: 2);
-    final grand = taxable + gst;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: item.onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            for (final opt in const [
-              ('GOLD', '999', 'Gold 24K'),
-              ('GOLD', '916', 'Gold 22K'),
-              ('GOLD', '750', 'Gold 18K'),
-              ('SILVER', '999', 'Silver 999'),
-            ])
-              ChoiceChip(
-                label: Text(opt.$3),
-                selected: _metal == opt.$1 && _purity == opt.$2,
-                showCheckmark: false,
-                selectedColor: Pal.goldWash,
-                onSelected: (_) {
-                  setState(() {
-                    _metal = opt.$1;
-                    _purity = opt.$2;
-                  });
-                  _recalc();
-                },
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFBF3DC),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE5CC82)),
               ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const FieldLabel('Net Metal Wt (g)'),
-                  TextField(
-                    controller: _weight,
-                    autofocus: true,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: T.mono(16, w: FontWeight.w700),
-                    decoration: const InputDecoration(hintText: '0.000', suffixText: 'g'),
-                    onChanged: (_) => _recalc(),
-                  ),
-                ],
-              ),
+              child: Icon(item.icon, color: Pal.goldDeep, size: 22),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  FieldLabel('Making (${_makingPct.toStringAsFixed(0)}%)'),
-                  Slider(
-                    value: _makingPct,
-                    min: 0,
-                    max: 30,
-                    divisions: 30,
-                    activeColor: Pal.gold,
-                    onChanged: (v) => setState(() => _makingPct = v),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 6),
+            Text(
+              item.label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: T.body(11.3, color: Pal.ink, w: FontWeight.w700, height: 1.18),
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        LuxuryHeroCard(
-          child: _busy
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(14),
-                    child: CircularProgressIndicator(color: Pal.goldSoft),
-                  ),
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    KeyValue('Applied Rate / g', rate(_quote?['ratePerGram'] ?? '0'), mono: true, valueColor: Colors.white),
-                    KeyValue('Pure Fine 999 Wt', fineGrams(_quote?['fineWeightGrams'] ?? '0'), mono: true, valueColor: Colors.white),
-                    KeyValue('Bullion Metal Value', inr(metalVal.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
-                    KeyValue('Making (${_makingPct.toStringAsFixed(0)}%)', inr(makingVal.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
-                    KeyValue('GST (3.00%)', inr(gst.toStringAsFixed(2)), mono: true, valueColor: Colors.white),
-                    Divider(color: Colors.white.withValues(alpha: 0.16)),
-                    Row(
-                      children: [
-                        Expanded(child: Text('ESTIMATED QUOTE', style: T.caps(10, color: Colors.white70))),
-                        Text(inr(grand.toStringAsFixed(2)), style: T.display(24, color: Pal.goldSoft)),
-                      ],
-                    ),
-                  ],
-                ),
-        ),
-      ],
+      ),
     );
   }
 }

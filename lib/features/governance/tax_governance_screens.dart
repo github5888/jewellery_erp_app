@@ -257,8 +257,8 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
               items: [
                 (label: 'CONNECTIONS', value: '${conns.length}'),
                 (label: 'ACTIVE', value: '$activeCount'),
-                (label: 'PENDING OPS', value: '$pendingOps'),
-                (label: 'WEBHOOKS', value: '${hooks.length}'),
+                (label: 'PENDING OPERATIONS', value: '$pendingOps'),
+                (label: 'VERIFIED WEBHOOKS', value: '${hooks.length}'),
               ],
             ),
             if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
@@ -458,7 +458,7 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
               const Center(child: CircularProgressIndicator())
             else if (_tab == 'CONNECTIONS') ...[
               if (fConns.isEmpty)
-                const SaasEmptyBox('No provider connections registered yet. Tap + to register an adapter.')
+                const SaasEmptyBox('No provider connections registered yet.')
               else
                 for (final c in fConns)
                   LuxuryRecordCard(
@@ -471,10 +471,90 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
                     ],
                     amountLabel: 'Capability',
                     amountValue: '${c['capability'] ?? 'ADAPTER'}',
+                    actions: [
+                      if ('${c['state'] ?? 'DRAFT'}' == 'DRAFT')
+                        GoldButton(
+                          label: 'Approve',
+                          compact: true,
+                          busy: _busy,
+                          onPressed: () async {
+                            setState(() => _busy = true);
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/integrations/connections/${c['id']}/approve',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion': asInt(c['version'], fallback: 1),
+                                  'reason': _auditReason.text.trim().isEmpty
+                                      ? 'Approved provider connection configuration.'
+                                      : _auditReason.text.trim(),
+                                },
+                              );
+                              if (mounted) _load();
+                            } on ApiException catch (e) {
+                              if (mounted) setState(() => _error = e.message);
+                            } finally {
+                              if (mounted) setState(() => _busy = false);
+                            }
+                          },
+                        ),
+                      if ('${c['state'] ?? ''}' == 'APPROVED' || '${c['state'] ?? ''}' == 'DISABLED')
+                        GoldButton(
+                          label: 'Activate',
+                          compact: true,
+                          busy: _busy,
+                          onPressed: () async {
+                            setState(() => _busy = true);
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/integrations/connections/${c['id']}/activate',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion': asInt(c['version'], fallback: 1),
+                                  'reason': _auditReason.text.trim().isEmpty
+                                      ? 'Activated provider connection for workspace.'
+                                      : _auditReason.text.trim(),
+                                },
+                              );
+                              if (mounted) _load();
+                            } on ApiException catch (e) {
+                              if (mounted) setState(() => _error = e.message);
+                            } finally {
+                              if (mounted) setState(() => _busy = false);
+                            }
+                          },
+                        ),
+                      if ('${c['state'] ?? ''}' == 'ACTIVE')
+                        OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () async {
+                                  setState(() => _busy = true);
+                                  try {
+                                    await context.read<ApiClient>().post(
+                                      '/integrations/connections/${c['id']}/disable',
+                                      idempotent: true,
+                                      body: {
+                                        'expectedVersion': asInt(c['version'], fallback: 1),
+                                        'reason': _auditReason.text.trim().isEmpty
+                                            ? 'Disabled provider connection.'
+                                            : _auditReason.text.trim(),
+                                      },
+                                    );
+                                    if (mounted) _load();
+                                  } on ApiException catch (e) {
+                                    if (mounted) setState(() => _error = e.message);
+                                  } finally {
+                                    if (mounted) setState(() => _busy = false);
+                                  }
+                                },
+                          child: const Text('Disable'),
+                        ),
+                    ],
                   ),
             ] else if (_tab == 'OPERATIONS') ...[
               if (fOps.isEmpty)
-                const SaasEmptyBox('No outbound provider operations queued yet. Tap + to queue one.')
+                const SaasEmptyBox('No outbound operations recorded yet.')
               else
                 for (final o in fOps)
                   LuxuryRecordCard(
@@ -486,6 +566,36 @@ class _ProviderIntegrationsScreenState extends State<ProviderIntegrationsScreen>
                     ],
                     amountLabel: 'Retries',
                     amountValue: '${o['attemptCount'] ?? 0}',
+                    actions: [
+                      if ('${o['state'] ?? o['status'] ?? 'PENDING'}' == 'PENDING' ||
+                          '${o['state'] ?? o['status'] ?? ''}' == 'QUEUED' ||
+                          '${o['state'] ?? o['status'] ?? ''}' == 'FAILED')
+                        GoldButton(
+                          label: '${o['state'] ?? ''}' == 'FAILED' ? 'Retry' : 'Dispatch',
+                          compact: true,
+                          busy: _busy,
+                          onPressed: () async {
+                            setState(() => _busy = true);
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/integrations/operations/${o['id']}/${'${o['state'] ?? ''}' == 'FAILED' ? 'retry' : 'dispatch'}',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion': asInt(o['version'], fallback: 1),
+                                  'reason': _auditReason.text.trim().isEmpty
+                                      ? 'Dispatched outbound provider operation.'
+                                      : _auditReason.text.trim(),
+                                },
+                              );
+                              if (mounted) _load();
+                            } on ApiException catch (e) {
+                              if (mounted) setState(() => _error = e.message);
+                            } finally {
+                              if (mounted) setState(() => _busy = false);
+                            }
+                          },
+                        ),
+                    ],
                   ),
             ] else ...[
               if (fHooks.isEmpty)
@@ -526,7 +636,7 @@ class GstRegistrationTransportScreen extends StatefulWidget {
 class _GstRegistrationTransportScreenState
     extends State<GstRegistrationTransportScreen> {
   final _search = TextEditingController();
-  late String _tab = widget.submissionsFocus ? 'SUBMISSIONS' : 'SUBMISSIONS';
+  late String _tab = widget.submissionsFocus ? 'SUBMISSIONS' : 'PROFILES';
   bool _showForm = false;
   Map<String, dynamic> _ws = const {};
   WorkspaceLookup _lk = WorkspaceLookup();
@@ -939,7 +1049,7 @@ class _GstRegistrationTransportScreenState
               const Center(child: CircularProgressIndicator())
             else if (_tab == 'PROFILES') ...[
               if (fProfs.isEmpty)
-                const SaasEmptyBox('No GST profile configured. Tap + to create an effective GST profile.')
+                const SaasEmptyBox('No GST profiles configured yet.')
               else
                 for (final p in fProfs)
                   LuxuryRecordCard(
@@ -952,10 +1062,64 @@ class _GstRegistrationTransportScreenState
                     ],
                     amountLabel: 'Effective',
                     amountValue: fmtDate('${p['effectiveFrom'] ?? ''}'),
+                    actions: [
+                      if ('${p['state'] ?? 'DRAFT'}' == 'DRAFT')
+                        GoldButton(
+                          label: 'Approve',
+                          compact: true,
+                          busy: _busy,
+                          onPressed: () async {
+                            setState(() => _busy = true);
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/gst-compliance/profiles/${p['id']}/approve',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion': asInt(p['version'], fallback: 1),
+                                  'reason': _auditReason.text.trim().isEmpty
+                                      ? 'Approved effective GSTIN compliance profile.'
+                                      : _auditReason.text.trim(),
+                                },
+                              );
+                              if (mounted) _load();
+                            } on ApiException catch (e) {
+                              if (mounted) setState(() => _error = e.message);
+                            } finally {
+                              if (mounted) setState(() => _busy = false);
+                            }
+                          },
+                        ),
+                      if ('${p['state'] ?? ''}' == 'APPROVED')
+                        GoldButton(
+                          label: 'Activate',
+                          compact: true,
+                          busy: _busy,
+                          onPressed: () async {
+                            setState(() => _busy = true);
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/gst-compliance/profiles/${p['id']}/activate',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion': asInt(p['version'], fallback: 1),
+                                  'reason': _auditReason.text.trim().isEmpty
+                                      ? 'Activated effective GSTIN compliance profile.'
+                                      : _auditReason.text.trim(),
+                                },
+                              );
+                              if (mounted) _load();
+                            } on ApiException catch (e) {
+                              if (mounted) setState(() => _error = e.message);
+                            } finally {
+                              if (mounted) setState(() => _busy = false);
+                            }
+                          },
+                        ),
+                    ],
                   ),
             ] else ...[
               if (fSubs.isEmpty)
-                const SaasEmptyBox('No GST E-Invoice or E-Way Bill prepared yet. Tap + to prepare one.')
+                const SaasEmptyBox('No statutory GST registrations prepared yet.')
               else
                 for (final s in fSubs)
                   LuxuryRecordCard(
@@ -968,6 +1132,34 @@ class _GstRegistrationTransportScreenState
                     ],
                     amountLabel: 'Stage',
                     amountValue: statusLabel('${s['state'] ?? 'QUEUED'}'),
+                    actions: [
+                      if ('${s['state'] ?? 'QUEUED'}' == 'QUEUED' || '${s['state'] ?? ''}' == 'PREPARED')
+                        GoldButton(
+                          label: 'Register',
+                          compact: true,
+                          busy: _busy,
+                          onPressed: () async {
+                            setState(() => _busy = true);
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/gst-compliance/submissions/${s['id']}/register',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion': asInt(s['version'], fallback: 1),
+                                  'reason': _auditReason.text.trim().isEmpty
+                                      ? 'Submitted statutory IRN / E-way bill registration.'
+                                      : _auditReason.text.trim(),
+                                },
+                              );
+                              if (mounted) _load();
+                            } on ApiException catch (e) {
+                              if (mounted) setState(() => _error = e.message);
+                            } finally {
+                              if (mounted) setState(() => _busy = false);
+                            }
+                          },
+                        ),
+                    ],
                   ),
             ],
           ],
@@ -1168,9 +1360,9 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
             const SizedBox(height: 12),
             SaasKpiGrid(
               items: [
-                (label: 'OUTWARD LINES', value: '${_ws['postedOutwardLines'] ?? 0}'),
+                (label: 'POSTED OUTWARD LINES', value: '${_ws['postedOutwardLines'] ?? 0}'),
                 (label: 'PURCHASE BOOKS', value: '${_ws['purchaseBookLines'] ?? _ws['purchaseBooks'] ?? 0}'),
-                (label: 'REVISIONS', value: '${papers.length}'),
+                (label: 'WORKING-PAPER REVISIONS', value: '${papers.length}'),
               ],
             ),
             if (_error != null) ...[const SizedBox(height: 12), ErrorBanner(_error!, onRetry: _load)],
@@ -1311,7 +1503,7 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
               const Center(child: CircularProgressIndicator())
             else if (_tab == 'PAPERS') ...[
               if (fPapers.isEmpty)
-                const SaasEmptyBox('No working-paper revisions for this month. Tap + to prepare one.')
+                const SaasEmptyBox('No working-paper revisions for this month.')
               else
                 for (final p in fPapers)
                   LuxuryRecordCard(
@@ -1323,11 +1515,89 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
                     ],
                     amountLabel: 'Stage',
                     amountValue: statusLabel('${p['state'] ?? 'DRAFT'}'),
+                    actions: [
+                      if ('${p['state'] ?? 'DRAFT'}' == 'DRAFT')
+                        GoldButton(
+                          label: 'Submit Review',
+                          compact: true,
+                          busy: _busy,
+                          onPressed: () => _runGstMutation(
+                            (api) => api.post(
+                              '/gst-returns/working-papers/${p['id']}/submit',
+                              idempotent: true,
+                              body: {
+                                'expectedVersion': asInt(p['version'], fallback: 1),
+                                'reason': _commandReason.text.trim().isEmpty
+                                    ? 'Submitted working paper for accountant review.'
+                                    : _commandReason.text.trim(),
+                              },
+                            ),
+                            'Working paper submitted for review.',
+                          ),
+                        ),
+                      if ('${p['state'] ?? ''}' == 'SUBMITTED' || '${p['state'] ?? ''}' == 'IN_REVIEW')
+                        GoldButton(
+                          label: 'Approve',
+                          compact: true,
+                          busy: _busy,
+                          onPressed: () => _runGstMutation(
+                            (api) => api.post(
+                              '/gst-returns/working-papers/${p['id']}/approve',
+                              idempotent: true,
+                              body: {
+                                'expectedVersion': asInt(p['version'], fallback: 1),
+                                'reason': _commandReason.text.trim().isEmpty
+                                    ? 'Approved working-paper revision.'
+                                    : _commandReason.text.trim(),
+                              },
+                            ),
+                            'Working-paper revision approved.',
+                          ),
+                        ),
+                      if ('${p['state'] ?? ''}' == 'APPROVED') ...[
+                        OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _runGstMutation(
+                                    (api) => api.post(
+                                      '/gst-returns/working-papers/${p['id']}/export',
+                                      idempotent: true,
+                                      body: {
+                                        'returnType': 'GSTR1',
+                                        'reason': _commandReason.text.trim().isEmpty
+                                            ? 'Generated GSTR-1 preparation snapshot.'
+                                            : _commandReason.text.trim(),
+                                      },
+                                    ),
+                                    'GSTR-1 snapshot exported.',
+                                  ),
+                          child: const Text('Export GSTR-1'),
+                        ),
+                        OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _runGstMutation(
+                                    (api) => api.post(
+                                      '/gst-returns/working-papers/${p['id']}/export',
+                                      idempotent: true,
+                                      body: {
+                                        'returnType': 'GSTR3B',
+                                        'reason': _commandReason.text.trim().isEmpty
+                                            ? 'Generated GSTR-3B preparation snapshot.'
+                                            : _commandReason.text.trim(),
+                                      },
+                                    ),
+                                    'GSTR-3B snapshot exported.',
+                                  ),
+                          child: const Text('Export GSTR-3B'),
+                        ),
+                      ],
+                    ],
                   ),
             ] else if (_tab == 'GSTR2B') ...[
-              if (fStmts.isEmpty)
-                const SaasEmptyBox('No GSTR-2B statements imported for this month. Tap + to import.')
-              else
+              if (fStmts.isEmpty && recons.isEmpty)
+                const SaasEmptyBox('No GSTR-2B statements imported for this month.')
+              else ...[
                 for (final s in fStmts)
                   LuxuryRecordCard(
                     icon: Icons.fact_check_outlined,
@@ -1340,6 +1610,41 @@ class _GstReturnsItcScreenState extends State<GstReturnsItcScreen> {
                     amountLabel: 'Records',
                     amountValue: '${s['recordCount'] ?? asList(s['records']).length}',
                   ),
+                for (final r in recons)
+                  LuxuryRecordCard(
+                    icon: Icons.rule_folder_outlined,
+                    code: 'ITC Reconciliation · ${shortId('${r['id'] ?? ''}')}',
+                    status: '${r['state'] ?? 'DRAFT'}',
+                    lines: [
+                      ('Return Month', '${r['returnMonth'] ?? _returnMonth.text}'),
+                    ],
+                    amountLabel: 'Stage',
+                    amountValue: statusLabel('${r['state'] ?? 'DRAFT'}'),
+                    actions: [
+                      if ('${r['state'] ?? 'DRAFT'}' != 'APPROVED')
+                        GoldButton(
+                          label: 'Approve ITC Reconciliation',
+                          compact: true,
+                          busy: _busy,
+                          onPressed: () => _runGstMutation(
+                            (api) => api.post(
+                              '/gst-returns/reconciliations/${r['id']}/approve',
+                              idempotent: true,
+                              body: {
+                                'expectedVersion': asInt(r['version'], fallback: 1),
+                                'reason': _commandReason.text.trim().isEmpty
+                                    ? 'Approved GSTR-2B ITC reconciliation.'
+                                    : _commandReason.text.trim(),
+                                if (_itcEvidence.text.trim().isNotEmpty)
+                                  'evidence': _itcEvidence.text.trim(),
+                              },
+                            ),
+                            'ITC reconciliation approved.',
+                          ),
+                        ),
+                    ],
+                  ),
+              ],
             ] else ...[
               if (fExports.isEmpty)
                 const SaasEmptyBox('No approved GSTR preparation exports created yet.')
