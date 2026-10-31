@@ -3,13 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api.dart';
+import '../../core/app_state.dart';
 import '../../core/format.dart';
+import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/workspace_lookup.dart';
 
 // ---------------------------------------------------------------------------
-// 1. PROCUREMENT & SUPPLIER LIFECYCLE (`/procurement`) — Screenshot (677)
+// 1. PROCUREMENT & SUPPLIER LIFECYCLE (`/procurement`) — image-18..21.png
 // ---------------------------------------------------------------------------
 
 class ProcurementScreen extends StatefulWidget {
@@ -82,17 +84,16 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       : widget.initialTab == 'RETURN'
           ? 'RETURNS'
           : widget.initialTab;
-  String _statusFilter = 'ALL';
   final _search = TextEditingController();
   Map<String, dynamic> _ws = const {};
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
   String? _error;
-  bool _showPostingConfig = false;
+  bool _postingExpanded = true;
   String? _activeForm; // null | 'PO' | 'GRN' | 'BILL' | 'RETURN'
   bool _busy = false;
 
-  // Controlled posting configuration (Screenshot 677)
+  // Controlled posting configuration (exact 6 UUIDs from image-18..21.png)
   final _periodId = TextEditingController();
   final _journalSeriesId = TextEditingController();
   final _poSeriesId = TextEditingController();
@@ -160,30 +161,117 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   final _retUnitCost = TextEditingController();
   final _retTaxRate = TextEditingController(text: '3');
 
+  void _onPostingFieldChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    for (final c in [
+      _periodId,
+      _journalSeriesId,
+      _poSeriesId,
+      _grnSeriesId,
+      _billSeriesId,
+      _returnSeriesId,
+    ]) {
+      c.addListener(_onPostingFieldChanged);
+    }
     _load();
   }
 
   @override
   void dispose() {
     for (final c in [
-      _search, _periodId, _journalSeriesId, _poSeriesId, _grnSeriesId, _billSeriesId, _returnSeriesId,
-      _poSupplierId, _poOrderDate, _poDeliveryDate, _poCurrency, _poTerms,
-      _lineDesc, _lineMetalId, _linePurityId, _lineUnitId, _lineQty, _linePieces,
-      _lineGrossWt, _lineUnitCost, _lineTaxRate, _lineTolerance,
-      _grnPoId, _grnLocationId, _grnDate, _grnDeliveryNote, _grnInvAcctId, _grnGrniAcctId,
-      _grnLotOrTag, _grnAcceptedQty, _grnRejectedQty, _grnQcNotes,
-      _billPoId, _billGrnId, _billInvNo, _billInvDate, _billPostDate, _billDueDate,
-      _billGrniAcctId, _billPayAcctId, _billTaxAcctId, _billVarAcctId, _billNetAmt, _billTaxAmt,
-      _retSupplierId, _retDate, _retPayAcctId, _retInvAcctId, _retReason,
-      _retLotId, _retArticleId, _retDesc, _retLineReason, _retQty, _retUnitCost, _retTaxRate,
+      _periodId,
+      _journalSeriesId,
+      _poSeriesId,
+      _grnSeriesId,
+      _billSeriesId,
+      _returnSeriesId,
+    ]) {
+      c.removeListener(_onPostingFieldChanged);
+    }
+    for (final c in [
+      _search,
+      _periodId,
+      _journalSeriesId,
+      _poSeriesId,
+      _grnSeriesId,
+      _billSeriesId,
+      _returnSeriesId,
+      _poSupplierId,
+      _poOrderDate,
+      _poDeliveryDate,
+      _poCurrency,
+      _poTerms,
+      _lineDesc,
+      _lineMetalId,
+      _linePurityId,
+      _lineUnitId,
+      _lineQty,
+      _linePieces,
+      _lineGrossWt,
+      _lineUnitCost,
+      _lineTaxRate,
+      _lineTolerance,
+      _grnPoId,
+      _grnLocationId,
+      _grnDate,
+      _grnDeliveryNote,
+      _grnInvAcctId,
+      _grnGrniAcctId,
+      _grnLotOrTag,
+      _grnAcceptedQty,
+      _grnRejectedQty,
+      _grnQcNotes,
+      _billPoId,
+      _billGrnId,
+      _billInvNo,
+      _billInvDate,
+      _billPostDate,
+      _billDueDate,
+      _billGrniAcctId,
+      _billPayAcctId,
+      _billTaxAcctId,
+      _billVarAcctId,
+      _billNetAmt,
+      _billTaxAmt,
+      _retSupplierId,
+      _retDate,
+      _retPayAcctId,
+      _retInvAcctId,
+      _retReason,
+      _retLotId,
+      _retArticleId,
+      _retDesc,
+      _retLineReason,
+      _retQty,
+      _retUnitCost,
+      _retTaxRate,
     ]) {
       c.dispose();
     }
     super.dispose();
   }
+
+  bool get _canApprovePo => _poSeriesId.text.trim().isNotEmpty;
+
+  bool get _canPostGrn =>
+      _periodId.text.trim().isNotEmpty &&
+      _journalSeriesId.text.trim().isNotEmpty &&
+      _grnSeriesId.text.trim().isNotEmpty;
+
+  bool get _canPostBill =>
+      _periodId.text.trim().isNotEmpty &&
+      _journalSeriesId.text.trim().isNotEmpty &&
+      _billSeriesId.text.trim().isNotEmpty;
+
+  bool get _canPostReturn =>
+      _periodId.text.trim().isNotEmpty &&
+      _journalSeriesId.text.trim().isNotEmpty &&
+      _returnSeriesId.text.trim().isNotEmpty;
 
   Future<void> _load() async {
     setState(() {
@@ -238,44 +326,130 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     }
   }
 
+  Future<String?> _promptAuditReason({
+    required String title,
+    required String actionLabel,
+  }) async {
+    final ctrl = TextEditingController();
+    String? modalErr;
+    final res = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Dialog(
+          backgroundColor: Pal.card,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: T.body(16.5, weight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                if (modalErr != null) ...[
+                  const SizedBox(height: 8),
+                  ErrorBanner(modalErr!),
+                ],
+                const SizedBox(height: 10),
+                SaasField(
+                  label: 'Audit reason (minimum 10 characters)',
+                  controller: ctrl,
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GoldButton(
+                    label: actionLabel,
+                    onPressed: () {
+                      final r = ctrl.text.trim();
+                      if (r.length < 10) {
+                        setModal(
+                          () => modalErr =
+                              'Enter an audit reason of at least 10 characters.',
+                        );
+                        return;
+                      }
+                      Navigator.pop(ctx, r);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    ctrl.dispose();
+    return res;
+  }
+
   void _addPoLine() {
     if (_lineDesc.text.trim().length < 3 ||
         _lineMetalId.text.trim().isEmpty ||
         _linePurityId.text.trim().isEmpty ||
         _lineUnitCost.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter line description (3+ chars), metal, purity, and unit cost.')),
+      toast(
+        context,
+        'Enter line description (3+ chars), metal, purity, and unit cost.',
+        error: true,
       );
       return;
     }
-    if (_lineKind == 'MATERIAL' && (_lineUnitId.text.trim().isEmpty || _lineQty.text.trim().isEmpty)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select unit and ordered quantity for material line.')),
+    if (_lineKind == 'MATERIAL' &&
+        (_lineUnitId.text.trim().isEmpty || _lineQty.text.trim().isEmpty)) {
+      toast(
+        context,
+        'Select unit and ordered quantity for material line.',
+        error: true,
       );
       return;
     }
     if (_lineKind == 'TAGGED_ARTICLE' && _lineGrossWt.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter expected gross weight for tagged article line.')),
+      toast(
+        context,
+        'Enter expected gross weight for tagged article line.',
+        error: true,
       );
       return;
     }
-    final mLabel = _lk.metals.where((m) => m.id == _lineMetalId.text.trim()).firstOrNull?.label ?? '';
+    final mLabel = _lk.metals
+            .where((m) => m.id == _lineMetalId.text.trim())
+            .firstOrNull
+            ?.label ??
+        '';
     setState(() {
-      _poLines.add(_PoDraftLine(
-        itemKind: _lineKind,
-        description: _lineDesc.text.trim(),
-        metalId: _lineMetalId.text.trim(),
-        purityGradeId: _linePurityId.text.trim(),
-        unitId: _lineUnitId.text.trim(),
-        orderedQuantity: _lineQty.text.trim(),
-        orderedPieces: int.tryParse(_linePieces.text.trim()) ?? 1,
-        expectedGrossWeightGrams: _lineGrossWt.text.trim(),
-        unitCost: _lineUnitCost.text.trim(),
-        taxRate: _lineTaxRate.text.trim().isEmpty ? '0' : _lineTaxRate.text.trim(),
-        overReceiptTolerancePct: _lineTolerance.text.trim().isEmpty ? '0' : _lineTolerance.text.trim(),
-        metalLabel: mLabel,
-      ));
+      _poLines.add(
+        _PoDraftLine(
+          itemKind: _lineKind,
+          description: _lineDesc.text.trim(),
+          metalId: _lineMetalId.text.trim(),
+          purityGradeId: _linePurityId.text.trim(),
+          unitId: _lineUnitId.text.trim(),
+          orderedQuantity: _lineQty.text.trim(),
+          orderedPieces: int.tryParse(_linePieces.text.trim()) ?? 1,
+          expectedGrossWeightGrams: _lineGrossWt.text.trim(),
+          unitCost: _lineUnitCost.text.trim(),
+          taxRate: _lineTaxRate.text.trim().isEmpty ? '0' : _lineTaxRate.text.trim(),
+          overReceiptTolerancePct:
+              _lineTolerance.text.trim().isEmpty ? '0' : _lineTolerance.text.trim(),
+          metalLabel: mLabel,
+        ),
+      );
       _lineDesc.clear();
       _lineQty.clear();
       _lineGrossWt.clear();
@@ -315,9 +489,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         _poLines.clear();
         _activeForm = null;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Purchase Order created.')),
-      );
+      toast(context, 'Purchase Order created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -327,10 +499,18 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   }
 
   Future<void> _approvePo(Map<String, dynamic> po) async {
-    if (_poSeriesId.text.trim().isEmpty) {
-      setState(() => _error = 'Select Purchase Order Series UUID in Controlled posting configuration.');
+    if (!_canApprovePo) {
+      setState(
+        () => _error =
+            'Set Purchase Order Series UUID in Controlled posting configuration.',
+      );
       return;
     }
+    final reason = await _promptAuditReason(
+      title: 'Approve Purchase Order',
+      actionLabel: 'Approve PO',
+    );
+    if (reason == null || !mounted) return;
     setState(() => _busy = true);
     try {
       await context.read<ApiClient>().post(
@@ -339,11 +519,11 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         body: {
           'expectedVersion': asInt(po['version'], fallback: 1),
           'documentSeriesId': _poSeriesId.text.trim(),
-          'reason': 'Approved purchase order after supplier quote and purity verification.',
+          'reason': reason,
         },
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Purchase Order approved.')));
+      toast(context, 'Purchase Order approved.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -356,10 +536,17 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     final pos = asList(_ws['purchaseOrders']);
     final po = pos.where((p) => '${p['id']}' == _grnPoId.text.trim()).firstOrNull;
     final poLines = asList(po?['lines']);
-    if (po == null || poLines.isEmpty || _grnLocationId.text.trim().isEmpty ||
-        _grnInvAcctId.text.trim().isEmpty || _grnGrniAcctId.text.trim().isEmpty ||
-        _grnLotOrTag.text.trim().isEmpty || _grnAcceptedQty.text.trim().isEmpty) {
-      setState(() => _error = 'Select PO, location, Inventory/GRNI accounts, lot/tag code, and accepted quantity.');
+    if (po == null ||
+        poLines.isEmpty ||
+        _grnLocationId.text.trim().isEmpty ||
+        _grnInvAcctId.text.trim().isEmpty ||
+        _grnGrniAcctId.text.trim().isEmpty ||
+        _grnLotOrTag.text.trim().isEmpty ||
+        _grnAcceptedQty.text.trim().isEmpty) {
+      setState(
+        () => _error =
+            'Select PO, location, Inventory/GRNI accounts, lot/tag code, and accepted quantity.',
+      );
       return;
     }
     final firstLine = poLines.first;
@@ -389,23 +576,27 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                 'rejectedPieces': 0,
                 'articleTag': _grnLotOrTag.text.trim().toUpperCase(),
                 'grossWeightGrams': _grnAcceptedQty.text.trim(),
-                if (_grnQcNotes.text.trim().length >= 3) 'qcNotes': _grnQcNotes.text.trim(),
+                if (_grnQcNotes.text.trim().length >= 3)
+                  'qcNotes': _grnQcNotes.text.trim(),
               }
             else
               {
                 'itemKind': 'MATERIAL',
                 'purchaseOrderLineId': '${firstLine['id']}',
                 'acceptedQuantity': _grnAcceptedQty.text.trim(),
-                'rejectedQuantity': _grnRejectedQty.text.trim().isEmpty ? '0' : _grnRejectedQty.text.trim(),
+                'rejectedQuantity': _grnRejectedQty.text.trim().isEmpty
+                    ? '0'
+                    : _grnRejectedQty.text.trim(),
                 'lotCode': _grnLotOrTag.text.trim().toUpperCase(),
-                if (_grnQcNotes.text.trim().length >= 3) 'qcNotes': _grnQcNotes.text.trim(),
+                if (_grnQcNotes.text.trim().length >= 3)
+                  'qcNotes': _grnQcNotes.text.trim(),
               },
           ],
         },
       );
       if (!mounted) return;
       setState(() => _activeForm = null);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Goods Receipt created.')));
+      toast(context, 'Goods Receipt created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -415,10 +606,18 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   }
 
   Future<void> _postGrn(Map<String, dynamic> grn) async {
-    if (_grnSeriesId.text.trim().isEmpty || _periodId.text.trim().isEmpty || _journalSeriesId.text.trim().isEmpty) {
-      setState(() => _error = 'Set Posting Period, Journal Series, and Goods Receipt Series in Controlled posting configuration.');
+    if (!_canPostGrn) {
+      setState(
+        () => _error =
+            'Set Posting Period, Journal Series, and Goods Receipt Series UUIDs in Controlled posting configuration.',
+      );
       return;
     }
+    final reason = await _promptAuditReason(
+      title: 'Post Goods Receipt',
+      actionLabel: 'Post GRN',
+    );
+    if (reason == null || !mounted) return;
     setState(() => _busy = true);
     try {
       await context.read<ApiClient>().post(
@@ -429,11 +628,11 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           'documentSeriesId': _grnSeriesId.text.trim(),
           'postingPeriodId': _periodId.text.trim(),
           'journalSeriesId': _journalSeriesId.text.trim(),
-          'reason': 'Posted goods receipt after showroom weight and assay verification.',
+          'reason': reason,
         },
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Goods Receipt posted to inventory & ledger.')));
+      toast(context, 'Goods Receipt posted to inventory & ledger.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -449,11 +648,19 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     final grn = grns.where((g) => '${g['id']}' == _billGrnId.text.trim()).firstOrNull;
     final poLines = asList(po?['lines']);
     final grnLines = asList(grn?['lines']);
-    if (po == null || poLines.isEmpty || grn == null || grnLines.isEmpty ||
-        _billInvNo.text.trim().isEmpty || _billGrniAcctId.text.trim().isEmpty ||
-        _billPayAcctId.text.trim().isEmpty || _billVarAcctId.text.trim().isEmpty ||
+    if (po == null ||
+        poLines.isEmpty ||
+        grn == null ||
+        grnLines.isEmpty ||
+        _billInvNo.text.trim().isEmpty ||
+        _billGrniAcctId.text.trim().isEmpty ||
+        _billPayAcctId.text.trim().isEmpty ||
+        _billVarAcctId.text.trim().isEmpty ||
         _billNetAmt.text.trim().isEmpty) {
-      setState(() => _error = 'Select PO, posted GRN, invoice #, GRNI/Payable/Variance accounts, and net amount.');
+      setState(
+        () => _error =
+            'Select PO, posted GRN, invoice #, GRNI/Payable/Variance accounts, and net amount.',
+      );
       return;
     }
     final poLine = poLines.first;
@@ -473,10 +680,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           'supplierInvoiceNumber': _billInvNo.text.trim(),
           'supplierInvoiceDate': _billInvDate.text.trim(),
           'postingDate': _billPostDate.text.trim(),
-          if (_billDueDate.text.trim().isNotEmpty) 'dueDate': _billDueDate.text.trim(),
+          if (_billDueDate.text.trim().isNotEmpty)
+            'dueDate': _billDueDate.text.trim(),
           'grniAccountId': _billGrniAcctId.text.trim(),
           'payableAccountId': _billPayAcctId.text.trim(),
-          if (_billTaxAcctId.text.trim().isNotEmpty) 'inputTaxAccountId': _billTaxAcctId.text.trim(),
+          if (_billTaxAcctId.text.trim().isNotEmpty)
+            'inputTaxAccountId': _billTaxAcctId.text.trim(),
           'varianceAccountId': _billVarAcctId.text.trim(),
           'lines': [
             {
@@ -484,7 +693,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
               'description': '${poLine['description'] ?? 'Matched supplier bill line'}',
               if (isArt) 'billedPieces': 1 else 'billedQuantity': qty,
               'netAmount': _billNetAmt.text.trim(),
-              'taxAmount': _billTaxAmt.text.trim().isEmpty ? '0.00' : _billTaxAmt.text.trim(),
+              'taxAmount':
+                  _billTaxAmt.text.trim().isEmpty ? '0.00' : _billTaxAmt.text.trim(),
               'allocations': [
                 {
                   'goodsReceiptLineId': '${grnLine['id']}',
@@ -497,7 +707,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       );
       if (!mounted) return;
       setState(() => _activeForm = null);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Supplier Bill created.')));
+      toast(context, 'Supplier Bill created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -507,10 +717,18 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   }
 
   Future<void> _postBill(Map<String, dynamic> bill) async {
-    if (_billSeriesId.text.trim().isEmpty || _periodId.text.trim().isEmpty || _journalSeriesId.text.trim().isEmpty) {
-      setState(() => _error = 'Set Posting Period, Journal Series, and Supplier Bill Series in Controlled posting configuration.');
+    if (!_canPostBill) {
+      setState(
+        () => _error =
+            'Set Posting Period, Journal Series, and Supplier Bill Series UUIDs in Controlled posting configuration.',
+      );
       return;
     }
+    final reason = await _promptAuditReason(
+      title: 'Post Supplier Bill',
+      actionLabel: 'Post Bill',
+    );
+    if (reason == null || !mounted) return;
     setState(() => _busy = true);
     try {
       await context.read<ApiClient>().post(
@@ -521,11 +739,11 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           'documentSeriesId': _billSeriesId.text.trim(),
           'postingPeriodId': _periodId.text.trim(),
           'journalSeriesId': _journalSeriesId.text.trim(),
-          'reason': 'Posted supplier bill after three-way PO and GRN matching.',
+          'reason': reason,
         },
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Supplier Bill posted.')));
+      toast(context, 'Supplier Bill posted.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -535,11 +753,17 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   }
 
   Future<void> _submitPurchaseReturn() async {
-    if (_retSupplierId.text.trim().isEmpty || _retPayAcctId.text.trim().isEmpty ||
-        _retInvAcctId.text.trim().isEmpty || _retReason.text.trim().length < 10 ||
-        _retDesc.text.trim().length < 3 || _retLineReason.text.trim().length < 5 ||
+    if (_retSupplierId.text.trim().isEmpty ||
+        _retPayAcctId.text.trim().isEmpty ||
+        _retInvAcctId.text.trim().isEmpty ||
+        _retReason.text.trim().length < 10 ||
+        _retDesc.text.trim().length < 3 ||
+        _retLineReason.text.trim().length < 5 ||
         _retUnitCost.text.trim().isEmpty) {
-      setState(() => _error = 'Complete supplier, accounts, overall reason (10+ chars), line description, return reason, and unit cost.');
+      setState(
+        () => _error =
+            'Complete supplier, accounts, overall reason (10+ chars), line description, return reason, and unit cost.',
+      );
       return;
     }
     setState(() {
@@ -566,9 +790,11 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                 'returnReason': _retLineReason.text.trim(),
                 'qcState': 'PASSED',
                 'returnPieces': 1,
-                if (_retQty.text.trim().isNotEmpty) 'grossWeightGrams': _retQty.text.trim(),
+                if (_retQty.text.trim().isNotEmpty)
+                  'grossWeightGrams': _retQty.text.trim(),
                 'unitCost': _retUnitCost.text.trim(),
-                'taxRate': _retTaxRate.text.trim().isEmpty ? '0' : _retTaxRate.text.trim(),
+                'taxRate':
+                    _retTaxRate.text.trim().isEmpty ? '0' : _retTaxRate.text.trim(),
               }
             else
               {
@@ -579,14 +805,15 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                 'qcState': 'PASSED',
                 'returnQuantity': _retQty.text.trim(),
                 'unitCost': _retUnitCost.text.trim(),
-                'taxRate': _retTaxRate.text.trim().isEmpty ? '0' : _retTaxRate.text.trim(),
+                'taxRate':
+                    _retTaxRate.text.trim().isEmpty ? '0' : _retTaxRate.text.trim(),
               },
           ],
         },
       );
       if (!mounted) return;
       setState(() => _activeForm = null);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Purchase return draft created.')));
+      toast(context, 'Purchase return draft created.');
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -596,6 +823,21 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   }
 
   Future<void> _returnAction(Map<String, dynamic> ret, String action) async {
+    if (action == 'post' && !_canPostReturn) {
+      setState(
+        () => _error =
+            'Set Posting Period, Journal Series, and Debit Note Series UUIDs in Controlled posting configuration.',
+      );
+      return;
+    }
+    final reason = await _promptAuditReason(
+      title: action == 'approve'
+          ? 'Approve Purchase Return'
+          : 'Post Purchase Return / Debit Note',
+      actionLabel: action == 'approve' ? 'Approve' : 'Post Return',
+    );
+    if (reason == null || !mounted) return;
+
     setState(() => _busy = true);
     try {
       if (action == 'approve') {
@@ -604,14 +846,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           idempotent: true,
           body: {
             'expectedVersion': asInt(ret['version'], fallback: 1),
-            'reason': 'Approved purchase return / debit note after QC inspection.',
+            'reason': reason,
           },
         );
       } else {
-        if (_returnSeriesId.text.trim().isEmpty || _periodId.text.trim().isEmpty || _journalSeriesId.text.trim().isEmpty) {
-          setState(() => _error = 'Set Posting Period, Journal Series, and Debit Note Series in Controlled posting configuration.');
-          return;
-        }
         await context.read<ApiClient>().post(
           '/procurement/returns/${ret['id']}/post',
           idempotent: true,
@@ -620,11 +858,17 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
             'documentSeriesId': _returnSeriesId.text.trim(),
             'postingPeriodId': _periodId.text.trim(),
             'journalSeriesId': _journalSeriesId.text.trim(),
-            'reason': 'Posted approved purchase return / debit note to ledger.',
+            'reason': reason,
           },
         );
       }
       if (!mounted) return;
+      toast(
+        context,
+        action == 'approve'
+            ? 'Purchase return approved.'
+            : 'Purchase return posted.',
+      );
       _load();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -633,131 +877,143 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     }
   }
 
+  Widget _buildEmptyTableCard({
+    required List<String> columns,
+    required String emptyMessage,
+  }) {
+    return Panel(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: const BoxDecoration(
+              color: Pal.bgTint,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(15)),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var i = 0; i < columns.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 18),
+                    Text(
+                      columns[i],
+                      style: T.body(11.5, weight: FontWeight.w700, color: Pal.inkSoft),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 1, color: Pal.divider),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 28),
+            child: Center(
+              child: Text(
+                emptyMessage,
+                textAlign: TextAlign.center,
+                style: T.body(13, color: Pal.muted),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final pos = asList(_ws['purchaseOrders']);
     final grns = asList(_ws['goodsReceipts']);
     final bills = asList(_ws['supplierBills']);
     final rets = asList(_ws['purchaseReturns']);
 
     final poOptions = pos
-        .map((p) => LookupOption(
-              id: '${p['id'] ?? ''}',
-              label: '${asMap(p['supplier'])['displayName'] ?? 'PO'} · ${fmtDate('${p['orderDate']}')} · ${inr(p['totalAmount'])} (${p['state']})',
-              raw: p,
-            ))
+        .map(
+          (p) => LookupOption(
+            id: '${p['id'] ?? ''}',
+            label:
+                '${asMap(p['supplier'])['displayName'] ?? 'PO'} · ${fmtDate('${p['orderDate']}')} · ${inr(p['totalAmount'])} (${p['state']})',
+            raw: p,
+          ),
+        )
         .where((o) => o.id.isNotEmpty)
         .toList();
     final grnOptions = grns
-        .map((g) => LookupOption(
-              id: '${g['id'] ?? ''}',
-              label: '${asMap(g['supplier'])['displayName'] ?? 'GRN'} · ${fmtDate('${g['receiptDate']}')} · ${inr(g['acceptedNetAmount'])} (${g['state']})',
-              raw: g,
-            ))
+        .map(
+          (g) => LookupOption(
+            id: '${g['id'] ?? ''}',
+            label:
+                '${asMap(g['supplier'])['displayName'] ?? 'GRN'} · ${fmtDate('${g['receiptDate']}')} · ${inr(g['acceptedNetAmount'])} (${g['state']})',
+            raw: g,
+          ),
+        )
         .where((o) => o.id.isNotEmpty)
         .toList();
 
     final q = _search.text.trim().toLowerCase();
     bool matches(Map<String, dynamic> m, List<String> fields) {
       if (q.isEmpty) return true;
-      final sup = '${asMap(m['supplier'])['displayName'] ?? asMap(m['supplier'])['code'] ?? ''}'.toLowerCase();
+      final sup =
+          '${asMap(m['supplier'])['displayName'] ?? asMap(m['supplier'])['code'] ?? ''}'
+              .toLowerCase();
       if (sup.contains(q)) return true;
       return fields.any((f) => '${m[f] ?? ''}'.toLowerCase().contains(q));
     }
 
-    bool matchesState(Map<String, dynamic> m) {
-      if (_statusFilter == 'ALL') return true;
-      final st = '${m['state'] ?? m['status'] ?? 'DRAFT'}'.toUpperCase();
-      if (_statusFilter == 'PENDING') {
-        return st == 'DRAFT' || st == 'PENDING' || st == 'SUBMITTED';
-      }
-      if (_statusFilter == 'DONE') {
-        return st == 'APPROVED' || st == 'POSTED' || st == 'RECEIVED' || st == 'CONFIRMED';
-      }
-      if (_statusFilter == 'CLOSED') {
-        return st == 'CLOSED' || st == 'CANCELLED';
-      }
-      return true;
-    }
-
-    int countState(List<Map<String, dynamic>> src, String bucket) {
-      return src.where((m) {
-        final st = '${m['state'] ?? m['status'] ?? 'DRAFT'}'.toUpperCase();
-        if (bucket == 'PENDING') return st == 'DRAFT' || st == 'PENDING' || st == 'SUBMITTED';
-        if (bucket == 'DONE') return st == 'APPROVED' || st == 'POSTED' || st == 'RECEIVED' || st == 'CONFIRMED';
-        if (bucket == 'CLOSED') return st == 'CLOSED' || st == 'CANCELLED';
-        return true;
-      }).length;
-    }
-
-    final fPos = pos.where((m) => matchesState(m) && matches(m, const ['documentNumber', 'orderNumber', 'id', 'state'])).toList();
-    final fGrns = grns.where((m) => matchesState(m) && matches(m, const ['documentNumber', 'supplierDeliveryNote', 'id', 'state'])).toList();
-    final fBills = bills.where((m) => matchesState(m) && matches(m, const ['supplierInvoiceNumber', 'documentNumber', 'id', 'state'])).toList();
-    final fRets = rets.where((m) => matchesState(m) && matches(m, const ['documentNumber', 'reason', 'id', 'state'])).toList();
-
-    final (pageTitle, pageIcon, searchHint, formTarget, statusTabs) = switch (_tab) {
-      'GRN' => (
-          'Goods Receipts',
-          Icons.inventory_outlined,
-          'Search by GRN / Supplier...',
-          'GRN',
-          [
-            ('ALL', 'All (${grns.length})'),
-            ('DONE', 'Received (${countState(grns, 'DONE')})'),
-            ('PENDING', 'Pending (${countState(grns, 'PENDING')})'),
-          ],
-        ),
-      'BILLS' => (
-          'Supplier Bills',
-          Icons.receipt_long_outlined,
-          'Search by Bill No. / Supplier...',
-          'BILL',
-          [
-            ('ALL', 'All (${bills.length})'),
-            ('DONE', 'Posted (${countState(bills, 'DONE')})'),
-            ('PENDING', 'Pending (${countState(bills, 'PENDING')})'),
-          ],
-        ),
-      'RETURNS' => (
-          'Returns / Debits',
-          Icons.assignment_return_outlined,
-          'Search by Return / Debit No...',
-          'RETURN',
-          [
-            ('ALL', 'All (${rets.length})'),
-            ('DONE', 'Posted (${countState(rets, 'DONE')})'),
-            ('PENDING', 'Pending (${countState(rets, 'PENDING')})'),
-          ],
-        ),
-      _ => (
-          'Purchase Orders',
-          Icons.shopping_bag_outlined,
-          'Search by PO No. / Supplier...',
-          'PO',
-          [
-            ('ALL', 'All (${pos.length})'),
-            ('PENDING', 'Pending (${countState(pos, 'PENDING')})'),
-            ('DONE', 'Approved (${countState(pos, 'DONE')})'),
-            ('CLOSED', 'Closed (${countState(pos, 'CLOSED')})'),
-          ],
-        ),
-    };
+    final fPos = pos
+        .where(
+          (m) => matches(
+            m,
+            const ['documentNumber', 'orderNumber', 'id', 'state'],
+          ),
+        )
+        .toList();
+    final fGrns = grns
+        .where(
+          (m) => matches(
+            m,
+            const ['documentNumber', 'supplierDeliveryNote', 'id', 'state'],
+          ),
+        )
+        .toList();
+    final fBills = bills
+        .where(
+          (m) => matches(
+            m,
+            const ['supplierInvoiceNumber', 'documentNumber', 'id', 'state'],
+          ),
+        )
+        .toList();
+    final fRets = rets
+        .where(
+          (m) => matches(
+            m,
+            const ['documentNumber', 'reason', 'id', 'state'],
+          ),
+        )
+        .toList();
 
     return LuxuryModuleScaffold(
-      title: pageTitle,
-      icon: pageIcon,
+      title: 'Procurement & Intake',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
+      icon: Icons.shopping_cart_outlined,
       searchController: _search,
-      searchHint: searchHint,
+      searchHint: 'Search supplier, PO, GRN, invoice or return...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
-        IconButton(
-          tooltip: 'Posting Series & Period',
-          onPressed: () => setState(() => _showPostingConfig = !_showPostingConfig),
-          icon: Icon(
-            _showPostingConfig ? Icons.tune_rounded : Icons.settings_outlined,
-            color: Pal.goldSoft,
-          ),
-        ),
         IconButton(
           tooltip: 'Refresh',
           onPressed: _load,
@@ -765,54 +1021,241 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         ),
       ],
       topFilterBar: PillTabs<String>(
-        value: _statusFilter,
-        onChanged: (v) => setState(() => _statusFilter = v),
-        tabs: statusTabs,
-      ),
-      secondaryFilterBar: LuxurySubChips<String>(
         value: _tab,
         onChanged: (v) => setState(() {
           _tab = v;
-          _statusFilter = 'ALL';
           _activeForm = null;
         }),
-        items: [
+        tabs: [
           ('PO', 'Purchase Orders (${pos.length})'),
           ('GRN', 'Goods Receipts (${grns.length})'),
           ('BILLS', 'Supplier Bills (${bills.length})'),
           ('RETURNS', 'Returns / Debits (${rets.length})'),
         ],
       ),
-      floatingActionButton: GoldAddFab(
-        icon: _activeForm == formTarget ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'New $pageTitle',
-        onPressed: () => setState(() {
-          _activeForm = _activeForm == formTarget ? null : formTarget;
-        }),
-      ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
+              const SizedBox(height: 12),
+            ],
 
-            if (_showPostingConfig) ...[
-              SaasFormCard(
-                title: 'Controlled posting configuration',
-                subtitle: 'Series and open period UUIDs used when posting PO, GRN, Bill, or Return.',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showPostingConfig = false),
-                  child: const Text('Done'),
-                ),
-                child: Column(
-                  children: [
+            // Hero Header Card (`Procurement and Supplier Lifecycle` — image-18..21.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.toll_rounded, size: 13, color: Pal.goldDeep),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.shopping_cart_outlined,
+                        size: 20,
+                        color: Pal.ok,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Procurement and Supplier Lifecycle',
+                          style: T.body(16, weight: FontWeight.w700, color: Pal.ink),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Purchase orders, goods receipt with QC, supplier bill matching, and purchase returns / debit notes.',
+                    style: T.body(12.3, color: Pal.muted),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (_tab == 'PO')
+                        GoldButton(
+                          label: _activeForm == 'PO' ? 'Close PO' : '+ New PO',
+                          compact: true,
+                          onPressed: () => setState(
+                            () => _activeForm = _activeForm == 'PO' ? null : 'PO',
+                          ),
+                        )
+                      else if (_tab == 'GRN')
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 13,
+                              vertical: 9,
+                            ),
+                          ),
+                          onPressed: () => setState(
+                            () => _activeForm = _activeForm == 'GRN' ? null : 'GRN',
+                          ),
+                          icon: Icon(
+                            _activeForm == 'GRN'
+                                ? Icons.close_rounded
+                                : Icons.add_rounded,
+                            size: 16,
+                          ),
+                          label: Text(
+                            _activeForm == 'GRN' ? 'Close GRN' : 'Record GRN',
+                          ),
+                        )
+                      else if (_tab == 'BILLS')
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 13,
+                              vertical: 9,
+                            ),
+                          ),
+                          onPressed: () => setState(
+                            () => _activeForm = _activeForm == 'BILL' ? null : 'BILL',
+                          ),
+                          icon: Icon(
+                            _activeForm == 'BILL'
+                                ? Icons.close_rounded
+                                : Icons.add_rounded,
+                            size: 16,
+                          ),
+                          label: Text(
+                            _activeForm == 'BILL'
+                                ? 'Close Bill'
+                                : 'Match Supplier Bill',
+                          ),
+                        )
+                      else if (_tab == 'RETURNS')
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFB45309),
+                            foregroundColor: Colors.white,
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 9,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(11),
+                            ),
+                          ),
+                          onPressed: () => setState(
+                            () => _activeForm =
+                                _activeForm == 'RETURN' ? null : 'RETURN',
+                          ),
+                          icon: Icon(
+                            _activeForm == 'RETURN'
+                                ? Icons.close_rounded
+                                : Icons.inventory_2_outlined,
+                            size: 16,
+                          ),
+                          label: Text(
+                            _activeForm == 'RETURN' ? 'Close Return' : 'New Return',
+                            style: T.body(
+                              12.5,
+                              weight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // Controlled posting configuration card (visible on all 4 tabs — image-18..21.png)
+            Panel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () =>
+                        setState(() => _postingExpanded = !_postingExpanded),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Controlled posting configuration',
+                                style: T.body(
+                                  14,
+                                  weight: FontWeight.w700,
+                                  color: Pal.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'Required series and period IDs are validated by the API; blank values keep posting actions disabled.',
+                                style: T.body(11.8, color: Pal.muted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          _postingExpanded
+                              ? Icons.keyboard_arrow_up_rounded
+                              : Icons.keyboard_arrow_down_rounded,
+                          color: Pal.muted,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_postingExpanded) ...[
+                    const SizedBox(height: 12),
                     LookupField(
                       label: 'Posting Period UUID',
                       controller: _periodId,
                       options: _lk.openPeriods(),
                       hint: 'Posting Period UUID',
+                      optional: true,
                     ),
                     const SizedBox(height: 10),
                     LookupField(
@@ -820,6 +1263,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       controller: _journalSeriesId,
                       options: _lk.seriesFor(const ['JOURNAL']),
                       hint: 'Journal Series UUID',
+                      optional: true,
                     ),
                     const SizedBox(height: 10),
                     LookupField(
@@ -827,6 +1271,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       controller: _poSeriesId,
                       options: _lk.seriesFor(const ['PURCHASE_ORDER', 'PO']),
                       hint: 'Purchase Order Series UUID',
+                      optional: true,
                     ),
                     const SizedBox(height: 10),
                     LookupField(
@@ -834,6 +1279,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       controller: _grnSeriesId,
                       options: _lk.seriesFor(const ['GOODS_RECEIPT', 'GRN']),
                       hint: 'Goods Receipt Series UUID',
+                      optional: true,
                     ),
                     const SizedBox(height: 10),
                     LookupField(
@@ -841,6 +1287,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       controller: _billSeriesId,
                       options: _lk.seriesFor(const ['SUPPLIER_BILL', 'BILL']),
                       hint: 'Supplier Bill Series UUID',
+                      optional: true,
                     ),
                     const SizedBox(height: 10),
                     LookupField(
@@ -848,18 +1295,24 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       controller: _returnSeriesId,
                       options: _lk.seriesFor(const ['PURCHASE_RETURN', 'DEBIT']),
                       hint: 'Debit Note Series UUID',
+                      optional: true,
                     ),
                   ],
-                ),
+                ],
               ),
-              const SizedBox(height: 12),
-            ],
+            ),
 
             if (_activeForm == 'PO') ...[
               const SizedBox(height: 14),
               SaasFormCard(
                 title: 'New Purchase Order',
-                subtitle: 'Supplier commitment for bullion material lots or tagged jewellery articles.',
+                subtitle:
+                    'Supplier commitment for bullion material lots or tagged jewellery articles.',
+                trailing: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() => _activeForm = null),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -871,7 +1324,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: DatePickField(label: 'Order date', controller: _poOrderDate)),
+                        Expanded(
+                          child: DatePickField(
+                            label: 'Order date',
+                            controller: _poOrderDate,
+                          ),
+                        ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: DatePickField(
@@ -885,9 +1343,20 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: SaasField(label: 'Currency', controller: _poCurrency, mono: true)),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Currency',
+                            controller: _poCurrency,
+                            mono: true,
+                          ),
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(child: SaasField(label: 'Terms (optional)', controller: _poTerms)),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Terms (optional)',
+                            controller: _poTerms,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -908,14 +1377,15 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                           SaasField(
                             label: 'Line description',
                             controller: _lineDesc,
-                            hint: 'Standard gold bar / bridal ornament',
+                            hint: 'Line description',
                           ),
                           const SizedBox(height: 10),
                           LookupField(
                             label: 'Metal',
                             controller: _lineMetalId,
                             options: _lk.metals,
-                            onSelected: (_) => setState(() => _linePurityId.clear()),
+                            onSelected: (_) =>
+                                setState(() => _linePurityId.clear()),
                           ),
                           const SizedBox(height: 10),
                           LookupField(
@@ -940,7 +1410,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                     label: 'Ordered quantity',
                                     controller: _lineQty,
                                     mono: true,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -962,7 +1435,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                     label: 'Expected gross g',
                                     controller: _lineGrossWt,
                                     mono: true,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -975,7 +1451,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                   label: 'Unit cost (INR)',
                                   controller: _lineUnitCost,
                                   mono: true,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -984,7 +1463,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                   label: 'Tax rate (%)',
                                   controller: _lineTaxRate,
                                   mono: true,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
                                 ),
                               ),
                             ],
@@ -1007,8 +1489,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                 ),
                                 IconButton(
                                   visualDensity: VisualDensity.compact,
-                                  icon: const Icon(Icons.close_rounded, size: 17, color: Pal.err),
-                                  onPressed: () => setState(() => _poLines.removeAt(i)),
+                                  icon: const Icon(
+                                    Icons.close_rounded,
+                                    size: 17,
+                                    color: Pal.err,
+                                  ),
+                                  onPressed: () =>
+                                      setState(() => _poLines.removeAt(i)),
                                 ),
                               ],
                             ),
@@ -1017,11 +1504,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    GoldButton(
+                    RoyalGoldButton(
                       label: 'Create Purchase Order',
-                      icon: Icons.check_rounded,
                       busy: _busy,
-                      onPressed: _submitPo,
+                      onPressed: _busy ? null : _submitPo,
                     ),
                   ],
                 ),
@@ -1032,32 +1518,60 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
               const SizedBox(height: 14),
               SaasFormCard(
                 title: 'New Goods Receipt (GRN)',
-                subtitle: 'Receive against an approved Purchase Order with QC & vault location.',
+                subtitle:
+                    'Receive against an approved Purchase Order with QC & vault location.',
+                trailing: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() => _activeForm = null),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    LookupField(label: 'Purchase Order', controller: _grnPoId, options: poOptions),
+                    LookupField(
+                      label: 'Purchase Order',
+                      controller: _grnPoId,
+                      options: poOptions,
+                    ),
                     const SizedBox(height: 10),
-                    LookupField(label: 'Vault / Stock Location', controller: _grnLocationId, options: _lk.locations),
+                    LookupField(
+                      label: 'Vault / Stock Location',
+                      controller: _grnLocationId,
+                      options: _lk.locations,
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: DatePickField(label: 'Receipt date', controller: _grnDate)),
+                        Expanded(
+                          child: DatePickField(
+                            label: 'Receipt date',
+                            controller: _grnDate,
+                          ),
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(child: SaasField(label: 'Supplier delivery note', controller: _grnDeliveryNote)),
+                        Expanded(
+                          child: SaasField(
+                            label: 'Supplier delivery note',
+                            controller: _grnDeliveryNote,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
                     LookupField(
                       label: 'Inventory Account',
                       controller: _grnInvAcctId,
-                      options: _lk.accountsByControl(const ['INVENTORY', 'ASSET']),
+                      options: _lk.accountsByControl(
+                        const ['INVENTORY', 'ASSET'],
+                      ),
                     ),
                     const SizedBox(height: 10),
                     LookupField(
                       label: 'GRNI Clearing Account',
                       controller: _grnGrniAcctId,
-                      options: _lk.accountsByControl(const ['LIABILITY', 'SUPPLIER_PAYABLE']),
+                      options: _lk.accountsByControl(
+                        const ['LIABILITY', 'SUPPLIER_PAYABLE'],
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Row(
@@ -1075,19 +1589,24 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                             label: 'Accepted wt / qty (g)',
                             controller: _grnAcceptedQty,
                             mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
-                    SaasField(label: 'QC notes (optional)', controller: _grnQcNotes),
+                    SaasField(
+                      label: 'QC notes (optional)',
+                      controller: _grnQcNotes,
+                    ),
                     const SizedBox(height: 12),
-                    GoldButton(
+                    RoyalGoldButton(
                       label: 'Create Goods Receipt',
-                      icon: Icons.inventory_rounded,
                       busy: _busy,
-                      onPressed: _submitGrn,
+                      onPressed: _busy ? null : _submitGrn,
                     ),
                   ],
                 ),
@@ -1098,25 +1617,57 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
               const SizedBox(height: 14),
               SaasFormCard(
                 title: 'New Supplier Bill (3-Way Match)',
-                subtitle: 'Match supplier invoice against PO and posted GRN lines.',
+                subtitle:
+                    'Match supplier invoice against PO and posted GRN lines.',
+                trailing: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() => _activeForm = null),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    LookupField(label: 'Purchase Order', controller: _billPoId, options: poOptions),
+                    LookupField(
+                      label: 'Purchase Order',
+                      controller: _billPoId,
+                      options: poOptions,
+                    ),
                     const SizedBox(height: 10),
-                    LookupField(label: 'Matched Goods Receipt', controller: _billGrnId, options: grnOptions),
+                    LookupField(
+                      label: 'Matched Goods Receipt',
+                      controller: _billGrnId,
+                      options: grnOptions,
+                    ),
                     const SizedBox(height: 10),
-                    SaasField(label: 'Supplier invoice number', controller: _billInvNo, mono: true),
+                    SaasField(
+                      label: 'Supplier invoice number',
+                      controller: _billInvNo,
+                      mono: true,
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: DatePickField(label: 'Invoice date', controller: _billInvDate)),
+                        Expanded(
+                          child: DatePickField(
+                            label: 'Invoice date',
+                            controller: _billInvDate,
+                          ),
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(child: DatePickField(label: 'Posting date', controller: _billPostDate)),
+                        Expanded(
+                          child: DatePickField(
+                            label: 'Posting date',
+                            controller: _billPostDate,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
-                    DatePickField(label: 'Due date', controller: _billDueDate, optional: true),
+                    DatePickField(
+                      label: 'Due date',
+                      controller: _billDueDate,
+                      optional: true,
+                    ),
                     const SizedBox(height: 10),
                     LookupField(
                       label: 'GRNI Account',
@@ -1127,13 +1678,16 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     LookupField(
                       label: 'Supplier Payable Account',
                       controller: _billPayAcctId,
-                      options: _lk.accountsByControl(const ['SUPPLIER_PAYABLE', 'LIABILITY']),
+                      options: _lk.accountsByControl(
+                        const ['SUPPLIER_PAYABLE', 'LIABILITY'],
+                      ),
                     ),
                     const SizedBox(height: 10),
                     LookupField(
                       label: 'Input Tax Account',
                       controller: _billTaxAcctId,
-                      options: _lk.accountsByControl(const ['TAX_INPUT', 'ASSET']),
+                      options:
+                          _lk.accountsByControl(const ['TAX_INPUT', 'ASSET']),
                       optional: true,
                     ),
                     const SizedBox(height: 10),
@@ -1150,7 +1704,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                             label: 'Net amount (INR)',
                             controller: _billNetAmt,
                             mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -1159,17 +1716,19 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                             label: 'Tax amount (INR)',
                             controller: _billTaxAmt,
                             mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    GoldButton(
+                    RoyalGoldButton(
                       label: 'Create Supplier Bill',
-                      icon: Icons.receipt_long_rounded,
                       busy: _busy,
-                      onPressed: _submitSupplierBill,
+                      onPressed: _busy ? null : _submitSupplierBill,
                     ),
                   ],
                 ),
@@ -1180,7 +1739,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
               const SizedBox(height: 14),
               SaasFormCard(
                 title: 'New Purchase Return / Debit Note',
-                subtitle: 'Return defective or excess supplier stock with subledger debit.',
+                subtitle:
+                    'Return defective or excess supplier stock with subledger debit.',
+                trailing: IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() => _activeForm = null),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -1195,13 +1760,16 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     LookupField(
                       label: 'Supplier Payable Account',
                       controller: _retPayAcctId,
-                      options: _lk.accountsByControl(const ['SUPPLIER_PAYABLE', 'LIABILITY']),
+                      options: _lk.accountsByControl(
+                        const ['SUPPLIER_PAYABLE', 'LIABILITY'],
+                      ),
                     ),
                     const SizedBox(height: 10),
                     LookupField(
                       label: 'Inventory Account',
                       controller: _retInvAcctId,
-                      options: _lk.accountsByControl(const ['INVENTORY', 'ASSET']),
+                      options:
+                          _lk.accountsByControl(const ['INVENTORY', 'ASSET']),
                     ),
                     const SizedBox(height: 10),
                     SaasDropdown(
@@ -1215,13 +1783,24 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     ),
                     const SizedBox(height: 10),
                     if (_retItemKind == 'MATERIAL')
-                      LookupField(label: 'Material lot', controller: _retLotId, options: _lk.materialLots)
+                      LookupField(
+                        label: 'Material lot',
+                        controller: _retLotId,
+                        options: _lk.materialLots,
+                      )
                     else
-                      LookupField(label: 'Tagged article', controller: _retArticleId, options: _lk.articles),
+                      LookupField(
+                        label: 'Tagged article',
+                        controller: _retArticleId,
+                        options: _lk.articles,
+                      ),
                     const SizedBox(height: 10),
                     SaasField(label: 'Line description', controller: _retDesc),
                     const SizedBox(height: 10),
-                    SaasField(label: 'Line return reason', controller: _retLineReason),
+                    SaasField(
+                      label: 'Line return reason',
+                      controller: _retLineReason,
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -1230,7 +1809,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                             label: 'Return qty / gross g',
                             controller: _retQty,
                             mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -1239,7 +1821,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                             label: 'Unit cost (INR)',
                             controller: _retUnitCost,
                             mono: true,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                           ),
                         ),
                       ],
@@ -1250,11 +1835,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       controller: _retReason,
                     ),
                     const SizedBox(height: 12),
-                    GoldButton(
+                    RoyalGoldButton(
                       label: 'Create Return Draft',
-                      icon: Icons.check_rounded,
                       busy: _busy,
-                      onPressed: _submitPurchaseReturn,
+                      onPressed: _busy ? null : _submitPurchaseReturn,
                     ),
                   ],
                 ),
@@ -1263,35 +1847,63 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
             const SizedBox(height: 14),
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(28),
-                child: Center(child: CircularProgressIndicator()),
-              )
+              const Panel(child: Skeleton(height: 100))
             else if (_tab == 'PO')
               fPos.isEmpty
-                  ? const SaasEmptyBox('No purchase orders found. Tap + to create a Purchase Order.')
+                  ? _buildEmptyTableCard(
+                      columns: const [
+                        'Order Date',
+                        'Supplier',
+                        'Lines',
+                        'Subtotal',
+                        'Tax',
+                        'Total Amount',
+                        'State',
+                        'Action',
+                      ],
+                      emptyMessage: 'No purchase orders recorded yet.',
+                    )
                   : Column(
                       children: [
                         for (final po in fPos)
                           LuxuryRecordCard(
                             icon: Icons.shopping_bag_outlined,
-                            code: '${po['documentNumber'] ?? po['orderNumber'] ?? shortId('${po['id']}')}',
+                            code:
+                                '${po['documentNumber'] ?? po['orderNumber'] ?? shortId('${po['id']}')}',
                             status: '${po['state'] ?? 'DRAFT'}',
                             lines: [
-                              ('Supplier', '${asMap(po['supplier'])['displayName'] ?? asMap(po['supplier'])['code'] ?? 'Supplier'}'),
-                              ('Date', fmtDate('${po['orderDate'] ?? ''}')),
-                              ('Subtotal / Tax', '${inr(po['subtotalAmount'])} · GST ${inr(po['taxAmount'])}'),
+                              ('Order Date', fmtDate('${po['orderDate'] ?? ''}')),
+                              (
+                                'Supplier',
+                                '${asMap(po['supplier'])['displayName'] ?? asMap(po['supplier'])['code'] ?? '-'}',
+                              ),
+                              ('Lines', '${asList(po['lines']).length}'),
+                              ('Subtotal', inr(po['subtotalAmount'])),
+                              ('Tax', inr(po['taxAmount'])),
                             ],
-                            amountLabel: 'Total',
+                            amountLabel: 'Total Amount',
                             amountValue: inr(po['totalAmount']),
                             actions: [
-                              if ('${po['state']}' == 'DRAFT')
+                              if ('${po['state']}'.toUpperCase() == 'DRAFT')
                                 GoldButton(
                                   label: 'Approve PO',
                                   compact: true,
                                   busy: _busy,
-                                  icon: Icons.check_circle_outline_rounded,
-                                  onPressed: () => _approvePo(po),
+                                  onPressed:
+                                      _canApprovePo && !_busy ? () => _approvePo(po) : null,
+                                ),
+                              if ('${po['state']}'.toUpperCase() == 'APPROVED')
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  onPressed: () => setState(() {
+                                    _grnPoId.text = '${po['id']}';
+                                    _tab = 'GRN';
+                                    _activeForm = 'GRN';
+                                  }),
+                                  icon: const Icon(Icons.inventory_2_outlined, size: 15),
+                                  label: const Text('Receive GRN'),
                                 ),
                             ],
                           ),
@@ -1299,29 +1911,67 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     )
             else if (_tab == 'GRN')
               fGrns.isEmpty
-                  ? const SaasEmptyBox('No goods receipts found. Tap + to record a Goods Receipt.')
+                  ? _buildEmptyTableCard(
+                      columns: const [
+                        'Receipt Date',
+                        'Supplier',
+                        'Delivery Note',
+                        'Lines & QC',
+                        'Accepted Net Amount',
+                        'State',
+                        'Action',
+                      ],
+                      emptyMessage: 'No goods receipts recorded yet.',
+                    )
                   : Column(
                       children: [
                         for (final grn in fGrns)
                           LuxuryRecordCard(
                             icon: Icons.inventory_outlined,
-                            code: '${grn['documentNumber'] ?? shortId('${grn['id']}')}',
+                            code:
+                                '${grn['documentNumber'] ?? shortId('${grn['id']}')}',
                             status: '${grn['state'] ?? 'DRAFT'}',
                             lines: [
-                              ('Supplier', '${asMap(grn['supplier'])['displayName'] ?? 'Supplier'}'),
-                              ('Date', fmtDate('${grn['receiptDate'] ?? ''}')),
-                              ('Delivery Note', '${grn['supplierDeliveryNote'] ?? '—'}'),
+                              (
+                                'Receipt Date',
+                                fmtDate('${grn['receiptDate'] ?? ''}'),
+                              ),
+                              (
+                                'Supplier',
+                                '${asMap(grn['supplier'])['displayName'] ?? '-'}',
+                              ),
+                              (
+                                'Delivery Note',
+                                '${grn['supplierDeliveryNote'] ?? '—'}',
+                              ),
+                              ('Lines & QC', '${asList(grn['lines']).length} line(s)'),
                             ],
-                            amountLabel: 'Accepted Net',
+                            amountLabel: 'Accepted Net Amount',
                             amountValue: inr(grn['acceptedNetAmount']),
                             actions: [
-                              if ('${grn['state']}' == 'DRAFT')
+                              if ('${grn['state']}'.toUpperCase() == 'DRAFT')
                                 GoldButton(
                                   label: 'Post GRN',
                                   compact: true,
                                   busy: _busy,
-                                  icon: Icons.inventory_2_outlined,
-                                  onPressed: () => _postGrn(grn),
+                                  onPressed:
+                                      _canPostGrn && !_busy ? () => _postGrn(grn) : null,
+                                ),
+                              if ('${grn['state']}'.toUpperCase() == 'POSTED')
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  onPressed: () => setState(() {
+                                    if ('${grn['purchaseOrderId'] ?? ''}'.isNotEmpty) {
+                                      _billPoId.text = '${grn['purchaseOrderId']}';
+                                    }
+                                    _billGrnId.text = '${grn['id']}';
+                                    _tab = 'BILLS';
+                                    _activeForm = 'BILL';
+                                  }),
+                                  icon: const Icon(Icons.receipt_long_outlined, size: 15),
+                                  label: const Text('Match Bill'),
                                 ),
                             ],
                           ),
@@ -1329,29 +1979,56 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     )
             else if (_tab == 'BILLS')
               fBills.isEmpty
-                  ? const SaasEmptyBox('No supplier bills found. Tap + to match a Supplier Bill.')
+                  ? _buildEmptyTableCard(
+                      columns: const [
+                        'Posting Date',
+                        'Invoice #',
+                        'Supplier',
+                        'Total Amount',
+                        'Matched GRN Net',
+                        'Variance',
+                        'State',
+                        'Action',
+                      ],
+                      emptyMessage: 'No supplier bills recorded yet.',
+                    )
                   : Column(
                       children: [
                         for (final bill in fBills)
                           LuxuryRecordCard(
                             icon: Icons.receipt_long_outlined,
-                            code: '${bill['supplierInvoiceNumber'] ?? bill['documentNumber'] ?? shortId('${bill['id']}')}',
+                            code:
+                                '${bill['supplierInvoiceNumber'] ?? bill['documentNumber'] ?? shortId('${bill['id']}')}',
                             status: '${bill['state'] ?? 'DRAFT'}',
                             lines: [
-                              ('Supplier', '${asMap(bill['supplier'])['displayName'] ?? 'Supplier'}'),
-                              ('Date', fmtDate('${bill['postingDate'] ?? ''}')),
-                              ('Matched / Variance', '${inr(bill['matchedReceiptNetAmount'])} · Var ${inr(bill['varianceAmount'])}'),
+                              (
+                                'Posting Date',
+                                fmtDate('${bill['postingDate'] ?? ''}'),
+                              ),
+                              (
+                                'Invoice #',
+                                '${bill['supplierInvoiceNumber'] ?? '-'}',
+                              ),
+                              (
+                                'Supplier',
+                                '${asMap(bill['supplier'])['displayName'] ?? '-'}',
+                              ),
+                              (
+                                'Matched GRN Net',
+                                inr(bill['matchedReceiptNetAmount']),
+                              ),
+                              ('Variance', inr(bill['varianceAmount'])),
                             ],
-                            amountLabel: 'Total',
+                            amountLabel: 'Total Amount',
                             amountValue: inr(bill['totalAmount']),
                             actions: [
-                              if ('${bill['state']}' == 'DRAFT')
+                              if ('${bill['state']}'.toUpperCase() == 'DRAFT')
                                 GoldButton(
                                   label: 'Post Bill',
                                   compact: true,
                                   busy: _busy,
-                                  icon: Icons.task_alt_rounded,
-                                  onPressed: () => _postBill(bill),
+                                  onPressed:
+                                      _canPostBill && !_busy ? () => _postBill(bill) : null,
                                 ),
                             ],
                           ),
@@ -1359,31 +2036,61 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     )
             else
               fRets.isEmpty
-                  ? const SaasEmptyBox('No purchase returns found. Tap + to create a Debit Note.')
+                  ? _buildEmptyTableCard(
+                      columns: const [
+                        'Date',
+                        'Doc #',
+                        'Supplier',
+                        'Total Amount',
+                        'Settled / Open',
+                        'State',
+                        'Action',
+                      ],
+                      emptyMessage: 'No purchase returns recorded yet.',
+                    )
                   : Column(
                       children: [
                         for (final ret in fRets)
                           LuxuryRecordCard(
                             icon: Icons.assignment_return_outlined,
-                            code: '${ret['documentNumber'] ?? shortId('${ret['id']}')}',
+                            code:
+                                '${ret['documentNumber'] ?? shortId('${ret['id']}')}',
                             status: '${ret['state'] ?? 'DRAFT'}',
                             lines: [
-                              ('Supplier', '${asMap(ret['supplier'])['displayName'] ?? 'Supplier'}'),
                               ('Date', fmtDate('${ret['returnDate'] ?? ''}')),
-                              ('Outstanding', inr(ret['outstandingAmount'])),
+                              (
+                                'Doc #',
+                                '${ret['documentNumber'] ?? shortId('${ret['id']}')}',
+                              ),
+                              (
+                                'Supplier',
+                                '${asMap(ret['supplier'])['displayName'] ?? '-'}',
+                              ),
+                              (
+                                'Settled / Open',
+                                '${inr(ret['settledAmount'] ?? '0')} / ${inr(ret['outstandingAmount'] ?? ret['totalAmount'])}',
+                              ),
                             ],
-                            amountLabel: 'Amount',
+                            amountLabel: 'Total Amount',
                             amountValue: inr(ret['totalAmount']),
                             actions: [
-                              if ('${ret['state']}' == 'DRAFT' || '${ret['state']}' == 'APPROVED')
+                              if ('${ret['state']}'.toUpperCase() == 'DRAFT')
                                 GoldButton(
-                                  label: '${ret['state']}' == 'DRAFT' ? 'Approve' : 'Post Return',
+                                  label: 'Approve',
                                   compact: true,
                                   busy: _busy,
-                                  onPressed: () => _returnAction(
-                                    ret,
-                                    '${ret['state']}' == 'DRAFT' ? 'approve' : 'post',
-                                  ),
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _returnAction(ret, 'approve'),
+                                ),
+                              if ('${ret['state']}'.toUpperCase() == 'APPROVED')
+                                GoldButton(
+                                  label: 'Post Return',
+                                  compact: true,
+                                  busy: _busy,
+                                  onPressed: _canPostReturn && !_busy
+                                      ? () => _returnAction(ret, 'post')
+                                      : null,
                                 ),
                             ],
                           ),
