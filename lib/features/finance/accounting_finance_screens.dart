@@ -2293,13 +2293,36 @@ class _DoubleEntryAccountingScreenState
 }
 
 // ---------------------------------------------------------------------------
-// 2. SETTLEMENTS & CASHUP (`/payments`) — Screenshot (689)
+// 2. SETTLEMENTS & CASHUP (`/payments`) — `image-32..36.png`
 // ---------------------------------------------------------------------------
 
 class SettlementsCashupScreen extends StatefulWidget {
   const SettlementsCashupScreen({super.key});
   @override
-  State<SettlementsCashupScreen> createState() => _SettlementsCashupScreenState();
+  State<SettlementsCashupScreen> createState() =>
+      _SettlementsCashupScreenState();
+}
+
+class _AllocationDraft {
+  const _AllocationDraft({
+    required this.openItemId,
+    required this.label,
+    required this.amount,
+  });
+  final String openItemId;
+  final String label;
+  final String amount;
+}
+
+class _ClearingLineDraft {
+  const _ClearingLineDraft({
+    required this.settlementDocumentId,
+    required this.label,
+    required this.grossAmount,
+  });
+  final String settlementDocumentId;
+  final String label;
+  final String grossAmount;
 }
 
 class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
@@ -2308,36 +2331,7 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
   Map<String, dynamic> _ws = const {};
   WorkspaceLookup _lk = WorkspaceLookup();
   bool _loading = true;
-  bool _busy = false;
   String? _error;
-  bool _showForm = false;
-
-  // Shared posting configuration
-  final _periodId = TextEditingController();
-  final _docSeriesId = TextEditingController();
-  final _journalSeriesId = TextEditingController();
-
-  // Settlement fields (`settlementCommandBaseSchema`)
-  final _partyId = TextEditingController();
-  final _instrumentAcctId = TextEditingController();
-  String _method = 'BANK_TRANSFER';
-  final _settlementDate = TextEditingController(text: todayIso());
-  final _amount = TextEditingController();
-  final _paymentRef = TextEditingController();
-  final _providerRef = TextEditingController();
-  final _openItemId = TextEditingController();
-  final _reason = TextEditingController(
-    text: 'Authorized counterparty settlement verified against bank / cash register.',
-  );
-
-  // Provider clearing fields (`postProviderClearingSchema`)
-  final _providerName = TextEditingController(text: 'RAZORPAY');
-  final _providerBatchRef = TextEditingController();
-  final _feeAmt = TextEditingController(text: '0.00');
-  final _sourceClearAcctId = TextEditingController();
-  final _bankAcctId = TextEditingController();
-  final _feeAcctId = TextEditingController();
-  final _settlementDocId = TextEditingController();
 
   @override
   void initState() {
@@ -2347,14 +2341,7 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
 
   @override
   void dispose() {
-    for (final c in [
-      _search, _periodId, _docSeriesId, _journalSeriesId, _partyId, _instrumentAcctId,
-      _settlementDate, _amount, _paymentRef, _providerRef, _openItemId, _reason,
-      _providerName, _providerBatchRef, _feeAmt, _sourceClearAcctId,
-      _bankAcctId, _feeAcctId, _settlementDocId,
-    ]) {
-      c.dispose();
-    }
+    _search.dispose();
     super.dispose();
   }
 
@@ -2367,23 +2354,16 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
     try {
       final res = await Future.wait([
         api.get('/payments'),
-        WorkspaceLookup.load(api, includeParties: true, includeAccounting: true),
+        WorkspaceLookup.load(
+          api,
+          includeParties: true,
+          includeAccounting: true,
+        ),
       ]);
       if (!mounted) return;
-      final lk = res[1] as WorkspaceLookup;
-      if (_periodId.text.isEmpty && lk.openPeriods().isNotEmpty) {
-        _periodId.text = lk.openPeriods().first.id;
-      }
-      if (_journalSeriesId.text.isEmpty) {
-        final js = lk.seriesFor(const ['JOURNAL']);
-        if (js.isNotEmpty) _journalSeriesId.text = js.first.id;
-      }
-      if (_docSeriesId.text.isEmpty && lk.series.isNotEmpty) {
-        _docSeriesId.text = lk.series.first.id;
-      }
       setState(() {
         _ws = asMap(res[0]);
-        _lk = lk;
+        _lk = res[1] as WorkspaceLookup;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -2392,148 +2372,1335 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
     }
   }
 
-  Future<void> _submitSettlement() async {
-    if (_periodId.text.trim().isEmpty ||
-        _docSeriesId.text.trim().isEmpty ||
-        _journalSeriesId.text.trim().isEmpty ||
-        _reason.text.trim().length < 10) {
-      setState(() => _error = 'Select Posting period, Document series, Journal series, and Reason (10+ chars).');
-      return;
+  bool _matchesSettlementTab(Map<String, dynamic> s, String tab) {
+    final kind =
+        '${s['kind'] ?? s['settlementKind'] ?? s['type'] ?? s['direction'] ?? ''}'
+            .toUpperCase();
+    if (tab == 'RECEIPTS') {
+      if (kind.isEmpty) return true;
+      return kind.contains('RECEIPT') ||
+          kind.contains('INBOUND') ||
+          kind.contains('CUSTOMER_RECEIPT') ||
+          kind == 'IN';
     }
+    if (tab == 'DISBURSEMENTS') {
+      return kind.contains('DISBURSE') ||
+          kind.contains('SUPPLIER') ||
+          kind.contains('OUTBOUND') ||
+          kind.contains('PAYOUT') ||
+          kind == 'OUT';
+    }
+    if (tab == 'REFUNDS') {
+      return kind.contains('REFUND');
+    }
+    return true;
+  }
 
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    final api = context.read<ApiClient>();
-    try {
-      if (_tab == 'CLEARINGS') {
-        await api.post('/payments/provider-clearings', idempotent: true, body: {
-          'provider': _providerName.text.trim().toUpperCase(),
-          'providerBatchRef': _providerBatchRef.text.trim(),
-          'settlementDate': _settlementDate.text.trim(),
-          'feeAmount': _feeAmt.text.trim().isEmpty ? '0.00' : _feeAmt.text.trim(),
-          'sourceAccountId': _sourceClearAcctId.text.trim(),
-          'bankAccountId': _bankAcctId.text.trim(),
-          'feeAccountId': _feeAcctId.text.trim(),
-          'postingPeriodId': _periodId.text.trim(),
-          'documentSeriesId': _docSeriesId.text.trim(),
-          'journalSeriesId': _journalSeriesId.text.trim(),
-          'lines': [
-            {
-              'settlementDocumentId': _settlementDocId.text.trim(),
-              'grossAmount': _amount.text.trim(),
-            },
-          ],
-          'reason': _reason.text.trim(),
-        });
-      } else {
-        final isCardOrUpi = _method == 'CARD' || _method == 'UPI';
-        final path = _tab == 'DISBURSEMENTS'
-            ? '/payments/supplier-disbursements'
-            : _tab == 'REFUNDS'
-                ? '/payments/customer-refunds'
-                : '/payments/customer-receipts';
-        await api.post(path, idempotent: true, body: {
-          'partyId': _partyId.text.trim(),
-          'method': _method,
-          'settlementDate': _settlementDate.text.trim(),
-          'currency': 'INR',
-          'amount': _amount.text.trim(),
-          'instrumentAccountId': _instrumentAcctId.text.trim(),
-          if (isCardOrUpi)
-            'providerReference': _providerRef.text.trim()
-          else if (_paymentRef.text.trim().length >= 2)
-            'paymentReference': _paymentRef.text.trim(),
-          'postingPeriodId': _periodId.text.trim(),
-          'documentSeriesId': _docSeriesId.text.trim(),
-          'journalSeriesId': _journalSeriesId.text.trim(),
-          'allocations': _openItemId.text.trim().isNotEmpty
-              ? [
-                  {
-                    'openItemId': _openItemId.text.trim(),
-                    'amount': _amount.text.trim(),
-                  },
-                ]
-              : [],
-          'reason': _reason.text.trim(),
-        });
-      }
-      if (!mounted) return;
-      _amount.clear();
-      setState(() => _showForm = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Settlement posted to subledger & GL.')),
-      );
-      _load();
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } finally {
-      if (mounted) setState(() => _busy = false);
+  // -------------------------------------------------------------------------
+  // Modal Sheet: Receive Payment / Make Payment / Post Refund (`image-33..35`)
+  // -------------------------------------------------------------------------
+  Future<void> _openSettlementActionSheet({
+    required String mode, // RECEIPTS | DISBURSEMENTS | REFUNDS
+    Map<String, dynamic>? prefillOpenItem,
+  }) async {
+    final openItems = asList(_ws['openItems']);
+    final isDisburse = mode == 'DISBURSEMENTS';
+    final isRefund = mode == 'REFUNDS';
+
+    final title = isDisburse
+        ? 'Make Payment'
+        : isRefund
+            ? 'Post Refund'
+            : 'Receive Payment';
+    final endpoint = isDisburse
+        ? '/payments/supplier-disbursements'
+        : isRefund
+            ? '/payments/customer-refunds'
+            : '/payments/customer-receipts';
+
+    final partyCtrl = TextEditingController(
+      text: prefillOpenItem != null
+          ? '${prefillOpenItem['partyId'] ?? asMap(prefillOpenItem['party'])['id'] ?? ''}'
+          : '',
+    );
+    final instrumentCtrl = TextEditingController(
+      text: _lk
+              .accountsByControl(
+                const ['CASH', 'BANK', 'PAYMENT_CLEARING'],
+              )
+              .isNotEmpty
+          ? _lk
+              .accountsByControl(
+                const ['CASH', 'BANK', 'PAYMENT_CLEARING'],
+              )
+              .first
+              .id
+          : '',
+    );
+    var method = (isDisburse || isRefund) ? 'BANK_TRANSFER' : 'UPI';
+    final dateCtrl = TextEditingController(text: todayIso());
+    final amtCtrl = TextEditingController(
+      text: prefillOpenItem != null
+          ? '${prefillOpenItem['openAmount'] ?? ''}'
+          : '',
+    );
+    final payRefCtrl = TextEditingController();
+    final provRefCtrl = TextEditingController();
+
+    final allocItemCtrl = TextEditingController();
+    final allocAmtCtrl = TextEditingController();
+    final allocations = <_AllocationDraft>[
+      if (prefillOpenItem != null &&
+          '${prefillOpenItem['id'] ?? ''}'.isNotEmpty &&
+          isValidAmount('${prefillOpenItem['openAmount'] ?? ''}'))
+        _AllocationDraft(
+          openItemId: '${prefillOpenItem['id']}',
+          label:
+              '${prefillOpenItem['documentNumber'] ?? shortId('${prefillOpenItem['id']}')} · Open ${inr(prefillOpenItem['openAmount'])}',
+          amount: normAmount('${prefillOpenItem['openAmount']}'),
+        ),
+    ];
+
+    final periodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final docSeriesCtrl = TextEditingController(
+      text: _lk
+              .seriesFor(
+                const ['SETTLEMENT', 'RECEIPT', 'PAYMENT', 'DISBURSEMENT'],
+              )
+              .isNotEmpty
+          ? _lk
+              .seriesFor(
+                const ['SETTLEMENT', 'RECEIPT', 'PAYMENT', 'DISBURSEMENT'],
+              )
+              .first
+              .id
+          : (_lk.series.isNotEmpty ? _lk.series.first.id : ''),
+    );
+    final jrnSeriesCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final reasonCtrl = TextEditingController();
+
+    final methodOptions = (isDisburse || isRefund)
+        ? const {
+            'BANK_TRANSFER': 'Bank Transfer (NEFT/RTGS/IMPS)',
+            'CASH': 'Cash',
+            'CHEQUE': 'Cheque',
+          }
+        : const {
+            'UPI': 'UPI',
+            'CARD': 'Card',
+            'BANK_TRANSFER': 'Bank Transfer',
+            'CASH': 'Cash',
+            'CHEQUE': 'Cheque',
+          };
+
+    final roleFilter = isDisburse
+        ? const ['SUPPLIER', 'VENDOR', 'KARIGAR', 'REFINER', 'BULLION_DEALER']
+        : const ['CUSTOMER', 'WHOLESALE'];
+
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final partyFilter = partyCtrl.text.trim();
+          final openOpts = openItems
+              .where((o) {
+                if (partyFilter.isEmpty) return true;
+                final pid = '${o['partyId'] ?? asMap(o['party'])['id'] ?? ''}';
+                return pid.isEmpty || pid == partyFilter;
+              })
+              .map(
+                (o) => LookupOption(
+                  id: '${o['id']}',
+                  label:
+                      '${o['documentNumber'] ?? shortId('${o['id']}')} · ${asMap(o['party'])['displayName'] ?? ''} · Open ${inr(o['openAmount'])}',
+                  raw: o,
+                ),
+              )
+              .toList();
+
+          var allocatedTotal = Decimal.zero;
+          for (final a in allocations) {
+            allocatedTotal += dParse(a.amount);
+          }
+          final grossAmt = dParse(amtCtrl.text);
+          final unallocatedAmt = grossAmt > allocatedTotal
+              ? grossAmt - allocatedTotal
+              : Decimal.zero;
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              18,
+              16,
+              18,
+              MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        isDisburse
+                            ? Icons.north_east_rounded
+                            : isRefund
+                                ? Icons.replay_rounded
+                                : Icons.south_west_rounded,
+                        color: Pal.gold,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: T.body(17, weight: FontWeight.w700),
+                        ),
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: saving ? null : () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    isDisburse
+                        ? 'Post outbound supplier/karigar settlement to AP subledger and general ledger.'
+                        : isRefund
+                            ? 'Refund customer credit / advance balance with balanced GL posting.'
+                            : 'Record customer receipt, partial invoice settlement, or unallocated advance.',
+                    style: T.body(12, color: Pal.muted),
+                  ),
+                  if (sheetErr != null) ...[
+                    const SizedBox(height: 10),
+                    ErrorBanner(sheetErr!),
+                  ],
+                  const SizedBox(height: 12),
+
+                  LookupField(
+                    label: isDisburse ? 'Counterparty (Supplier / Karigar)' : 'Party (Customer)',
+                    controller: partyCtrl,
+                    options: _lk.partiesByRole(roleFilter),
+                    hint: 'Select...',
+                    onSelected: (_) => setSheet(() {}),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasDropdown(
+                          label: 'Method',
+                          value: method,
+                          options: methodOptions,
+                          onChanged: (v) => setSheet(() => method = v),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DatePickField(
+                          label: 'Settlement date',
+                          controller: dateCtrl,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const FieldLabel('Amount (INR)'),
+                            TextField(
+                              controller: amtCtrl,
+                              style: T.mono(13.5),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              onChanged: (_) => setSheet(() {}),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: (method == 'CARD' || method == 'UPI')
+                            ? SaasField(
+                                label: 'Provider ref (UTR / Auth)',
+                                controller: provRefCtrl,
+                                mono: true,
+                              )
+                            : SaasField(
+                                label: 'Payment reference',
+                                controller: payRefCtrl,
+                                mono: true,
+                              ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Instrument GL account (Cash / Bank / Clearing)',
+                    controller: instrumentCtrl,
+                    options: _lk.accountsByControl(
+                      const ['CASH', 'BANK', 'PAYMENT_CLEARING'],
+                    ),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Open Item Allocations Builder
+                  SaasSubBox(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                isRefund
+                                    ? 'Credit Open Item Allocation (Required)'
+                                    : 'AR/AP Open Item Allocations (Optional for Advance)',
+                                style: T.body(12.2, weight: FontWeight.w700),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        LookupField(
+                          label: 'Open item',
+                          controller: allocItemCtrl,
+                          options: openOpts,
+                          optional: !isRefund,
+                          hint: 'Select open item...',
+                          onSelected: (opt) {
+                            if (allocAmtCtrl.text.trim().isEmpty) {
+                              final openRem =
+                                  '${opt.raw['openAmount'] ?? ''}'.trim();
+                              if (openRem.isNotEmpty) {
+                                allocAmtCtrl.text = openRem;
+                              }
+                            }
+                            setSheet(() {});
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SaasField(
+                                label: 'Allocated amount',
+                                controller: allocAmtCtrl,
+                                mono: true,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 18),
+                              child: OutlinedButton(
+                                onPressed: () {
+                                  if (allocItemCtrl.text.trim().isEmpty ||
+                                      !isValidAmount(allocAmtCtrl.text)) {
+                                    setSheet(
+                                      () => sheetErr =
+                                          'Select an open item and valid allocation amount.',
+                                    );
+                                    return;
+                                  }
+                                  final lbl = openOpts
+                                          .where(
+                                            (o) =>
+                                                o.id ==
+                                                allocItemCtrl.text.trim(),
+                                          )
+                                          .firstOrNull
+                                          ?.label ??
+                                      allocItemCtrl.text.trim();
+                                  setSheet(() {
+                                    allocations.add(
+                                      _AllocationDraft(
+                                        openItemId: allocItemCtrl.text.trim(),
+                                        label: lbl,
+                                        amount: normAmount(allocAmtCtrl.text),
+                                      ),
+                                    );
+                                    allocItemCtrl.clear();
+                                    allocAmtCtrl.clear();
+                                    sheetErr = null;
+                                  });
+                                },
+                                child: const Text('+ Add'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        for (var i = 0; i < allocations.length; i++) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${allocations[i].label} → ₹${allocations[i].amount}',
+                                  style: T.body(11.8, weight: FontWeight.w600),
+                                ),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(
+                                  Icons.close_rounded,
+                                  size: 16,
+                                  color: Pal.err,
+                                ),
+                                onPressed: () =>
+                                    setSheet(() => allocations.removeAt(i)),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Text(
+                          'Allocated: ${inr(allocatedTotal)} · Unallocated / Advance: ${inr(unallocatedAmt)}',
+                          style: T.mono(11.2, color: Pal.goldDeep),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Posting period',
+                    controller: periodCtrl,
+                    options: _lk.openPeriods(),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LookupField(
+                          label: 'Document series',
+                          controller: docSeriesCtrl,
+                          options: _lk.series,
+                          hint: 'Select...',
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: LookupField(
+                          label: 'Journal series',
+                          controller: jrnSeriesCtrl,
+                          options: _lk.seriesFor(const ['JOURNAL']),
+                          hint: 'Select...',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Business reason (minimum 10 characters)',
+                    controller: reasonCtrl,
+                    hint: 'Business reason (minimum 10 characters)',
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: title,
+                    icon: isDisburse
+                        ? Icons.north_east_rounded
+                        : isRefund
+                            ? Icons.replay_rounded
+                            : Icons.south_west_rounded,
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            // Auto-add typed single allocation if user didn't tap `+ Add`
+                            if (allocations.isEmpty &&
+                                allocItemCtrl.text.trim().isNotEmpty) {
+                              final autoAmt = allocAmtCtrl.text.trim().isNotEmpty
+                                  ? allocAmtCtrl.text.trim()
+                                  : amtCtrl.text.trim();
+                              if (isValidAmount(autoAmt)) {
+                                allocations.add(
+                                  _AllocationDraft(
+                                    openItemId: allocItemCtrl.text.trim(),
+                                    label: allocItemCtrl.text.trim(),
+                                    amount: normAmount(autoAmt),
+                                  ),
+                                );
+                              }
+                            }
+                            if (partyCtrl.text.trim().isEmpty ||
+                                instrumentCtrl.text.trim().isEmpty ||
+                                !isValidAmount(amtCtrl.text) ||
+                                periodCtrl.text.trim().isEmpty ||
+                                docSeriesCtrl.text.trim().isEmpty ||
+                                jrnSeriesCtrl.text.trim().isEmpty ||
+                                reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Complete Party, Amount, Instrument GL account, Posting period, Series, and Business reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            if ((method == 'CARD' || method == 'UPI') &&
+                                provRefCtrl.text.trim().isEmpty) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Provider reference is required for Card / UPI settlements.',
+                              );
+                              return;
+                            }
+                            if (isRefund && allocations.isEmpty) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select the credit / unallocated open item to refund.',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                endpoint,
+                                idempotent: true,
+                                body: {
+                                  'partyId': partyCtrl.text.trim(),
+                                  'method': method,
+                                  'settlementDate': dateCtrl.text.trim(),
+                                  'currency': 'INR',
+                                  'amount': normAmount(amtCtrl.text),
+                                  'instrumentAccountId':
+                                      instrumentCtrl.text.trim(),
+                                  if (method == 'CARD' || method == 'UPI')
+                                    'providerReference':
+                                        provRefCtrl.text.trim()
+                                  else if (payRefCtrl.text.trim().length >= 2)
+                                    'paymentReference': payRefCtrl.text.trim(),
+                                  'postingPeriodId': periodCtrl.text.trim(),
+                                  'documentSeriesId': docSeriesCtrl.text.trim(),
+                                  'journalSeriesId': jrnSeriesCtrl.text.trim(),
+                                  'allocations': allocations
+                                      .map(
+                                        (a) => {
+                                          'openItemId': a.openItemId,
+                                          'amount': a.amount,
+                                        },
+                                      )
+                                      .toList(),
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, '$title posted to subledger & GL.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    for (final c in [
+      partyCtrl,
+      instrumentCtrl,
+      dateCtrl,
+      amtCtrl,
+      payRefCtrl,
+      provRefCtrl,
+      allocItemCtrl,
+      allocAmtCtrl,
+      periodCtrl,
+      docSeriesCtrl,
+      jrnSeriesCtrl,
+      reasonCtrl,
+    ]) {
+      c.dispose();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Modal Sheet: Post Provider Clearing Batch (`image-36.png`)
+  // -------------------------------------------------------------------------
+  Future<void> _openProviderClearingSheet() async {
+    final settlements = asList(_ws['settlements']);
+    final settlementOpts = settlements
+        .map(
+          (s) => LookupOption(
+            id: '${s['id']}',
+            label:
+                '${s['documentNumber'] ?? shortId('${s['id']}')} · ${inr(s['amount'])} (${s['method'] ?? ''})',
+            raw: s,
+          ),
+        )
+        .toList();
+
+    var provider = 'RAZORPAY';
+    final batchRefCtrl = TextEditingController();
+    final dateCtrl = TextEditingController(text: todayIso());
+    final feeCtrl = TextEditingController(text: '0.00');
+    final sourceAcctCtrl = TextEditingController(
+      text: _lk.accountsByControl(const ['PAYMENT_CLEARING']).isNotEmpty
+          ? _lk.accountsByControl(const ['PAYMENT_CLEARING']).first.id
+          : '',
+    );
+    final bankAcctCtrl = TextEditingController(
+      text: _lk.accountsByControl(const ['BANK']).isNotEmpty
+          ? _lk.accountsByControl(const ['BANK']).first.id
+          : '',
+    );
+    final feeAcctCtrl = TextEditingController(
+      text: _lk.accountsByControl(const ['EXPENSE']).isNotEmpty
+          ? _lk.accountsByControl(const ['EXPENSE']).first.id
+          : '',
+    );
+    final periodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final docSeriesCtrl = TextEditingController(
+      text: _lk.series.isNotEmpty ? _lk.series.first.id : '',
+    );
+    final jrnSeriesCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final docPickCtrl = TextEditingController();
+    final docGrossCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    final lines = <_ClearingLineDraft>[];
+
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          var totalGross = Decimal.zero;
+          for (final l in lines) {
+            totalGross += dParse(l.grossAmount);
+          }
+          final feeDec = dParse(feeCtrl.text);
+          final netBank = totalGross > feeDec
+              ? totalGross - feeDec
+              : Decimal.zero;
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              18,
+              16,
+              18,
+              MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.sync_alt_rounded,
+                        color: Pal.gold,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Post Provider Clearing Batch',
+                          style: T.body(17, weight: FontWeight.w700),
+                        ),
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: saving ? null : () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    'Clear batched Card / UPI receipts into your bank GL account with gateway fee deduction.',
+                    style: T.body(12, color: Pal.muted),
+                  ),
+                  if (sheetErr != null) ...[
+                    const SizedBox(height: 10),
+                    ErrorBanner(sheetErr!),
+                  ],
+                  const SizedBox(height: 12),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SaasDropdown(
+                          label: 'Gateway / Provider',
+                          value: provider,
+                          options: const {
+                            'RAZORPAY': 'RAZORPAY',
+                            'PINE_LABS': 'PINE_LABS',
+                            'PAYTM': 'PAYTM',
+                            'HDFC_POS': 'HDFC_POS',
+                            'ICICI_POS': 'ICICI_POS',
+                            'OTHER': 'OTHER',
+                          },
+                          onChanged: (v) => setSheet(() => provider = v),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SaasField(
+                          label: 'Batch reference',
+                          controller: batchRefCtrl,
+                          mono: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DatePickField(
+                          label: 'Settlement date',
+                          controller: dateCtrl,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const FieldLabel('Provider fee (INR)'),
+                            TextField(
+                              controller: feeCtrl,
+                              style: T.mono(13.5),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              onChanged: (_) => setSheet(() {}),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Source payment clearing GL account',
+                    controller: sourceAcctCtrl,
+                    options: _lk.accountsByControl(
+                      const ['PAYMENT_CLEARING', 'ASSET'],
+                    ),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Destination bank GL account',
+                    controller: bankAcctCtrl,
+                    options: _lk.accountsByControl(const ['BANK', 'ASSET']),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Gateway fee expense GL account',
+                    controller: feeAcctCtrl,
+                    options: _lk.accountsByControl(const ['EXPENSE']),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 12),
+
+                  SaasSubBox(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Batched Card / UPI Receipts',
+                          style: T.body(12.2, weight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
+                        LookupField(
+                          label: 'Settlement receipt document',
+                          controller: docPickCtrl,
+                          options: settlementOpts,
+                          hint: 'Select receipt...',
+                          onSelected: (opt) {
+                            final a = '${opt.raw['amount'] ?? ''}'.trim();
+                            if (a.isNotEmpty) docGrossCtrl.text = a;
+                            setSheet(() {});
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SaasField(
+                                label: 'Gross amount (INR)',
+                                controller: docGrossCtrl,
+                                mono: true,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 18),
+                              child: OutlinedButton(
+                                onPressed: () {
+                                  if (docPickCtrl.text.trim().isEmpty ||
+                                      !isValidAmount(docGrossCtrl.text)) {
+                                    setSheet(
+                                      () => sheetErr =
+                                          'Select a receipt document and valid gross amount.',
+                                    );
+                                    return;
+                                  }
+                                  final lbl = settlementOpts
+                                          .where(
+                                            (o) =>
+                                                o.id ==
+                                                docPickCtrl.text.trim(),
+                                          )
+                                          .firstOrNull
+                                          ?.label ??
+                                      docPickCtrl.text.trim();
+                                  setSheet(() {
+                                    lines.add(
+                                      _ClearingLineDraft(
+                                        settlementDocumentId:
+                                            docPickCtrl.text.trim(),
+                                        label: lbl,
+                                        grossAmount:
+                                            normAmount(docGrossCtrl.text),
+                                      ),
+                                    );
+                                    docPickCtrl.clear();
+                                    docGrossCtrl.clear();
+                                    sheetErr = null;
+                                  });
+                                },
+                                child: const Text('+ Add'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        for (var i = 0; i < lines.length; i++) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${lines[i].label} · ₹${lines[i].grossAmount}',
+                                  style: T.body(11.8, weight: FontWeight.w600),
+                                ),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(
+                                  Icons.close_rounded,
+                                  size: 16,
+                                  color: Pal.err,
+                                ),
+                                onPressed: () =>
+                                    setSheet(() => lines.removeAt(i)),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Text(
+                          'Gross: ${inr(totalGross)} · Fee: ${inr(feeDec)} · Net Bank: ${inr(netBank)}',
+                          style: T.mono(11.2, color: Pal.goldDeep),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Posting period',
+                    controller: periodCtrl,
+                    options: _lk.openPeriods(),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LookupField(
+                          label: 'Document series',
+                          controller: docSeriesCtrl,
+                          options: _lk.series,
+                          hint: 'Select...',
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: LookupField(
+                          label: 'Journal series',
+                          controller: jrnSeriesCtrl,
+                          options: _lk.seriesFor(const ['JOURNAL']),
+                          hint: 'Select...',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Business reason (minimum 10 characters)',
+                    controller: reasonCtrl,
+                    hint: 'Business reason (minimum 10 characters)',
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Post Provider Clearing',
+                    icon: Icons.sync_alt_rounded,
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (lines.isEmpty &&
+                                docPickCtrl.text.trim().isNotEmpty &&
+                                isValidAmount(docGrossCtrl.text)) {
+                              lines.add(
+                                _ClearingLineDraft(
+                                  settlementDocumentId: docPickCtrl.text.trim(),
+                                  label: docPickCtrl.text.trim(),
+                                  grossAmount: normAmount(docGrossCtrl.text),
+                                ),
+                              );
+                            }
+                            if (batchRefCtrl.text.trim().isEmpty ||
+                                sourceAcctCtrl.text.trim().isEmpty ||
+                                bankAcctCtrl.text.trim().isEmpty ||
+                                feeAcctCtrl.text.trim().isEmpty ||
+                                periodCtrl.text.trim().isEmpty ||
+                                docSeriesCtrl.text.trim().isEmpty ||
+                                jrnSeriesCtrl.text.trim().isEmpty ||
+                                lines.isEmpty ||
+                                reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Complete Batch ref, GL accounts, at least 1 receipt line, Posting period/series, and Business reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/payments/provider-clearings',
+                                idempotent: true,
+                                body: {
+                                  'provider': provider,
+                                  'providerBatchRef': batchRefCtrl.text.trim(),
+                                  'settlementDate': dateCtrl.text.trim(),
+                                  'feeAmount': feeCtrl.text.trim().isEmpty
+                                      ? '0.00'
+                                      : normAmount(feeCtrl.text),
+                                  'sourceAccountId':
+                                      sourceAcctCtrl.text.trim(),
+                                  'bankAccountId': bankAcctCtrl.text.trim(),
+                                  'feeAccountId': feeAcctCtrl.text.trim(),
+                                  'postingPeriodId': periodCtrl.text.trim(),
+                                  'documentSeriesId': docSeriesCtrl.text.trim(),
+                                  'journalSeriesId': jrnSeriesCtrl.text.trim(),
+                                  'lines': lines
+                                      .map(
+                                        (l) => {
+                                          'settlementDocumentId':
+                                              l.settlementDocumentId,
+                                          'grossAmount': l.grossAmount,
+                                        },
+                                      )
+                                      .toList(),
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(
+                                context,
+                                'Provider clearing batch posted to bank GL.',
+                              );
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    for (final c in [
+      batchRefCtrl,
+      dateCtrl,
+      feeCtrl,
+      sourceAcctCtrl,
+      bankAcctCtrl,
+      feeAcctCtrl,
+      periodCtrl,
+      docSeriesCtrl,
+      jrnSeriesCtrl,
+      docPickCtrl,
+      docGrossCtrl,
+      reasonCtrl,
+    ]) {
+      c.dispose();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Lifecycle Sheet on Existing Settlement: Allocate Advance / Reverse
+  // -------------------------------------------------------------------------
+  Future<void> _openSettlementManageSheet(Map<String, dynamic> s) async {
+    final openItems = asList(_ws['openItems']);
+    final partyId = '${s['partyId'] ?? asMap(s['party'])['id'] ?? ''}';
+    final openOpts = openItems
+        .where((o) {
+          if (partyId.isEmpty) return true;
+          final pid = '${o['partyId'] ?? asMap(o['party'])['id'] ?? ''}';
+          return pid.isEmpty || pid == partyId;
+        })
+        .map(
+          (o) => LookupOption(
+            id: '${o['id']}',
+            label:
+                '${o['documentNumber'] ?? shortId('${o['id']}')} · Open ${inr(o['openAmount'])}',
+            raw: o,
+          ),
+        )
+        .toList();
+
+    var tab = 'ALLOCATE';
+    final openItemCtrl = TextEditingController();
+    final allocAmtCtrl = TextEditingController(
+      text: '${s['unallocatedAmount'] ?? ''}',
+    );
+    final periodCtrl = TextEditingController(
+      text: _lk.openPeriods().isNotEmpty ? _lk.openPeriods().first.id : '',
+    );
+    final jrnSeriesCtrl = TextEditingController(
+      text: _lk.seriesFor(const ['JOURNAL']).isNotEmpty
+          ? _lk.seriesFor(const ['JOURNAL']).first.id
+          : '',
+    );
+    final reasonCtrl = TextEditingController();
+    var saving = false;
+    String? sheetErr;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Pal.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            16,
+            18,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Manage Settlement · ${s['documentNumber'] ?? shortId('${s['id']}')}',
+                        style: T.body(16, weight: FontWeight.w700),
+                      ),
+                    ),
+                    StatusPill('${s['state'] ?? 'POSTED'}'),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: saving ? null : () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                PillTabs<String>(
+                  value: tab,
+                  onChanged: (v) => setSheet(() {
+                    tab = v;
+                    sheetErr = null;
+                  }),
+                  tabs: const [
+                    ('ALLOCATE', 'Allocate Unallocated'),
+                    ('REVERSE', 'Reverse Settlement'),
+                  ],
+                ),
+                if (sheetErr != null) ...[
+                  const SizedBox(height: 10),
+                  ErrorBanner(sheetErr!),
+                ],
+                const SizedBox(height: 12),
+
+                if (tab == 'ALLOCATE') ...[
+                  LookupField(
+                    label: 'Open AR/AP item',
+                    controller: openItemCtrl,
+                    options: openOpts,
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Allocation amount (INR)',
+                    controller: allocAmtCtrl,
+                    mono: true,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Business reason (min 10 chars)',
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Allocate Advance to Open Item',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (openItemCtrl.text.trim().isEmpty ||
+                                !isValidAmount(allocAmtCtrl.text) ||
+                                reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select open item, valid amount, and reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/payments/settlements/${s['id']}/allocate',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(s['version'], fallback: 1),
+                                  'allocations': [
+                                    {
+                                      'openItemId': openItemCtrl.text.trim(),
+                                      'amount': normAmount(allocAmtCtrl.text),
+                                    },
+                                  ],
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Unallocated balance allocated.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ] else ...[
+                  LookupField(
+                    label: 'Posting period',
+                    controller: periodCtrl,
+                    options: _lk.openPeriods(),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  LookupField(
+                    label: 'Journal series',
+                    controller: jrnSeriesCtrl,
+                    options: _lk.seriesFor(const ['JOURNAL']),
+                    hint: 'Select...',
+                  ),
+                  const SizedBox(height: 10),
+                  SaasField(
+                    label: 'Reversal business reason (min 10 chars)',
+                    controller: reasonCtrl,
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 14),
+                  RoyalGoldButton(
+                    label: 'Reverse Settlement & Reopen AR/AP',
+                    busy: saving,
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (periodCtrl.text.trim().isEmpty ||
+                                jrnSeriesCtrl.text.trim().isEmpty ||
+                                reasonCtrl.text.trim().length < 10) {
+                              setSheet(
+                                () => sheetErr =
+                                    'Select posting period, journal series, and enter reason (10+ chars).',
+                              );
+                              return;
+                            }
+                            setSheet(() {
+                              saving = true;
+                              sheetErr = null;
+                            });
+                            try {
+                              await context.read<ApiClient>().post(
+                                '/payments/settlements/${s['id']}/reverse',
+                                idempotent: true,
+                                body: {
+                                  'expectedVersion':
+                                      asInt(s['version'], fallback: 1),
+                                  'postingPeriodId': periodCtrl.text.trim(),
+                                  'journalSeriesId': jrnSeriesCtrl.text.trim(),
+                                  'reversalDate': todayIso(),
+                                  'reason': reasonCtrl.text.trim(),
+                                },
+                              );
+                              if (!ctx.mounted) return;
+                              Navigator.pop(ctx);
+                              if (!mounted) return;
+                              toast(context, 'Settlement reversed.');
+                              _load();
+                            } on ApiException catch (e) {
+                              setSheet(() => sheetErr = e.message);
+                            } finally {
+                              if (ctx.mounted) setSheet(() => saving = false);
+                            }
+                          },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final c in [
+      openItemCtrl,
+      allocAmtCtrl,
+      periodCtrl,
+      jrnSeriesCtrl,
+      reasonCtrl,
+    ]) {
+      c.dispose();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthController>();
+    final rates = context.watch<RatesController>();
+    final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
+    final tenantName = (auth.tenantName ?? '').trim();
+    final branchName = (auth.branchName ?? '').trim();
+    final workspaceSub = [
+      if (tenantName.isNotEmpty) tenantName,
+      if (branchName.isNotEmpty) branchName,
+    ].join(' · ');
+
     final openItems = asList(_ws['openItems']);
-    final settlements = asList(_ws['settlements']);
+    final settlements = [
+      ...asList(_ws['settlements']),
+      if (_ws['settlements'] == null) ...asList(_ws['receipts']),
+      if (_ws['settlements'] == null) ...asList(_ws['disbursements']),
+      if (_ws['settlements'] == null) ...asList(_ws['refunds']),
+    ];
     final clearings = asList(_ws['providerClearings'] ?? _ws['clearings']);
-
-    final openOpts = openItems
-        .map((o) => LookupOption(
-              id: '${o['id']}',
-              label: '${o['documentNumber']} · ${asMap(o['party'])['displayName'] ?? ''} · Open ${inr(o['openAmount'])}',
-              raw: o,
-            ))
-        .toList();
-    final settlementOpts = settlements
-        .map((s) => LookupOption(
-              id: '${s['id']}',
-              label: '${s['documentNumber'] ?? shortId('${s['id']}')} · ${inr(s['amount'])} (${s['method'] ?? ''})',
-              raw: s,
-            ))
-        .toList();
-
-    final methodOptions = (_tab == 'DISBURSEMENTS' || _tab == 'REFUNDS')
-        ? const {
-            'BANK_TRANSFER': 'BANK_TRANSFER',
-            'CASH': 'CASH',
-            'CHEQUE': 'CHEQUE',
-          }
-        : const {
-            'UPI': 'UPI',
-            'CARD': 'CARD',
-            'BANK_TRANSFER': 'BANK_TRANSFER',
-            'CASH': 'CASH',
-            'CHEQUE': 'CHEQUE',
-          };
-    if (!methodOptions.containsKey(_method)) {
-      _method = methodOptions.keys.first;
-    }
 
     final q = _search.text.trim().toLowerCase();
     final fOpen = openItems.where((o) {
       if (q.isEmpty) return true;
-      return '${o['documentNumber'] ?? ''} ${asMap(o['party'])['displayName'] ?? ''} ${o['kind'] ?? ''}'
+      return '${o['documentNumber'] ?? ''} ${asMap(o['party'])['displayName'] ?? ''} ${o['kind'] ?? ''} ${asMap(o['account'])['name'] ?? ''}'
           .toLowerCase()
           .contains(q);
     }).toList();
+
     final fSettlements = settlements.where((s) {
+      if (!_matchesSettlementTab(s, _tab)) return false;
       if (q.isEmpty) return true;
-      return '${s['documentNumber'] ?? ''} ${asMap(s['party'])['displayName'] ?? ''} ${s['method'] ?? ''}'
+      return '${s['documentNumber'] ?? ''} ${asMap(s['party'])['displayName'] ?? ''} ${s['method'] ?? ''} ${s['paymentReference'] ?? ''} ${s['providerReference'] ?? ''}'
           .toLowerCase()
           .contains(q);
     }).toList();
+
     final fClearings = clearings.where((c) {
       if (q.isEmpty) return true;
-      return '${c['provider'] ?? ''} ${c['providerBatchRef'] ?? ''}'.toLowerCase().contains(q);
+      return '${c['provider'] ?? ''} ${c['providerBatchRef'] ?? ''}'
+          .toLowerCase()
+          .contains(q);
     }).toList();
 
     return LuxuryModuleScaffold(
       title: 'Settlements & Cashup',
+      subtitle: workspaceSub.isEmpty ? null : workspaceSub,
       icon: Icons.account_balance_wallet_outlined,
       searchController: _search,
-      searchHint: 'Search by Party, Invoice or Settlement No...',
+      searchHint: 'Search Doc #, Counterparty, Method or Batch Ref...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -2543,263 +3710,311 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
       ],
       topFilterBar: PillTabs<String>(
         value: _tab,
-        onChanged: (v) => setState(() {
-          _tab = v;
-          _showForm = false;
-        }),
+        onChanged: (v) => setState(() => _tab = v),
         tabs: [
           ('OPEN_ITEMS', 'Open Items (${openItems.length})'),
-          ('RECEIPTS', 'Receipts (${settlements.length})'),
+          ('RECEIPTS', 'Receipts'),
           ('DISBURSEMENTS', 'Disbursements'),
           ('REFUNDS', 'Refunds'),
-          ('CLEARINGS', 'Clearings (${clearings.length})'),
+          ('CLEARINGS', 'Provider Clearings (${clearings.length})'),
         ],
-      ),
-      floatingActionButton: GoldAddFab(
-        icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
-        tooltip: 'Post Settlement / Receipt',
-        onPressed: () => setState(() {
-          if (_tab == 'OPEN_ITEMS') {
-            _tab = 'RECEIPTS';
-            _showForm = true;
-          } else {
-            _showForm = !_showForm;
-          }
-        }),
       ),
       body: RefreshIndicator(
         color: Pal.gold,
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
-            if (_error != null) ...[ErrorBanner(_error!, onRetry: _load), const SizedBox(height: 12)],
-
-            if (_showForm && _tab != 'OPEN_ITEMS') ...[
+            if (_error != null) ...[
+              ErrorBanner(_error!, onRetry: _load),
               const SizedBox(height: 12),
-              SaasFormCard(
-                title: _tab == 'CLEARINGS'
-                    ? 'Post Provider Clearing Batch'
-                    : 'Post ${_tab.substring(0, _tab.length - 1)}',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LookupField(label: 'Posting period', controller: _periodId, options: _lk.openPeriods()),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: LookupField(
-                            label: 'Document series',
-                            controller: _docSeriesId,
-                            options: _lk.series,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: LookupField(
-                            label: 'Journal series',
-                            controller: _journalSeriesId,
-                            options: _lk.seriesFor(const ['JOURNAL']),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    DatePickField(label: 'Settlement date', controller: _settlementDate),
-                    const SizedBox(height: 10),
-                    if (_tab == 'CLEARINGS') ...[
-                      Row(
-                        children: [
-                          Expanded(child: SaasField(label: 'Provider (RAZORPAY)', controller: _providerName, mono: true)),
-                          const SizedBox(width: 10),
-                          Expanded(child: SaasField(label: 'Provider batch ref', controller: _providerBatchRef, mono: true)),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      LookupField(
-                        label: 'Source clearing account',
-                        controller: _sourceClearAcctId,
-                        options: _lk.accountsByControl(const ['PAYMENT_CLEARING', 'ASSET']),
-                      ),
-                      const SizedBox(height: 10),
-                      LookupField(
-                        label: 'Bank account',
-                        controller: _bankAcctId,
-                        options: _lk.accountsByControl(const ['BANK', 'ASSET']),
-                      ),
-                      const SizedBox(height: 10),
-                      LookupField(
-                        label: 'Gateway fee expense account',
-                        controller: _feeAcctId,
-                        options: _lk.accountsByControl(const ['EXPENSE']),
-                      ),
-                      const SizedBox(height: 10),
-                      LookupField(
-                        label: 'Card/UPI settlement document',
-                        controller: _settlementDocId,
-                        options: settlementOpts,
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SaasField(
-                              label: 'Gross amount (INR)',
-                              controller: _amount,
-                              mono: true,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SaasField(
-                              label: 'Fee amount (INR)',
-                              controller: _feeAmt,
-                              mono: true,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ] else ...[
-                      LookupField(
-                        label: _tab == 'DISBURSEMENTS' ? 'Supplier' : 'Customer',
-                        controller: _partyId,
-                        options: _lk.partiesByRole(_tab == 'DISBURSEMENTS' ? 'SUPPLIER' : 'CUSTOMER'),
-                      ),
-                      const SizedBox(height: 10),
-                      LookupField(
-                        label: 'Instrument account (Cash / Bank / Clearing)',
-                        controller: _instrumentAcctId,
-                        options: _lk.accountsByControl(const ['CASH', 'BANK', 'PAYMENT_CLEARING']),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SaasDropdown(
-                              label: 'Method',
-                              value: _method,
-                              options: methodOptions,
-                              onChanged: (v) => setState(() => _method = v),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SaasField(
-                              label: 'Amount (INR)',
-                              controller: _amount,
-                              mono: true,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      if (_method == 'CARD' || _method == 'UPI')
-                        SaasField(
-                          label: 'Provider reference (required for Card/UPI)',
-                          controller: _providerRef,
-                          mono: true,
-                        )
-                      else
-                        SaasField(
-                          label: 'Payment reference (optional)',
-                          controller: _paymentRef,
-                          mono: true,
-                        ),
-                      const SizedBox(height: 10),
-                      LookupField(
-                        label: _tab == 'REFUNDS'
-                            ? 'Credit open item (required)'
-                            : 'Allocate open item (optional)',
-                        controller: _openItemId,
-                        options: openOpts,
-                        optional: _tab != 'REFUNDS',
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    SaasField(
-                      label: 'Reason (minimum 10 characters)',
-                      controller: _reason,
-                    ),
-                    const SizedBox(height: 14),
-                    GoldButton(
-                      label: 'Post Settlement',
-                      icon: Icons.check_rounded,
-                      busy: _busy,
-                      onPressed: _submitSettlement,
-                    ),
-                  ],
-                ),
-              ),
             ],
 
-            const SizedBox(height: 8),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_tab == 'OPEN_ITEMS')
-              fOpen.isEmpty
-                  ? const SaasEmptyBox('No open receivable or payable items.')
-                  : Column(
+            // Hero Header Card (`Treasury, Settlements and Open Items` — image-32..36.png)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Pal.goldTint,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Pal.borderGold),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        for (final o in fOpen)
-                          LuxuryRecordCard(
-                            icon: Icons.receipt_long_outlined,
-                            code: '${o['documentNumber'] ?? shortId('${o['id']}')}',
-                            status: '${o['state'] ?? 'OPEN'}',
-                            lines: [
-                              ('Party', '${asMap(o['party'])['displayName'] ?? 'Counterparty'}'),
-                              ('Date / Kind', '${fmtDate('${o['documentDate'] ?? ''}')} · ${o['kind'] ?? ''}'),
-                              ('Original / Settled', '${inr(o['originalAmount'])} / ${inr(o['settledAmount'])}'),
-                            ],
-                            amountLabel: 'Open Amount',
-                            amountValue: inr(o['openAmount']),
+                        const Icon(
+                          Icons.toll_rounded,
+                          size: 13,
+                          color: Pal.goldDeep,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            gold999 != null
+                                ? 'Bullion 24K: Fine 999 Board Active · ${inr(gold999.sell)}/g'
+                                : 'Bullion 24K: Fine 999 Board Active',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: T.body(
+                              11.5,
+                              weight: FontWeight.w700,
+                              color: Pal.goldDeep,
+                            ),
                           ),
-                      ],
-                    )
-            else if (_tab == 'CLEARINGS')
-              fClearings.isEmpty
-                  ? const SaasEmptyBox('No provider clearings recorded yet. Tap + to post a clearing batch.')
-                  : Column(
-                      children: [
-                        for (final c in fClearings)
-                          LuxuryRecordCard(
-                            icon: Icons.sync_alt_rounded,
-                            code: '${c['provider'] ?? 'GATEWAY'} · ${c['providerBatchRef'] ?? shortId('${c['id']}')}',
-                            status: 'POSTED',
-                            lines: [
-                              ('Settlement Date', fmtDate('${c['settlementDate'] ?? ''}')),
-                              ('Gateway Fee', inr(c['feeAmount'])),
-                            ],
-                            amountLabel: 'Gross',
-                            amountValue: inr(c['grossAmount'] ?? c['amount'] ?? '0.00'),
-                          ),
-                      ],
-                    )
-            else
-              fSettlements.isEmpty
-                  ? const SaasEmptyBox('No settlement documents recorded yet. Tap + to post a settlement.')
-                  : Column(
-                      children: [
-                        for (final s in fSettlements)
-                          LuxuryRecordCard(
-                            icon: Icons.payments_outlined,
-                            code: '${s['documentNumber'] ?? shortId('${s['id']}')}',
-                            status: '${s['method'] ?? s['state'] ?? 'POSTED'}',
-                            lines: [
-                              ('Party', '${asMap(s['party'])['displayName'] ?? 'Counterparty'}'),
-                              ('Date', fmtDate('${s['settlementDate'] ?? ''}')),
-                            ],
-                            amountLabel: 'Amount',
-                            amountValue: inr(s['amount']),
-                          ),
+                        ),
                       ],
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.account_balance_wallet_outlined,
+                        size: 20,
+                        color: Pal.gold,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Treasury, Settlements and Open Items',
+                          style: T.body(
+                            16,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Real-time AR/AP subledger open items, partial settlements, customer advances, and bank/card clearing.',
+                    style: T.body(12.2, color: Pal.muted),
+                  ),
+
+                  // Tab-specific Golden CTA Buttons (`image-33..36.png`)
+                  if (_tab == 'RECEIPTS') ...[
+                    const SizedBox(height: 12),
+                    RoyalGoldButton(
+                      label: 'Receive Payment',
+                      icon: Icons.south_west_rounded,
+                      onPressed: () =>
+                          _openSettlementActionSheet(mode: 'RECEIPTS'),
+                    ),
+                  ] else if (_tab == 'DISBURSEMENTS') ...[
+                    const SizedBox(height: 12),
+                    RoyalGoldButton(
+                      label: 'Make Payment',
+                      icon: Icons.north_east_rounded,
+                      onPressed: () =>
+                          _openSettlementActionSheet(mode: 'DISBURSEMENTS'),
+                    ),
+                  ] else if (_tab == 'REFUNDS') ...[
+                    const SizedBox(height: 12),
+                    RoyalGoldButton(
+                      label: 'Post Refund',
+                      icon: Icons.replay_rounded,
+                      onPressed: () =>
+                          _openSettlementActionSheet(mode: 'REFUNDS'),
+                    ),
+                  ] else if (_tab == 'CLEARINGS') ...[
+                    const SizedBox(height: 12),
+                    RoyalGoldButton(
+                      label: 'Post Provider Clearing',
+                      icon: Icons.sync_alt_rounded,
+                      onPressed: _openProviderClearingSheet,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            if (_loading)
+              const Panel(child: Skeleton(height: 92))
+
+            // 1. OPEN ITEMS (`image-32.png`)
+            // Columns: Doc # | Date | Counterparty | Kind | GL Account | Original | Settled | Open Amount | State
+            else if (_tab == 'OPEN_ITEMS') ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  'DOC # · DATE · COUNTERPARTY · KIND · GL ACCOUNT · ORIGINAL · SETTLED · OPEN AMOUNT · STATE',
+                  style: T.caps(10),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (fOpen.isEmpty)
+                const SaasEmptyBox('No active AR/AP open items found.')
+              else
+                for (final o in fOpen)
+                  LuxuryRecordCard(
+                    icon: Icons.receipt_long_outlined,
+                    code: '${o['documentNumber'] ?? shortId('${o['id']}')}',
+                    status: '${o['state'] ?? 'OPEN'}',
+                    lines: [
+                      ('Date', fmtDate('${o['documentDate'] ?? o['createdAt'] ?? ''}')),
+                      (
+                        'Counterparty',
+                        '${asMap(o['party'])['displayName'] ?? o['partyName'] ?? '—'}',
+                      ),
+                      ('Kind', '${o['kind'] ?? o['openItemKind'] ?? 'AR/AP'}'),
+                      (
+                        'GL Account',
+                        '${asMap(o['account'])['code'] ?? ''} ${asMap(o['account'])['name'] ?? ''}'
+                                .trim()
+                                .isEmpty
+                            ? '—'
+                            : '${asMap(o['account'])['code'] ?? ''} ${asMap(o['account'])['name'] ?? ''}'
+                                .trim(),
+                      ),
+                      (
+                        'Original / Settled',
+                        '${inr(o['originalAmount'])} / ${inr(o['settledAmount'])}',
+                      ),
+                    ],
+                    amountLabel: 'Open Amount',
+                    amountValue: inr(o['openAmount']),
+                    actions: [
+                      GoldButton(
+                        label: '${o['kind'] ?? ''}'
+                                .toUpperCase()
+                                .contains('PAYABLE')
+                            ? 'Make Payment'
+                            : 'Receive Payment',
+                        compact: true,
+                        onPressed: () => _openSettlementActionSheet(
+                          mode: '${o['kind'] ?? ''}'
+                                  .toUpperCase()
+                                  .contains('PAYABLE')
+                              ? 'DISBURSEMENTS'
+                              : 'RECEIPTS',
+                          prefillOpenItem: o,
+                        ),
+                      ),
+                    ],
+                  ),
+            ]
+
+            // 5. PROVIDER CLEARINGS (`image-36.png`)
+            // Columns: Date | Batch Ref | Gross Amount | Provider Fee | Net Bank Deposited | Batched Receipts | State
+            else if (_tab == 'CLEARINGS') ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  'DATE · BATCH REF · GROSS AMOUNT · PROVIDER FEE · NET BANK DEPOSITED · BATCHED RECEIPTS · STATE',
+                  style: T.caps(10),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (fClearings.isEmpty)
+                const SaasEmptyBox(
+                  'No provider clearing batches recorded yet.',
+                )
+              else
+                for (final c in fClearings)
+                  LuxuryRecordCard(
+                    icon: Icons.sync_alt_rounded,
+                    code:
+                        '${c['provider'] ?? 'GATEWAY'} · ${c['providerBatchRef'] ?? shortId('${c['id']}')}',
+                    status: '${c['state'] ?? 'POSTED'}',
+                    lines: [
+                      (
+                        'Date',
+                        fmtDate('${c['settlementDate'] ?? c['clearingDate'] ?? ''}'),
+                      ),
+                      (
+                        'Gross / Provider Fee',
+                        '${inr(c['grossAmount'])} / ${inr(c['feeAmount'])}',
+                      ),
+                      (
+                        'Batched Receipts',
+                        '${c['batchedReceiptsCount'] ?? asList(c['lines']).length}',
+                      ),
+                    ],
+                    amountLabel: 'Net Bank Deposited',
+                    amountValue: inr(
+                      c['netBankAmount'] ??
+                          c['netAmount'] ??
+                          (dParse(c['grossAmount']) - dParse(c['feeAmount'])),
+                    ),
+                  ),
+            ]
+
+            // 2, 3, 4. RECEIPTS / DISBURSEMENTS / REFUNDS (`image-33..35.png`)
+            // Columns: Settlement Date | Doc # | Party | Direction | Method | Amount | Allocated / Unallocated | Reference | State
+            else ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  'SETTLEMENT DATE · DOC # · PARTY · DIRECTION · METHOD · AMOUNT · ALLOCATED / UNALLOCATED · REFERENCE · STATE',
+                  style: T.caps(10),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (fSettlements.isEmpty)
+                SaasEmptyBox(
+                  _tab == 'DISBURSEMENTS'
+                      ? 'No supplier disbursements recorded yet.'
+                      : _tab == 'REFUNDS'
+                          ? 'No customer refunds recorded yet.'
+                          : 'No customer receipts recorded yet.',
+                )
+              else
+                for (final s in fSettlements)
+                  LuxuryRecordCard(
+                    icon: Icons.payments_outlined,
+                    code: '${s['documentNumber'] ?? shortId('${s['id']}')}',
+                    status: '${s['state'] ?? 'POSTED'}',
+                    onTap: () => _openSettlementManageSheet(s),
+                    lines: [
+                      (
+                        'Settlement Date',
+                        fmtDate('${s['settlementDate'] ?? ''}'),
+                      ),
+                      (
+                        'Party',
+                        '${asMap(s['party'])['displayName'] ?? s['partyName'] ?? '—'}',
+                      ),
+                      (
+                        'Direction · Method',
+                        '${s['direction'] ?? s['kind'] ?? _tab} · ${s['method'] ?? '—'}',
+                      ),
+                      (
+                        'Allocated / Unallocated',
+                        '${inr(s['allocatedAmount'])} / ${inr(s['unallocatedAmount'])}',
+                      ),
+                      if ('${s['paymentReference'] ?? s['providerReference'] ?? ''}'
+                          .isNotEmpty)
+                        (
+                          'Reference',
+                          '${s['paymentReference'] ?? s['providerReference']}',
+                        ),
+                    ],
+                    amountLabel: 'Amount',
+                    amountValue: inr(s['amount']),
+                    actions: [
+                      GoldButton(
+                        label: 'Manage',
+                        compact: true,
+                        onPressed: () => _openSettlementManageSheet(s),
+                      ),
+                    ],
+                  ),
+            ],
           ],
         ),
       ),
