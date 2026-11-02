@@ -6096,347 +6096,61 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
   }
 
   Future<void> _openAddBranchModal({Map<String, dynamic>? presetEntity}) async {
-    if (_entities.isEmpty) {
+    final app = context.read<AppState>();
+    final availableEntities = <Map<String, dynamic>>[..._entities];
+    if (availableEntities.isEmpty) {
+      final seen = <String>{};
+      for (final opt in app.options) {
+        if (opt.entityId.isNotEmpty && seen.add(opt.entityId)) {
+          availableEntities.add({
+            'id': opt.entityId,
+            'legalName': opt.entityName.isNotEmpty
+                ? opt.entityName
+                : (app.tenantName.isNotEmpty ? app.tenantName : 'Legal Entity'),
+          });
+        }
+      }
+      if (availableEntities.isEmpty && app.selectedEntityId.isNotEmpty) {
+        availableEntities.add({
+          'id': app.selectedEntityId,
+          'legalName': app.entityName.isNotEmpty
+              ? app.entityName
+              : (app.tenantName.isNotEmpty ? app.tenantName : 'Legal Entity'),
+        });
+      }
+    }
+
+    if (availableEntities.isEmpty) {
       await _openAddEntityModal();
       return;
     }
 
-    String selectedEntityId =
-        '${presetEntity?['id'] ?? _entities.first['id'] ?? ''}';
-    final codeCtrl = TextEditingController();
-    final nameCtrl = TextEditingController();
-    String? modalError;
-    bool modalBusy = false;
-
-    await showDialog<void>(
+    final created = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModal) {
-          Map<String, dynamic> activeEntity = _entities.first;
-          for (final e in _entities) {
-            if ('${e['id']}' == selectedEntityId) {
-              activeEntity = e;
-              break;
-            }
-          }
-          final entityTitle =
-              '${activeEntity['legalName'] ?? activeEntity['name'] ?? 'Legal Entity'}';
-
-          Future<void> submit() async {
-            final cleanCode = codeCtrl.text.trim().toUpperCase();
-            final cleanName = nameCtrl.text.trim();
-            if (selectedEntityId.isEmpty ||
-                cleanCode.isEmpty ||
-                cleanName.length < 2) {
-              setModal(
-                () => modalError =
-                    'Enter Branch Code and Branch Name (2+ characters).',
-              );
-              return;
-            }
-            setModal(() {
-              modalBusy = true;
-              modalError = null;
-            });
-            try {
-              await context.read<ApiClient>().post(
-                '/organization/branches',
-                idempotent: true,
-                body: {
-                  'legalEntityId': selectedEntityId,
-                  'code': cleanCode,
-                  'name': cleanName,
-                },
-              );
-              if (!ctx.mounted) return;
-              Navigator.of(ctx).pop();
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Showroom branch $cleanCode · $cleanName created.',
-                  ),
-                ),
-              );
-              await _load();
-            } on ApiException catch (e) {
-              if (ctx.mounted) {
-                setModal(() {
-                  modalBusy = false;
-                  modalError = e.message;
-                });
-              }
-            }
-          }
-
-          return Dialog(
-            backgroundColor: Pal.card,
-            insetPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
-              side: const BorderSide(color: Pal.border),
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: Pal.goldTint,
-                            borderRadius: BorderRadius.circular(11),
-                            border: Border.all(color: Pal.borderGold),
-                          ),
-                          child: const Icon(
-                            Icons.apartment_rounded,
-                            size: 19,
-                            color: Pal.goldDeep,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Add Showroom Branch',
-                                style: T.body(
-                                  16.5,
-                                  weight: FontWeight.w800,
-                                  color: Pal.ink,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                entityTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: T.body(12.2, color: Pal.muted),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    if (modalError != null) ...[
-                      ErrorBanner(modalError!),
-                      const SizedBox(height: 12),
-                    ],
-                    if (_entities.length > 1) ...[
-                      SaasDropdown(
-                        label: 'LEGAL ENTITY',
-                        value: selectedEntityId,
-                        options: {
-                          for (final e in _entities)
-                            '${e['id']}':
-                                '${e['legalName'] ?? e['name'] ?? e['id']}',
-                        },
-                        onChanged: (v) =>
-                            setModal(() => selectedEntityId = v),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    SaasField(
-                      label: 'BRANCH CODE',
-                      controller: codeCtrl,
-                      hint: 'e.g. A-03',
-                      mono: true,
-                    ),
-                    const SizedBox(height: 12),
-                    SaasField(
-                      label: 'BRANCH NAME',
-                      controller: nameCtrl,
-                      hint: 'e.g. City Centre Mall Showroom',
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      child: Divider(height: 1, color: Pal.divider),
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: modalBusy
-                              ? null
-                              : () => Navigator.of(ctx).pop(),
-                          child: Text(
-                            'Cancel',
-                            style: T.body(
-                              13.5,
-                              weight: FontWeight.w600,
-                              color: Pal.muted,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        GoldButton(
-                          label: 'Create Branch',
-                          busy: modalBusy,
-                          onPressed: modalBusy ? null : submit,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
+      builder: (_) => _AddShowroomBranchDialog(
+        entities: availableEntities,
+        presetEntity: presetEntity,
       ),
     );
-
-    codeCtrl.dispose();
-    nameCtrl.dispose();
+    if (created == true && mounted) {
+      await _load();
+      if (mounted) {
+        await context.read<AppState>().refreshSession();
+      }
+    }
   }
 
   Future<void> _openAddEntityModal() async {
-    final legalNameCtrl = TextEditingController();
-    final currencyCtrl = TextEditingController(text: 'INR');
-    final tzCtrl = TextEditingController(text: 'Asia/Kolkata');
-    String? modalError;
-    bool modalBusy = false;
-
-    await showDialog<void>(
+    final created = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModal) {
-          Future<void> submit() async {
-            if (legalNameCtrl.text.trim().length < 2) {
-              setModal(
-                () => modalError = 'Enter Legal Entity Name (2+ characters).',
-              );
-              return;
-            }
-            setModal(() {
-              modalBusy = true;
-              modalError = null;
-            });
-            try {
-              await context.read<ApiClient>().post(
-                '/organization/legal-entities',
-                idempotent: true,
-                body: {
-                  'legalName': legalNameCtrl.text.trim(),
-                  'functionalCurrency': currencyCtrl.text.trim().isEmpty
-                      ? 'INR'
-                      : currencyCtrl.text.trim().toUpperCase(),
-                  'timezone': tzCtrl.text.trim().isEmpty
-                      ? 'Asia/Kolkata'
-                      : tzCtrl.text.trim(),
-                },
-              );
-              if (!ctx.mounted) return;
-              Navigator.of(ctx).pop();
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Legal entity created.')),
-              );
-              await _load();
-            } on ApiException catch (e) {
-              if (ctx.mounted) {
-                setModal(() {
-                  modalBusy = false;
-                  modalError = e.message;
-                });
-              }
-            }
-          }
-
-          return Dialog(
-            backgroundColor: Pal.card,
-            insetPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
-              side: const BorderSide(color: Pal.border),
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Add Legal Entity',
-                      style: T.body(
-                        16.5,
-                        weight: FontWeight.w800,
-                        color: Pal.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    if (modalError != null) ...[
-                      ErrorBanner(modalError!),
-                      const SizedBox(height: 12),
-                    ],
-                    SaasField(
-                      label: 'REGISTERED LEGAL NAME',
-                      controller: legalNameCtrl,
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SaasField(
-                            label: 'CURRENCY',
-                            controller: currencyCtrl,
-                            mono: true,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SaasField(
-                            label: 'TIMEZONE',
-                            controller: tzCtrl,
-                            mono: true,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      child: Divider(height: 1, color: Pal.divider),
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: modalBusy
-                              ? null
-                              : () => Navigator.of(ctx).pop(),
-                          child: const Text('Cancel'),
-                        ),
-                        const SizedBox(width: 10),
-                        GoldButton(
-                          label: 'Create Legal Entity',
-                          busy: modalBusy,
-                          onPressed: modalBusy ? null : submit,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
+      builder: (_) => const _AddLegalEntityDialog(),
     );
-
-    legalNameCtrl.dispose();
-    currencyCtrl.dispose();
-    tzCtrl.dispose();
+    if (created == true && mounted) {
+      await _load();
+      if (mounted) {
+        await context.read<AppState>().refreshSession();
+      }
+    }
   }
 
   void _activateShowroom(
@@ -6858,6 +6572,397 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
   }
 }
 
+/// Exact `Add Showroom Branch` modal dialog (`image-69.png`):
+/// - Soft gold icon badge + `Add Showroom Branch` + Legal Entity subtitle
+/// - `BRANCH CODE` (`e.g. A-03`) with inline `Please fill in this field.` validation
+/// - `BRANCH NAME` (`e.g. City Centre Mall Showroom`) with inline validation
+/// - Bottom divider + `Cancel` + golden `Create Branch` button
+class _AddShowroomBranchDialog extends StatefulWidget {
+  const _AddShowroomBranchDialog({
+    required this.entities,
+    this.presetEntity,
+  });
+
+  final List<Map<String, dynamic>> entities;
+  final Map<String, dynamic>? presetEntity;
+
+  @override
+  State<_AddShowroomBranchDialog> createState() =>
+      _AddShowroomBranchDialogState();
+}
+
+class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
+  late String _selectedEntityId;
+  final _codeCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
+
+  bool _codeMissing = false;
+  bool _nameMissing = false;
+  String? _modalError;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedEntityId =
+        '${widget.presetEntity?['id'] ?? widget.entities.first['id'] ?? ''}';
+  }
+
+  @override
+  void dispose() {
+    _codeCtrl.dispose();
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final cleanCode = _codeCtrl.text.trim().toUpperCase();
+    final cleanName = _nameCtrl.text.trim();
+    if (cleanCode.isEmpty || cleanName.isEmpty) {
+      setState(() {
+        _codeMissing = cleanCode.isEmpty;
+        _nameMissing = cleanName.isEmpty;
+      });
+      return;
+    }
+    if (cleanName.length < 2) {
+      setState(() {
+        _nameMissing = true;
+        _modalError = 'Branch Name must be at least 2 characters.';
+      });
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _codeMissing = false;
+      _nameMissing = false;
+      _modalError = null;
+    });
+
+    try {
+      await context.read<ApiClient>().post(
+        '/organization/branches',
+        idempotent: true,
+        body: {
+          'legalEntityId': _selectedEntityId,
+          'code': cleanCode,
+          'name': cleanName,
+        },
+      );
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      Navigator.of(context).pop(true);
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text('Showroom branch $cleanCode · $cleanName created.'),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _modalError = e.message;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var activeEntity = widget.entities.first;
+    for (final e in widget.entities) {
+      if ('${e['id']}' == _selectedEntityId) {
+        activeEntity = e;
+        break;
+      }
+    }
+    final entityTitle =
+        '${activeEntity['legalName'] ?? activeEntity['name'] ?? 'Legal Entity'}';
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: Pal.border),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFBF3DC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFEBD79C)),
+                    ),
+                    child: const Icon(
+                      Icons.apartment_rounded,
+                      size: 19,
+                      color: Pal.goldDeep,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Add Showroom Branch',
+                      style: T.body(
+                        17,
+                        weight: FontWeight.w800,
+                        color: Pal.ink,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                entityTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: T.body(12.6, color: Pal.muted),
+              ),
+              const SizedBox(height: 18),
+              if (_modalError != null) ...[
+                ErrorBanner(_modalError!),
+                const SizedBox(height: 12),
+              ],
+              if (widget.entities.length > 1) ...[
+                SaasDropdown(
+                  label: 'LEGAL ENTITY',
+                  value: _selectedEntityId,
+                  options: {
+                    for (final e in widget.entities)
+                      '${e['id']}':
+                          '${e['legalName'] ?? e['name'] ?? e['id']}',
+                  },
+                  onChanged: (v) => setState(() => _selectedEntityId = v),
+                ),
+                const SizedBox(height: 14),
+              ],
+              Text(
+                'BRANCH CODE',
+                style: T.caps(10.5, color: Pal.ink),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _codeCtrl,
+                textCapitalization: TextCapitalization.characters,
+                style: T.mono(13.5, color: Pal.ink),
+                onChanged: (_) {
+                  if (_codeMissing) setState(() => _codeMissing = false);
+                },
+                decoration: InputDecoration(
+                  hintText: 'e.g. A-03',
+                  errorText:
+                      _codeMissing ? 'Please fill in this field.' : null,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'BRANCH NAME',
+                style: T.caps(10.5, color: Pal.ink),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _nameCtrl,
+                style: T.body(13.5, color: Pal.ink),
+                onChanged: (_) {
+                  if (_nameMissing) setState(() => _nameMissing = false);
+                },
+                onSubmitted: (_) => _submit(),
+                decoration: InputDecoration(
+                  hintText: 'e.g. City Centre Mall Showroom',
+                  errorText:
+                      _nameMissing ? 'Please fill in this field.' : null,
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 18),
+                child: Divider(height: 1, color: Pal.divider),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed:
+                        _busy ? null : () => Navigator.of(context).pop(false),
+                    child: Text(
+                      'Cancel',
+                      style: T.body(
+                        13.5,
+                        weight: FontWeight.w600,
+                        color: Pal.muted,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GoldButton(
+                    label: 'Create Branch',
+                    busy: _busy,
+                    onPressed: _busy ? null : _submit,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AddLegalEntityDialog extends StatefulWidget {
+  const _AddLegalEntityDialog();
+
+  @override
+  State<_AddLegalEntityDialog> createState() => _AddLegalEntityDialogState();
+}
+
+class _AddLegalEntityDialogState extends State<_AddLegalEntityDialog> {
+  final _legalNameCtrl = TextEditingController();
+  final _currencyCtrl = TextEditingController(text: 'INR');
+  final _tzCtrl = TextEditingController(text: 'Asia/Kolkata');
+  String? _modalError;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _legalNameCtrl.dispose();
+    _currencyCtrl.dispose();
+    _tzCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_legalNameCtrl.text.trim().length < 2) {
+      setState(() => _modalError = 'Please fill in Registered Legal Name.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _modalError = null;
+    });
+    try {
+      await context.read<ApiClient>().post(
+        '/organization/legal-entities',
+        idempotent: true,
+        body: {
+          'legalName': _legalNameCtrl.text.trim(),
+          'functionalCurrency': _currencyCtrl.text.trim().isEmpty
+              ? 'INR'
+              : _currencyCtrl.text.trim().toUpperCase(),
+          'timezone': _tzCtrl.text.trim().isEmpty
+              ? 'Asia/Kolkata'
+              : _tzCtrl.text.trim(),
+        },
+      );
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      Navigator.of(context).pop(true);
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Legal entity created.')),
+      );
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _modalError = e.message;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: Pal.border),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Add Legal Entity',
+                style: T.body(17, weight: FontWeight.w800, color: Pal.ink),
+              ),
+              const SizedBox(height: 14),
+              if (_modalError != null) ...[
+                ErrorBanner(_modalError!),
+                const SizedBox(height: 12),
+              ],
+              SaasField(
+                label: 'REGISTERED LEGAL NAME',
+                controller: _legalNameCtrl,
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: SaasField(
+                      label: 'CURRENCY',
+                      controller: _currencyCtrl,
+                      mono: true,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SaasField(
+                      label: 'TIMEZONE',
+                      controller: _tzCtrl,
+                      mono: true,
+                    ),
+                  ),
+                ],
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Divider(height: 1, color: Pal.divider),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed:
+                        _busy ? null : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 10),
+                  GoldButton(
+                    label: 'Create Legal Entity',
+                    busy: _busy,
+                    onPressed: _busy ? null : _submit,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 7. ACCESS CONTROL & ROLES (`/access` + `/support-grants`) — `image-57..58.png`
 // ---------------------------------------------------------------------------
@@ -6978,289 +7083,102 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
     return _allOrgBranches().length;
   }
 
-  // `Create tenant role` modal (`image-58.png`)
-  Future<void> _openCreateRoleModal(List<Map<String, dynamic>> perms) async {
-    final roleKeyCtrl = TextEditingController();
-    final displayNameCtrl = TextEditingController();
-    final filterCtrl = TextEditingController();
-    final selectedKeys = <String>{};
-    String? modalError;
-    bool modalBusy = false;
+  static const Map<String, String> _knownPermDescriptions = {
+    'accounting.fiscal.approve':
+        'Independently approve fiscal workflow snapshots',
+    'accounting.fiscal.post':
+        'Post approved opening/closing/reopening atomically',
+    'accounting.fiscal.prepare':
+        'Prepare annual close and linked reopening',
+    'accounting.fiscal.read':
+        'Read entity-wide opening and fiscal-close evidence',
+    'accounting.journal.create': 'Create manual journal drafts',
+    'accounting.journal.post': 'Post balanced journals',
+    'accounting.journal.reverse': 'Reverse posted accounting journals',
+    'accounting.read': 'Read chart of accounts, periods, series, and journals',
+  };
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Pal.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModal) {
-          final pf = filterCtrl.text.trim().toLowerCase();
-          final shownPerms = perms.where((p) {
-            if (pf.isEmpty) return true;
-            return '${p['key'] ?? ''} ${p['description'] ?? ''}'
-                .toLowerCase()
-                .contains(pf);
-          }).toList();
+  static String _fallbackDescribePerm(String key) {
+    final hit = _knownPermDescriptions[key];
+    if (hit != null) return hit;
+    final parts = key.split('.');
+    if (parts.length >= 2) {
+      final action = humanize(parts.last);
+      final domain = parts.sublist(0, parts.length - 1).map(humanize).join(' ');
+      return '$action access for ${domain.toLowerCase()}';
+    }
+    return 'Authorize ${humanize(key).toLowerCase()} operations';
+  }
 
-          Future<void> submit() async {
-            final sanitizedKey = roleKeyCtrl.text
-                .trim()
-                .toLowerCase()
-                .replaceAll('_', '-')
-                .replaceAll(RegExp(r'[^a-z0-9-]'), '');
-            final disp = displayNameCtrl.text.trim();
-            if (sanitizedKey.length < 2 ||
-                disp.length < 2 ||
-                selectedKeys.isEmpty) {
-              setModal(
-                () => modalError =
-                    'Enter Role key (e.g. inventory-controller), Display name, and select at least 1 permission.',
-              );
-              return;
-            }
-            setModal(() {
-              modalBusy = true;
-              modalError = null;
-            });
-            try {
-              await context.read<ApiClient>().post(
-                '/access/roles',
-                idempotent: true,
-                body: {
-                  'key': sanitizedKey,
-                  'name': disp,
-                  'permissionKeys': selectedKeys.toList()..sort(),
-                },
-              );
-              if (!ctx.mounted) return;
-              Navigator.of(ctx).pop();
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Tenant role $disp created.')),
-              );
-              await _load();
-            } on ApiException catch (e) {
-              if (ctx.mounted) {
-                setModal(() {
-                  modalBusy = false;
-                  modalError = e.message;
-                });
-              }
-            }
+  List<Map<String, dynamic>> _extractPermissionCatalog() {
+    final byKey = <String, Map<String, dynamic>>{};
+
+    void ingestList(dynamic rawList) {
+      if (rawList is! List) return;
+      for (final item in rawList) {
+        if (item is Map) {
+          final k = '${item['key'] ?? item['code'] ?? item['permissionKey'] ?? ''}'
+              .trim();
+          if (k.isEmpty) continue;
+          final desc = '${item['description'] ?? item['summary'] ?? item['label'] ?? ''}'
+              .trim();
+          final prev = byKey[k];
+          if (prev == null || ('${prev['description']}'.isEmpty && desc.isNotEmpty)) {
+            byKey[k] = {
+              'key': k,
+              'description': desc.isNotEmpty ? desc : _fallbackDescribePerm(k),
+            };
           }
+        } else if (item != null) {
+          final k = '$item'.trim();
+          if (k.isNotEmpty && !byKey.containsKey(k)) {
+            byKey[k] = {
+              'key': k,
+              'description': _fallbackDescribePerm(k),
+            };
+          }
+        }
+      }
+    }
 
-          return DraggableScrollableSheet(
-            expand: false,
-            initialChildSize: 0.88,
-            maxChildSize: 0.95,
-            minChildSize: 0.55,
-            builder: (ctx, scrollCtrl) => Padding(
-              padding: EdgeInsets.fromLTRB(
-                18,
-                16,
-                18,
-                MediaQuery.of(ctx).viewInsets.bottom + 18,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Create tenant role',
-                              style: T.body(
-                                17,
-                                weight: FontWeight.w800,
-                                color: Pal.ink,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              'Choose the minimum permissions required for this role.',
-                              style: T.body(12.2, color: Pal.muted),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (modalError != null) ...[
-                    ErrorBanner(modalError!),
-                    const SizedBox(height: 10),
-                  ],
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SaasField(
-                          label: 'Role key',
-                          controller: roleKeyCtrl,
-                          hint: 'inventory-controller',
-                          mono: true,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SaasField(
-                          label: 'Display name',
-                          controller: displayNameCtrl,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Permissions',
-                          style: T.body(
-                            13.2,
-                            weight: FontWeight.w700,
-                            color: Pal.ink,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        '${selectedKeys.length} selected',
-                        style: T.mono(
-                          11.5,
-                          weight: FontWeight.w700,
-                          color: Pal.goldDeep,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SaasField(
-                    label: 'Filter permissions',
-                    controller: filterCtrl,
-                    hint: 'e.g. accounting.fiscal or sales...',
-                    onChanged: (_) => setModal(() {}),
-                  ),
-                  const SizedBox(height: 10),
-                  Expanded(
-                    child: ListView.separated(
-                      controller: scrollCtrl,
-                      itemCount: shownPerms.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (_, idx) {
-                        final p = shownPerms[idx];
-                        final pKey = '${p['key'] ?? ''}';
-                        final pDesc = '${p['description'] ?? ''}'.trim();
-                        final checked = selectedKeys.contains(pKey);
-                        return InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () => setModal(() {
-                            if (checked) {
-                              selectedKeys.remove(pKey);
-                            } else {
-                              selectedKeys.add(pKey);
-                            }
-                          }),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: checked ? Pal.goldTint : Pal.card,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: checked ? Pal.gold : Pal.border,
-                              ),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: Checkbox(
-                                    value: checked,
-                                    activeColor: Pal.goldDeep,
-                                    onChanged: (v) => setModal(() {
-                                      if (v == true) {
-                                        selectedKeys.add(pKey);
-                                      } else {
-                                        selectedKeys.remove(pKey);
-                                      }
-                                    }),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        pKey,
-                                        style: T.mono(
-                                          12.5,
-                                          weight: FontWeight.w700,
-                                          color: Pal.ink,
-                                        ),
-                                      ),
-                                      if (pDesc.isNotEmpty) ...[
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          pDesc,
-                                          style: T.body(
-                                            11.8,
-                                            color: Pal.muted,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed:
-                            modalBusy ? null : () => Navigator.of(ctx).pop(),
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 10),
-                      GoldButton(
-                        label: 'Create role',
-                        busy: modalBusy,
-                        onPressed: modalBusy ? null : submit,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+    for (final entry in _access.entries) {
+      final ek = entry.key.toLowerCase();
+      if (ek.contains('perm') || ek.contains('catalog')) {
+        if (entry.value is List) {
+          ingestList(entry.value);
+        } else if (entry.value is Map) {
+          for (final sub in (entry.value as Map).values) {
+            if (sub is List) ingestList(sub);
+          }
+        }
+      }
+    }
+
+    for (final role in asList(_access['roles'])) {
+      ingestList(role['permissions']);
+      ingestList(role['permissionKeys']);
+    }
+
+    final list = byKey.values.toList()
+      ..sort((a, b) => '${a['key']}'.compareTo('${b['key']}'));
+    return list;
+  }
+
+  // `Create tenant role` / `Edit tenant role` modal dialog (`image-70.png`)
+  Future<void> _openCreateRoleModal(
+    List<Map<String, dynamic>> perms, {
+    Map<String, dynamic>? existingRole,
+  }) async {
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _TenantRoleDialog(
+        permissions: perms,
+        existingRole: existingRole,
       ),
     );
-
-    roleKeyCtrl.dispose();
-    displayNameCtrl.dispose();
-    filterCtrl.dispose();
+    if (saved == true && mounted) {
+      await _load();
+    }
   }
 
   Future<void> _openRolePermissionsInspector(
@@ -7675,7 +7593,7 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
       if (branchName.isNotEmpty) branchName,
     ].join(' · ');
 
-    final perms = asList(_access['permissions']);
+    final perms = _extractPermissionCatalog();
     final roles = asList(_access['roles']);
     final memberships = asList(_access['memberships']);
 
@@ -7836,7 +7754,9 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
                                   final r = fRoles[i];
                                   final permCnt = (r['permissionKeys'] is List)
                                       ? (r['permissionKeys'] as List).length
-                                      : asInt(r['permissionCount']);
+                                      : (r['permissions'] is List)
+                                          ? (r['permissions'] as List).length
+                                          : asInt(r['permissionCount']);
                                   return InkWell(
                                     borderRadius: BorderRadius.circular(10),
                                     onTap: () => _openRolePermissionsInspector(
@@ -7873,15 +7793,38 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
                                               ],
                                             ),
                                           ),
-                                          const SizedBox(width: 10),
-                                          Flexible(
-                                            child: Text(
-                                              '${r['key'] ?? ''}',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: T.mono(
-                                                12,
-                                                color: Pal.muted,
+                                          const SizedBox(width: 8),
+                                          InkWell(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            onTap: () => _openCreateRoleModal(
+                                              perms,
+                                              existingRole: r,
+                                            ),
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 6,
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(
+                                                    Icons.edit_outlined,
+                                                    size: 15,
+                                                    color: Pal.goldDeep,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    'Edit',
+                                                    style: T.body(
+                                                      12.8,
+                                                      weight: FontWeight.w700,
+                                                      color: Pal.goldDeep,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ),
                                           ),
@@ -8096,6 +8039,477 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Exact `Create tenant role` / `Edit tenant role` modal dialog (`image-70.png`):
+/// - Title: `Create tenant role` (`Choose the minimum permissions required for this role.`)
+/// - `Role key` (`inventory-controller`) + `Display name`
+/// - `Permissions` heading + scrollable white bordered permission cards with
+///   Checkbox + bold key (`accounting.fiscal.approve`) + description
+/// - Footer: `Cancel` + golden `Create role` / `Save role` button
+class _TenantRoleDialog extends StatefulWidget {
+  const _TenantRoleDialog({
+    required this.permissions,
+    this.existingRole,
+  });
+
+  final List<Map<String, dynamic>> permissions;
+  final Map<String, dynamic>? existingRole;
+
+  @override
+  State<_TenantRoleDialog> createState() => _TenantRoleDialogState();
+}
+
+class _TenantRoleDialogState extends State<_TenantRoleDialog> {
+  late final TextEditingController _roleKeyCtrl;
+  late final TextEditingController _displayNameCtrl;
+  final _filterCtrl = TextEditingController();
+  final Set<String> _selectedKeys = <String>{};
+
+  String? _modalError;
+  bool _busy = false;
+  bool _showFilter = false;
+
+  bool get _isEditing => widget.existingRole != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final role = widget.existingRole;
+    _roleKeyCtrl = TextEditingController(text: '${role?['key'] ?? ''}');
+    _displayNameCtrl = TextEditingController(text: '${role?['name'] ?? ''}');
+    if (role != null) {
+      for (final rawKey in [
+        if (role['permissionKeys'] is List) ...(role['permissionKeys'] as List),
+        if (role['permissions'] is List) ...(role['permissions'] as List),
+      ]) {
+        if (rawKey is Map) {
+          final k = '${rawKey['key'] ?? rawKey['code'] ?? ''}'.trim();
+          if (k.isNotEmpty) _selectedKeys.add(k);
+        } else if (rawKey != null && '$rawKey'.trim().isNotEmpty) {
+          _selectedKeys.add('$rawKey'.trim());
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _roleKeyCtrl.dispose();
+    _displayNameCtrl.dispose();
+    _filterCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final sanitizedKey = _roleKeyCtrl.text
+        .trim()
+        .toLowerCase()
+        .replaceAll('_', '-')
+        .replaceAll(RegExp(r'[^a-z0-9-]'), '');
+    final disp = _displayNameCtrl.text.trim();
+    if (sanitizedKey.length < 2 || disp.length < 2 || _selectedKeys.isEmpty) {
+      setState(
+        () => _modalError =
+            'Enter Role key (e.g. inventory-controller), Display name, and select at least 1 permission.',
+      );
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _modalError = null;
+    });
+
+    final api = context.read<ApiClient>();
+    final sortedPerms = _selectedKeys.toList()..sort();
+
+    try {
+      if (_isEditing) {
+        final roleId = '${widget.existingRole!['id'] ?? ''}'.trim();
+        final payload = <String, dynamic>{
+          'expectedVersion': asInt(widget.existingRole!['version'], fallback: 1),
+          'name': disp,
+          'permissionKeys': sortedPerms,
+        };
+        final attempts = <Future<dynamic> Function()>[
+          () => api.patch('/access/roles/$roleId', idempotent: true, body: payload),
+          () => api.put('/access/roles/$roleId', idempotent: true, body: payload),
+          () => api.put(
+                '/access/roles/$roleId/permissions',
+                idempotent: true,
+                body: payload,
+              ),
+          () => api.post(
+                '/access/roles/$roleId/permissions',
+                idempotent: true,
+                body: payload,
+              ),
+        ];
+        ApiException? lastErr;
+        var ok = false;
+        for (var i = 0; i < attempts.length; i++) {
+          try {
+            await attempts[i]();
+            ok = true;
+            break;
+          } on ApiException catch (e) {
+            lastErr = e;
+            if ((e.status == 404 || e.status == 405) &&
+                i + 1 < attempts.length) {
+              continue;
+            }
+            rethrow;
+          }
+        }
+        if (!ok && lastErr != null) throw lastErr;
+      } else {
+        await api.post(
+          '/access/roles',
+          idempotent: true,
+          body: {
+            'key': sanitizedKey,
+            'name': disp,
+            'permissionKeys': sortedPerms,
+          },
+        );
+      }
+
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      Navigator.of(context).pop(true);
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            _isEditing
+                ? 'Tenant role $disp updated.'
+                : 'Tenant role $disp created.',
+          ),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _modalError = e.message;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pf = _filterCtrl.text.trim().toLowerCase();
+    final shownPerms = widget.permissions.where((p) {
+      if (pf.isEmpty) return true;
+      return '${p['key'] ?? ''} ${p['description'] ?? ''}'
+          .toLowerCase()
+          .contains(pf);
+    }).toList();
+
+    final maxDialogHeight = MediaQuery.of(context).size.height * 0.86;
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Pal.border),
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 540,
+          maxHeight: maxDialogHeight,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header (`Create tenant role` — `image-70.png`)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isEditing ? 'Edit tenant role' : 'Create tenant role',
+                          style: T.body(
+                            18,
+                            weight: FontWeight.w800,
+                            color: Pal.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Choose the minimum permissions required for this role.',
+                          style: T.body(12.6, color: Pal.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed:
+                        _busy ? null : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded, size: 20),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              if (_modalError != null) ...[
+                ErrorBanner(_modalError!),
+                const SizedBox(height: 10),
+              ],
+
+              // `Role key` + `Display name` side-by-side (`image-70.png`)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Role key',
+                          style: T.body(
+                            12.4,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _roleKeyCtrl,
+                          enabled: !_isEditing,
+                          style: T.body(13.5, color: Pal.ink),
+                          decoration: const InputDecoration(
+                            hintText: 'inventory-controller',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Display name',
+                          style: T.body(
+                            12.4,
+                            weight: FontWeight.w700,
+                            color: Pal.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _displayNameCtrl,
+                          style: T.body(13.5, color: Pal.ink),
+                          decoration: const InputDecoration(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // `Permissions` heading + quick search toggle
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Permissions',
+                      style: T.body(
+                        13.2,
+                        weight: FontWeight.w800,
+                        color: Pal.ink,
+                      ),
+                    ),
+                  ),
+                  if (_selectedKeys.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Text(
+                        '${_selectedKeys.length} selected',
+                        style: T.mono(
+                          11.4,
+                          weight: FontWeight.w700,
+                          color: Pal.goldDeep,
+                        ),
+                      ),
+                    ),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => setState(() {
+                      _showFilter = !_showFilter;
+                      if (!_showFilter) _filterCtrl.clear();
+                    }),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      child: Icon(
+                        _showFilter
+                            ? Icons.search_off_rounded
+                            : Icons.search_rounded,
+                        size: 18,
+                        color: Pal.muted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_showFilter) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _filterCtrl,
+                  style: T.body(13, color: Pal.ink),
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search_rounded, size: 18),
+                    hintText: 'Filter permissions (e.g. accounting, sales)...',
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+
+              // Scrollable White Bordered Permission Cards (`image-70.png` 1:1)
+              Expanded(
+                child: shownPerms.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No matching permissions found.',
+                          style: T.body(12.5, color: Pal.muted),
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: shownPerms.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (_, idx) {
+                          final p = shownPerms[idx];
+                          final pKey = '${p['key'] ?? ''}';
+                          final pDesc = '${p['description'] ?? ''}'.trim();
+                          final checked = _selectedKeys.contains(pKey);
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(11),
+                            onTap: () => setState(() {
+                              if (checked) {
+                                _selectedKeys.remove(pKey);
+                              } else {
+                                _selectedKeys.add(pKey);
+                              }
+                            }),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 11,
+                              ),
+                              decoration: BoxDecoration(
+                                color: checked
+                                    ? const Color(0xFFFFFCF3)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(11),
+                                border: Border.all(
+                                  color: checked ? Pal.gold : Pal.border,
+                                  width: checked ? 1.3 : 1.0,
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: Checkbox(
+                                      value: checked,
+                                      activeColor: Pal.goldDeep,
+                                      materialTapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                      onChanged: (v) => setState(() {
+                                        if (v == true) {
+                                          _selectedKeys.add(pKey);
+                                        } else {
+                                          _selectedKeys.remove(pKey);
+                                        }
+                                      }),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          pKey,
+                                          style: T.body(
+                                            13.2,
+                                            weight: FontWeight.w700,
+                                            color: Pal.ink,
+                                          ),
+                                        ),
+                                        if (pDesc.isNotEmpty) ...[
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            pDesc,
+                                            style: T.body(
+                                              11.8,
+                                              color: Pal.muted,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+
+              const Padding(
+                padding: EdgeInsets.only(top: 12, bottom: 10),
+                child: Divider(height: 1, color: Pal.divider),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed:
+                        _busy ? null : () => Navigator.of(context).pop(false),
+                    child: Text(
+                      'Cancel',
+                      style: T.body(
+                        13.5,
+                        weight: FontWeight.w600,
+                        color: Pal.muted,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GoldButton(
+                    label: _isEditing ? 'Save role' : 'Create role',
+                    busy: _busy,
+                    onPressed: _busy ? null : _submit,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
