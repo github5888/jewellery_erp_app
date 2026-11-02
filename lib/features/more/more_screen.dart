@@ -6,7 +6,6 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/workspace_lookup.dart';
 import '../customers/customers_screen.dart';
-import '../debug/api_inspector.dart';
 import '../finance/accounting_finance_screens.dart';
 import '../governance/tax_governance_screens.dart';
 import '../supply/supply_production_screens.dart';
@@ -226,11 +225,6 @@ class _MoreScreenState extends State<MoreScreen> {
             Icons.request_quote_outlined,
             'Company & Invoice Profile',
             () => _open(context, const CompanyInvoiceProfileScreen()),
-          ),
-          _SidebarItem(
-            Icons.monitor_heart_outlined,
-            'API Gateway Diagnostics',
-            () => _open(context, const ApiInspector()),
           ),
         ],
       ),

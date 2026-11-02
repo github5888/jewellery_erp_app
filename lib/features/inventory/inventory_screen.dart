@@ -1733,6 +1733,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
         else
           for (final loc in fLocs)
             LuxuryRecordCard(
+              enablePdfDownload: false,
               icon: loc.type == 'VAULT'
                   ? Icons.lock_outline_rounded
                   : Icons.storefront_outlined,
@@ -1750,6 +1751,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           SectionLabel('Active Custody Reservations (${_reservations.length})'),
           for (final r in _reservations)
             LuxuryRecordCard(
+              enablePdfDownload: false,
               icon: Icons.timer_outlined,
               code: r.articleTag.isEmpty ? shortId(r.id) : r.articleTag,
               status: r.state,

@@ -950,6 +950,7 @@ class _ProviderIntegrationsScreenState
               else
                 for (final c in fConns)
                   LuxuryRecordCard(
+                    enablePdfDownload: false,
                     icon: Icons.cloud_sync_outlined,
                     code: '${c['displayName'] ?? c['providerKey']}',
                     status: '${c['state'] ?? 'DRAFT'}',
@@ -1130,6 +1131,7 @@ class _ProviderIntegrationsScreenState
               else
                 for (final h in fHooks)
                   LuxuryRecordCard(
+                    enablePdfDownload: false,
                     icon: Icons.webhook_rounded,
                     code:
                         '${h['eventType'] ?? h['externalEventId'] ?? shortId('${h['id']}')}',
@@ -2119,6 +2121,7 @@ class _GstRegistrationTransportScreenState
               else
                 for (final p in fProfs)
                   LuxuryRecordCard(
+                    enablePdfDownload: false,
                     icon: Icons.verified_user_outlined,
                     code: '${p['sellerGstin'] ?? 'GSTIN'}',
                     status: '${p['state'] ?? 'DRAFT'}',
@@ -6174,14 +6177,16 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
     return byId.values.toList();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
     setState(() {
       _loading = true;
       _error = null;
     });
     final app = context.read<AppState>();
     try {
-      final d = await context.read<ApiClient>().get('/organization');
+      final d = await context
+          .read<ApiClient>()
+          .get('/organization', forceRefresh: forceRefresh);
       if (!mounted) return;
       setState(() => _entities = _normalizeOrganization(d, app));
     } on ApiException catch (e) {
@@ -6218,7 +6223,7 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
     if (created == true && mounted) {
       await context.read<AppState>().refreshSession();
       if (mounted) {
-        await _load();
+        await _load(forceRefresh: true);
       }
     }
   }
@@ -6232,7 +6237,7 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
     if (created == true && mounted) {
       await context.read<AppState>().refreshSession();
       if (mounted) {
-        await _load();
+        await _load(forceRefresh: true);
       }
     }
   }
@@ -6313,18 +6318,18 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
-          onPressed: _load,
+          onPressed: () => _load(forceRefresh: true),
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
         ),
       ],
       body: RefreshIndicator(
         color: Pal.gold,
-        onRefresh: _load,
+        onRefresh: () => _load(forceRefresh: true),
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
             if (_error != null) ...[
-              ErrorBanner(_error!, onRetry: _load),
+              ErrorBanner(_error!, onRetry: () => _load(forceRefresh: true)),
               const SizedBox(height: 12),
             ],
 
@@ -6776,20 +6781,34 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
     }
     final entityTitle =
         '${activeEntity['legalName'] ?? activeEntity['name'] ?? 'Legal Entity'}';
+    final screenW = MediaQuery.sizeOf(context).width;
+    final dialogW = (screenW - 32).clamp(260.0, 410.0);
+
+    final inputBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+    );
+    final focusedBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Pal.gold, width: 1.5),
+    );
+    final errorBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Pal.danger, width: 1.3),
+    );
 
     return Dialog(
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
-      elevation: 14,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      elevation: 16,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: Color(0xFFE8E2D5)),
+        borderRadius: BorderRadius.circular(22),
       ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 400),
+      child: SizedBox(
+        width: dialogW,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 18),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -6798,39 +6817,39 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 36,
-                    height: 36,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFBF3DC),
-                      shape: BoxShape.circle,
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5EEDB),
+                      borderRadius: BorderRadius.circular(11),
                     ),
                     child: const Icon(
                       Icons.apartment_rounded,
-                      size: 18,
-                      color: Pal.goldDeep,
+                      size: 19,
+                      color: Color(0xFF8C6A14),
                     ),
                   ),
-                  const SizedBox(width: 11),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'Add Showroom Branch',
                       style: T.body(
-                        17.5,
+                        18.5,
                         weight: FontWeight.w800,
-                        color: Pal.ink,
+                        color: const Color(0xFF0F172A),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Text(
                 entityTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: T.body(12.8, color: Pal.muted),
+                style: T.body(13, color: const Color(0xFF64748B)),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
               if (_modalError != null) ...[
                 ErrorBanner(_modalError!),
                 const SizedBox(height: 12),
@@ -6850,24 +6869,30 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
               ],
               Text(
                 'BRANCH CODE',
-                style: T.caps(10.5, color: const Color(0xFF534E46)),
+                style: T.caps(10.8, color: const Color(0xFF475569)),
               ),
-              const SizedBox(height: 7),
+              const SizedBox(height: 8),
               TextField(
                 controller: _codeCtrl,
                 textCapitalization: TextCapitalization.characters,
-                style: T.body(13.8, color: Pal.ink),
+                style: T.body(14, color: const Color(0xFF0F172A)),
                 onChanged: (_) {
                   if (_codeMissing) setState(() => _codeMissing = false);
                 },
                 decoration: InputDecoration(
                   hintText: 'e.g. A-03',
+                  hintStyle: T.body(13.8, color: const Color(0xFF94A3B8)),
                   filled: true,
-                  fillColor: const Color(0xFFFAFAFA),
+                  fillColor: const Color(0xFFF8FAFC),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 13,
                   ),
+                  border: inputBorder,
+                  enabledBorder: inputBorder,
+                  focusedBorder: focusedBorder,
+                  errorBorder: errorBorder,
+                  focusedErrorBorder: errorBorder,
                   errorText:
                       _codeMissing ? 'Please fill in this field.' : null,
                 ),
@@ -6875,31 +6900,37 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
               const SizedBox(height: 16),
               Text(
                 'BRANCH NAME',
-                style: T.caps(10.5, color: const Color(0xFF534E46)),
+                style: T.caps(10.8, color: const Color(0xFF475569)),
               ),
-              const SizedBox(height: 7),
+              const SizedBox(height: 8),
               TextField(
                 controller: _nameCtrl,
-                style: T.body(13.8, color: Pal.ink),
+                style: T.body(14, color: const Color(0xFF0F172A)),
                 onChanged: (_) {
                   if (_nameMissing) setState(() => _nameMissing = false);
                 },
                 onSubmitted: (_) => _submit(),
                 decoration: InputDecoration(
                   hintText: 'e.g. City Centre Mall Showroom',
+                  hintStyle: T.body(13.8, color: const Color(0xFF94A3B8)),
                   filled: true,
-                  fillColor: const Color(0xFFFAFAFA),
+                  fillColor: const Color(0xFFF8FAFC),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 13,
                   ),
+                  border: inputBorder,
+                  enabledBorder: inputBorder,
+                  focusedBorder: focusedBorder,
+                  errorBorder: errorBorder,
+                  focusedErrorBorder: errorBorder,
                   errorText:
                       _nameMissing ? 'Please fill in this field.' : null,
                 ),
               ),
               const Padding(
-                padding: EdgeInsets.only(top: 20, bottom: 14),
-                child: Divider(height: 1, color: Color(0xFFEEE9DE)),
+                padding: EdgeInsets.only(top: 22, bottom: 16),
+                child: Divider(height: 1, color: Color(0xFFF1F5F9)),
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -6910,15 +6941,16 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
                     child: Text(
                       'Cancel',
                       style: T.body(
-                        13.8,
-                        weight: FontWeight.w600,
-                        color: const Color(0xFF5F5A52),
+                        14,
+                        weight: FontWeight.w500,
+                        color: const Color(0xFF475569),
                       ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   GoldButton(
                     label: 'Create Branch',
+                    compact: true,
                     busy: _busy,
                     onPressed: _busy ? null : _submit,
                   ),
@@ -7059,6 +7091,7 @@ class _AddLegalEntityDialogState extends State<_AddLegalEntityDialog> {
                   const SizedBox(width: 10),
                   GoldButton(
                     label: 'Create Legal Entity',
+                    compact: true,
                     busy: _busy,
                     onPressed: _busy ? null : _submit,
                   ),
@@ -7208,7 +7241,7 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
     return _access;
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
     setState(() {
       _loading = true;
       _error = null;
@@ -7216,9 +7249,13 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
     final api = context.read<ApiClient>();
     try {
       final results = await Future.wait<dynamic>([
-        api.get('/access'),
-        api.get('/organization').catchError((_) => <String, dynamic>{}),
-        api.get('/support-grants').catchError((_) => <String, dynamic>{}),
+        api.get('/access', forceRefresh: forceRefresh),
+        api
+            .get('/organization', forceRefresh: forceRefresh)
+            .catchError((_) => <String, dynamic>{}),
+        api
+            .get('/support-grants', forceRefresh: forceRefresh)
+            .catchError((_) => <String, dynamic>{}),
       ]);
       if (!mounted) return;
       setState(() {
@@ -7408,10 +7445,6 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
   }
 
   Future<void> _openRoleModal({Map<String, dynamic>? existingRole}) async {
-    if (_loading && _access.isEmpty) {
-      await _load();
-      if (!mounted) return;
-    }
     final catalog = _extractPermissionCatalog();
     final saved = await showDialog<bool>(
       context: context,
@@ -7424,7 +7457,7 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
       ),
     );
     if (saved == true && mounted) {
-      await _load();
+      await _load(forceRefresh: true);
     }
   }
 
@@ -7676,6 +7709,7 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
                       const SizedBox(width: 10),
                       GoldButton(
                         label: 'Save Member Access',
+                        compact: true,
                         busy: modalBusy,
                         onPressed: modalBusy ? null : saveAssignments,
                       ),
@@ -7799,18 +7833,18 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
-          onPressed: _load,
+          onPressed: () => _load(forceRefresh: true),
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),
         ),
       ],
       body: RefreshIndicator(
         color: Pal.gold,
-        onRefresh: _load,
+        onRefresh: () => _load(forceRefresh: true),
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
             if (_error != null) ...[
-              ErrorBanner(_error!, onRetry: _load),
+              ErrorBanner(_error!, onRetry: () => _load(forceRefresh: true)),
               const SizedBox(height: 12),
             ],
 
@@ -8481,27 +8515,49 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
     bool hasError = false,
     required ValueChanged<String> onChanged,
   }) {
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+    );
+    final focusedBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: Pal.gold, width: 1.5),
+    );
+    final errorBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: Pal.danger, width: 1.3),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: T.body(12.2, weight: FontWeight.w700, color: Pal.ink),
+          style: T.body(
+            12.8,
+            weight: FontWeight.w700,
+            color: const Color(0xFF0F172A),
+          ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 7),
         TextField(
           controller: controller,
           readOnly: readOnly,
-          style: T.body(13.5, color: Pal.ink),
+          style: T.body(13.8, color: const Color(0xFF0F172A)),
           onChanged: onChanged,
           decoration: InputDecoration(
             hintText: hint,
+            hintStyle: T.body(13.5, color: const Color(0xFF94A3B8)),
             filled: true,
-            fillColor: readOnly ? const Color(0xFFF5F3EE) : Colors.white,
+            fillColor: readOnly ? const Color(0xFFF8FAFC) : Colors.white,
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
+              horizontal: 13,
               vertical: 11,
             ),
+            border: border,
+            enabledBorder: border,
+            focusedBorder: focusedBorder,
+            errorBorder: errorBorder,
+            focusedErrorBorder: errorBorder,
             errorText: hasError ? 'Please fill in this field.' : null,
           ),
         ),
@@ -8513,251 +8569,265 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
     final kbBottom = MediaQuery.viewInsetsOf(context).bottom;
-    final availableHeight = (screenSize.height - kbBottom - 36).clamp(
-      260.0,
-      680.0,
+    final dialogW = (screenSize.width - 24).clamp(260.0, 520.0);
+    final availableHeight = (screenSize.height - kbBottom - 32).clamp(
+      240.0,
+      640.0,
+    );
+    final scrollAreaHeight = (availableHeight - 62).clamp(170.0, 565.0);
+
+    final keyField = _buildRoleInput(
+      label: 'Role key',
+      controller: _roleKeyCtrl,
+      hint: 'inventory-controller',
+      readOnly: _isEdit,
+      hasError: _keyMissing,
+      onChanged: (_) {
+        if (_keyMissing) {
+          setState(() => _keyMissing = false);
+        }
+      },
+    );
+    final nameField = _buildRoleInput(
+      label: 'Display name',
+      controller: _displayNameCtrl,
+      hasError: _nameMissing,
+      onChanged: (_) {
+        if (_nameMissing) {
+          setState(() => _nameMissing = false);
+        }
+      },
     );
 
     return Dialog(
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
-      elevation: 14,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
+      elevation: 16,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: const BorderSide(color: Color(0xFFE8E2D5)),
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 520,
-          maxHeight: availableHeight,
-        ),
+      child: SizedBox(
+        width: dialogW,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Flexible(
+            SizedBox(
+              height: scrollAreaHeight,
               child: Scrollbar(
                 controller: _scrollCtrl,
-                thumbVisibility: true,
-                child: SingleChildScrollView(
+                child: CustomScrollView(
                   controller: _scrollCtrl,
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _isEdit ? 'Edit tenant role' : 'Create tenant role',
-                        style: T.body(
-                          18.5,
-                          weight: FontWeight.w800,
-                          color: Pal.ink,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Choose the minimum permissions required for this role.',
-                        style: T.body(12.8, color: Pal.muted),
-                      ),
-                      const SizedBox(height: 16),
-                      if (_modalError != null) ...[
-                        ErrorBanner(_modalError!),
-                        const SizedBox(height: 12),
-                      ],
-                      LayoutBuilder(
-                        builder: (ctx, c) {
-                          final keyField = _buildRoleInput(
-                            label: 'Role key',
-                            controller: _roleKeyCtrl,
-                            hint: 'inventory-controller',
-                            readOnly: _isEdit,
-                            hasError: _keyMissing,
-                            onChanged: (_) {
-                              if (_keyMissing) {
-                                setState(() => _keyMissing = false);
-                              }
-                            },
-                          );
-                          final nameField = _buildRoleInput(
-                            label: 'Display name',
-                            controller: _displayNameCtrl,
-                            hasError: _nameMissing,
-                            onChanged: (_) {
-                              if (_nameMissing) {
-                                setState(() => _nameMissing = false);
-                              }
-                            },
-                          );
-                          if (c.maxWidth < 290) {
-                            return Column(
-                              children: [
-                                keyField,
-                                const SizedBox(height: 12),
-                                nameField,
-                              ],
-                            );
-                          }
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(child: keyField),
-                              const SizedBox(width: 12),
-                              Expanded(child: nameField),
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Permissions',
-                              style: T.body(
-                                13.5,
-                                weight: FontWeight.w800,
-                                color: Pal.ink,
-                              ),
-                            ),
-                          ),
-                          if (_selectedPerms.isNotEmpty)
+                  slivers: [
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              '${_selectedPerms.length} selected',
+                              _isEdit
+                                  ? 'Edit tenant role'
+                                  : 'Create tenant role',
                               style: T.body(
-                                11.8,
-                                weight: FontWeight.w700,
-                                color: Pal.goldDeep,
+                                18.5,
+                                weight: FontWeight.w800,
+                                color: const Color(0xFF0F172A),
                               ),
                             ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      for (var i = 0; i < widget.catalog.length; i++) ...[
-                        if (i > 0) const SizedBox(height: 8),
-                        Builder(
-                          builder: (_) {
-                            final item = widget.catalog[i];
-                            final checked =
-                                _selectedPerms.contains(item.key);
-                            return InkWell(
-                              borderRadius: BorderRadius.circular(10),
-                              onTap: () {
-                                setState(() {
-                                  if (checked) {
-                                    _selectedPerms.remove(item.key);
-                                  } else {
-                                    _selectedPerms.add(item.key);
-                                  }
-                                });
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.fromLTRB(
-                                  8,
-                                  10,
-                                  12,
-                                  10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: checked
-                                      ? const Color(0xFFFFFCF3)
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: checked
-                                        ? Pal.borderGold
-                                        : const Color(0xFFE6E1D6),
+                            const SizedBox(height: 5),
+                            Text(
+                              'Choose the minimum permissions required for this role.',
+                              style: T.body(
+                                13,
+                                color: const Color(0xFF64748B),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            if (_modalError != null) ...[
+                              ErrorBanner(_modalError!),
+                              const SizedBox(height: 12),
+                            ],
+                            if (dialogW < 310)
+                              Column(
+                                children: [
+                                  keyField,
+                                  const SizedBox(height: 12),
+                                  nameField,
+                                ],
+                              )
+                            else
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: keyField),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: nameField),
+                                ],
+                              ),
+                            const SizedBox(height: 18),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Permissions',
+                                    style: T.body(
+                                      13.2,
+                                      weight: FontWeight.w700,
+                                      color: const Color(0xFF0F172A),
+                                    ),
                                   ),
                                 ),
-                                child: Row(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    SizedBox(
-                                      width: 28,
-                                      height: 24,
-                                      child: Checkbox(
-                                        value: checked,
-                                        activeColor: Pal.gold,
-                                        visualDensity: VisualDensity.compact,
-                                        materialTapTargetSize:
-                                            MaterialTapTargetSize.shrinkWrap,
-                                        side: const BorderSide(
-                                          color: Color(0xFFBFB8AA),
-                                          width: 1.4,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(4),
-                                        ),
-                                        onChanged: (v) {
-                                          setState(() {
-                                            if (v == true) {
-                                              _selectedPerms.add(item.key);
-                                            } else {
-                                              _selectedPerms.remove(item.key);
-                                            }
-                                          });
-                                        },
-                                      ),
+                                if (_selectedPerms.isNotEmpty)
+                                  Text(
+                                    '${_selectedPerms.length} selected',
+                                    style: T.body(
+                                      11.8,
+                                      weight: FontWeight.w700,
+                                      color: Pal.goldDeep,
                                     ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item.key,
-                                            style: T.body(
-                                              13,
-                                              weight: FontWeight.w700,
-                                              color: Pal.ink,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            item.description,
-                                            style: T.body(
-                                              12,
-                                              color: Pal.muted,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (_, i) {
+                            final item = widget.catalog[i];
+                            final checked = _selectedPerms.contains(item.key);
+                            return Padding(
+                              padding: EdgeInsets.only(
+                                bottom: i + 1 < widget.catalog.length ? 8 : 0,
+                              ),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: () {
+                                  setState(() {
+                                    if (checked) {
+                                      _selectedPerms.remove(item.key);
+                                    } else {
+                                      _selectedPerms.add(item.key);
+                                    }
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    10,
+                                    11,
+                                    14,
+                                    11,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: checked
+                                        ? const Color(0xFFFFFCF3)
+                                        : Colors.white,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: checked
+                                          ? Pal.borderGold
+                                          : const Color(0xFFE2E8F0),
                                     ),
-                                  ],
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      SizedBox(
+                                        width: 24,
+                                        height: 22,
+                                        child: Checkbox(
+                                          value: checked,
+                                          activeColor: Pal.gold,
+                                          visualDensity: VisualDensity.compact,
+                                          materialTapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                          side: const BorderSide(
+                                            color: Color(0xFF94A3B8),
+                                            width: 1.4,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(4),
+                                          ),
+                                          onChanged: (v) {
+                                            setState(() {
+                                              if (v == true) {
+                                                _selectedPerms.add(item.key);
+                                              } else {
+                                                _selectedPerms.remove(item.key);
+                                              }
+                                            });
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              item.key,
+                                              style: T.body(
+                                                13.2,
+                                                weight: FontWeight.w700,
+                                                color: const Color(0xFF0F172A),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              item.description,
+                                              style: T.body(
+                                                12.2,
+                                                color: const Color(0xFF64748B),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             );
                           },
+                          childCount: widget.catalog.length,
                         ),
-                      ],
-                    ],
-                  ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-            const Divider(height: 1, color: Color(0xFFEEE9DE)),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed:
-                        _busy ? null : () => Navigator.of(context).pop(false),
+                    onPressed: _busy
+                        ? null
+                        : () => Navigator.of(context).pop(false),
                     child: Text(
                       'Cancel',
                       style: T.body(
-                        13.5,
-                        weight: FontWeight.w600,
-                        color: const Color(0xFF5F5A52),
+                        13.8,
+                        weight: FontWeight.w500,
+                        color: const Color(0xFF475569),
                       ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   GoldButton(
                     label: _isEdit ? 'Save role' : 'Create role',
+                    compact: true,
                     busy: _busy,
                     onPressed: _busy ? null : _submit,
                   ),

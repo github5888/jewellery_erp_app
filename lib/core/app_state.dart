@@ -146,15 +146,14 @@ class AppState extends ChangeNotifier {
 
   Future<void> refreshSession() async {
     try {
-      await _loadSession();
+      await _loadSession(forceRefresh: true);
     } on ApiException {
-      // Preserve current state; diagnostics view retains raw log.
+      // Preserve current state.
     }
   }
 
-  Future<void> _loadSession() async {
-    final raw = await api.get('/session');
-    sessionRaw = const JsonEncoder.withIndent('  ').convert(raw);
+  Future<void> _loadSession({bool forceRefresh = false}) async {
+    final raw = await api.get('/session', forceRefresh: forceRefresh);
     final d = asMap(raw);
     if (d['user'] == null) throw ApiException('NO_SESSION', 'Signed out.');
     user = asMap(d['user']);
@@ -162,6 +161,9 @@ class AppState extends ChangeNotifier {
     mfaEnrolled = mfaMap['enrolled'] == true;
     mfaLevel = mfaMap['level'] is int ? mfaMap['level'] as int : 0;
     options = parseShowrooms(d);
+    sessionRaw = options.isEmpty
+        ? const JsonEncoder.withIndent('  ').convert(raw)
+        : '';
 
     final sel = d['selectedContext'];
     if (sel is Map) {

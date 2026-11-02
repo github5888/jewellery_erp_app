@@ -11,7 +11,6 @@ import '../../core/pdf_export.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
-import '../debug/api_inspector.dart';
 import '../governance/tax_governance_screens.dart';
 import '../more/operations_screens.dart';
 import '../supply/supply_production_screens.dart';
@@ -307,8 +306,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               IconButton(
                                 visualDensity: VisualDensity.compact,
-                                tooltip: 'API & Live Rate Diagnostics',
-                                onPressed: () => _push(const ApiInspector()),
+                                tooltip: 'Customer Messaging & Alerts',
+                                onPressed: () =>
+                                    _push(const CustomerMessagingScreen()),
                                 icon: const Icon(
                                   Icons.notifications_none_rounded,
                                   color: Pal.goldSoft,

@@ -2253,6 +2253,7 @@ class _DoubleEntryAccountingScreenState
               else
                 for (final a in fAccounts)
                   LuxuryRecordCard(
+                    enablePdfDownload: false,
                     icon: Icons.account_balance_outlined,
                     code: a.label,
                     status: '${a.raw['group'] ?? 'ACCOUNT'}',
@@ -5887,6 +5888,7 @@ class _ConsolidatedChainAnalyticsScreenState
               else
                 for (final b in fBranches)
                   LuxuryRecordCard(
+                    enablePdfDownload: false,
                     icon: Icons.storefront_outlined,
                     code:
                         '${b['code'] ?? b['branchCode'] ?? ''} · ${b['name'] ?? b['branchName'] ?? 'Branch'}'

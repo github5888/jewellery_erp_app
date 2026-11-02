@@ -2027,6 +2027,7 @@ class _BillingScreenState extends State<BillingScreen> {
         else
           for (final tp in fTax)
             LuxuryRecordCard(
+              enablePdfDownload: false,
               icon: Icons.percent_rounded,
               pdfDocumentType: 'TAX PROFILE',
               code: '${tp['code']} · ${tp['name']}',

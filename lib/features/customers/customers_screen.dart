@@ -765,6 +765,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
             else
               for (final p in list)
                 LuxuryRecordCard(
+                  enablePdfDownload: false,
                   onTap: () =>
                       widget.picker ? Navigator.pop(context, p) : _detail(p),
                   icon: p.roles.contains('KARIGAR')

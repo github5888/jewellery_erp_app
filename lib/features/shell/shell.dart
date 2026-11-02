@@ -18,6 +18,15 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   int _index = 0;
+  final Set<int> _visited = <int>{0};
+
+  void _selectTab(int i) {
+    if (_index == i && _visited.contains(i)) return;
+    setState(() {
+      _visited.add(i);
+      _index = i;
+    });
+  }
 
   @override
   void initState() {
@@ -29,13 +38,18 @@ class _ShellState extends State<Shell> {
 
   @override
   Widget build(BuildContext context) {
-    final cartCount = context.select<BillingController, int>((b) => b.lines.length);
+    final cartCount =
+        context.select<BillingController, int>((b) => b.lines.length);
     final pages = <Widget>[
-      HomeScreen(onJump: (i) => setState(() => _index = i)),
-      InventoryScreen(onJumpToBilling: () => setState(() => _index = 2)),
-      const BillingScreen(),
-      const CustomersScreen(),
-      MoreScreen(onJump: (i) => setState(() => _index = i)),
+      HomeScreen(onJump: _selectTab),
+      _visited.contains(1)
+          ? InventoryScreen(onJumpToBilling: () => _selectTab(2))
+          : const SizedBox.shrink(),
+      _visited.contains(2) ? const BillingScreen() : const SizedBox.shrink(),
+      _visited.contains(3) ? const CustomersScreen() : const SizedBox.shrink(),
+      _visited.contains(4)
+          ? MoreScreen(onJump: _selectTab)
+          : const SizedBox.shrink(),
     ];
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
@@ -46,7 +60,7 @@ class _ShellState extends State<Shell> {
         ),
         child: NavigationBar(
           selectedIndex: _index,
-          onDestinationSelected: (i) => setState(() => _index = i),
+          onDestinationSelected: _selectTab,
           destinations: [
             const NavigationDestination(
               icon: Icon(Icons.home_outlined),
