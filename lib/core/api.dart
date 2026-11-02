@@ -109,8 +109,12 @@ class ApiClient extends ChangeNotifier {
     csrfHeaderToken = null;
   }
 
-  Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
-      _send('GET', path, query: query);
+  Future<dynamic> get(
+    String path, {
+    Map<String, dynamic>? query,
+    bool quiet = false,
+  }) =>
+      _send('GET', path, query: query, quiet: quiet);
 
   Future<dynamic> post(
     String path, {
@@ -361,6 +365,7 @@ class ApiClient extends ChangeNotifier {
     Map<String, dynamic>? query,
     Object? body,
     String? idempotencyKey,
+    bool quiet = false,
   }) async {
     try {
       return await _sendOnce(
@@ -369,6 +374,7 @@ class ApiClient extends ChangeNotifier {
         query: query,
         body: body,
         idempotencyKey: idempotencyKey,
+        quiet: quiet,
       );
     } on ApiException catch (e) {
       if (e.code == 'ORIGIN_REJECTED' && method != 'GET' && !kIsWeb) {
@@ -379,6 +385,7 @@ class ApiClient extends ChangeNotifier {
           body: body,
           idempotencyKey: idempotencyKey,
           forceOrigin: true,
+          quiet: quiet,
         );
       }
       if (e.code == 'CSRF_REJECTED' && method != 'GET' && await _probeCsrf()) {
@@ -388,6 +395,7 @@ class ApiClient extends ChangeNotifier {
           query: query,
           body: body,
           idempotencyKey: idempotencyKey,
+          quiet: quiet,
         );
       }
       rethrow;

@@ -4214,7 +4214,7 @@ class _WholesaleRateFixingScreenState extends State<WholesaleRateFixingScreen> {
       text: '${c['unfixedFineWeightGrams'] ?? c['exactFineWeightGrams'] ?? ''}',
     );
     final fixRateCtrl = TextEditingController(
-      text: gold999 != null ? gold999.sell.toStringAsFixed(2) : '',
+      text: gold999 != null ? normAmount(gold999.sell) : '',
     );
     final fixRefCtrl = TextEditingController();
     final fixNotesCtrl = TextEditingController();

@@ -456,6 +456,18 @@ class WorkspaceLookup {
     final matches = purityGrades.where((p) => '${p.raw['metalId'] ?? ''}' == metalId).toList();
     return matches.isNotEmpty ? matches : purityGrades;
   }
+
+  List<LookupOption> availableArticles() {
+    final avail = articles.where((a) {
+      final st =
+          '${asMap(a.raw['balance'])['availability'] ?? a.raw['availability'] ?? a.raw['state'] ?? a.raw['status'] ?? ''}'
+              .trim()
+              .toUpperCase();
+      if (st.isEmpty) return true;
+      return st == 'AVAILABLE' || st == 'IN_VAULT' || st == 'IN_STOCK' || st == 'ACTIVE';
+    }).toList();
+    return avail.isNotEmpty ? avail : articles;
+  }
 }
 
 /// SDK-agnostic, overflow-proof luxury dropdown using `InputDecorator` + `DropdownButton`.

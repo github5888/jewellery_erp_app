@@ -3307,6 +3307,7 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
                       hint: 'Select customer invoice',
                       optional: true,
                       onSelected: (opt) {
+                        if (opt == null) return;
                         final raw = opt.raw;
                         final pid =
                             '${raw['partyId'] ?? raw['customerPartyId'] ?? asMap(raw['party'])['id'] ?? asMap(raw['customer'])['id'] ?? ''}';
@@ -3489,6 +3490,7 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
                       hint: 'Subledger Open Item UUID (optional)',
                       optional: true,
                       onSelected: (opt) {
+                        if (opt == null) return;
                         if (_disbAmountCtrl.text.trim().isEmpty) {
                           final openRem =
                               '${opt.raw['openAmount'] ?? ''}'.trim();
@@ -3551,6 +3553,7 @@ class _SettlementsCashupScreenState extends State<SettlementsCashupScreen> {
                       options: _creditNoteAndRefundItemOptions(),
                       hint: 'Credit Note UUID',
                       onSelected: (opt) {
+                        if (opt == null) return;
                         final raw = opt.raw;
                         final pid =
                             '${raw['partyId'] ?? raw['customerPartyId'] ?? asMap(raw['party'])['id'] ?? asMap(raw['customer'])['id'] ?? ''}';
@@ -4030,6 +4033,7 @@ class _ProviderClearingBatchSheetState
                     controller: _docPickCtrl,
                     options: settlementOpts,
                     onSelected: (opt) {
+                      if (opt == null) return;
                       _docGrossCtrl.text =
                           normAmount('${opt.raw['amount'] ?? ''}');
                       setState(() {});
