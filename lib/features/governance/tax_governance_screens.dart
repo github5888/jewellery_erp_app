@@ -8546,11 +8546,11 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
           onChanged: onChanged,
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: T.body(13.5, color: const Color(0xFF94A3B8)),
+            hintStyle: T.body(12.5, color: const Color(0xFF94A3B8)),
             filled: true,
             fillColor: readOnly ? const Color(0xFFF8FAFC) : Colors.white,
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 13,
+              horizontal: 11,
               vertical: 11,
             ),
             border: border,
@@ -8568,13 +8568,7 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
-    final kbBottom = MediaQuery.viewInsetsOf(context).bottom;
     final dialogW = (screenSize.width - 24).clamp(260.0, 520.0);
-    final availableHeight = (screenSize.height - kbBottom - 32).clamp(
-      240.0,
-      640.0,
-    );
-    final scrollAreaHeight = (availableHeight - 62).clamp(170.0, 565.0);
 
     final keyField = _buildRoleInput(
       label: 'Role key',
@@ -8603,18 +8597,20 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
       elevation: 16,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
-      child: SizedBox(
-        width: dialogW,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: dialogW,
+          maxHeight: 620,
+        ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.max,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(
-              height: scrollAreaHeight,
+            Expanded(
               child: Scrollbar(
                 controller: _scrollCtrl,
                 child: CustomScrollView(
