@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'api.dart';
 import 'format.dart';
+import 'pdf_export.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -1459,6 +1460,8 @@ class LuxuryRecordCard extends StatelessWidget {
     this.amountValue,
     this.actions = const [],
     this.onTap,
+    this.enablePdfDownload = true,
+    this.pdfDocumentType,
   });
 
   final String code;
@@ -1469,6 +1472,8 @@ class LuxuryRecordCard extends StatelessWidget {
   final String? amountValue;
   final List<Widget> actions;
   final VoidCallback? onTap;
+  final bool enablePdfDownload;
+  final String? pdfDocumentType;
 
   @override
   Widget build(BuildContext context) {
@@ -1528,6 +1533,54 @@ class LuxuryRecordCard extends StatelessWidget {
                               if (status != null && status!.isNotEmpty) ...[
                                 const SizedBox(width: 8),
                                 StatusChip(status!),
+                              ],
+                              if (enablePdfDownload) ...[
+                                const SizedBox(width: 6),
+                                Tooltip(
+                                  message: 'Download PDF',
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: () => ErpPdfExporter.downloadRecordCard(
+                                      context,
+                                      code: code,
+                                      status: status ?? 'RECORDED',
+                                      lines: lines,
+                                      documentType: pdfDocumentType ?? 'ERP VOUCHER',
+                                      amountLabel: amountLabel,
+                                      amountValue: amountValue,
+                                    ),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 7,
+                                        vertical: 3.5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Pal.goldWash,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: Pal.goldBorder),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.download_rounded,
+                                            size: 13,
+                                            color: Pal.goldDeep,
+                                          ),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            'PDF',
+                                            style: T.caps(
+                                              9,
+                                              color: Pal.goldDeep,
+                                              letterSpacing: 0.4,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ],
                             ],
                           ),

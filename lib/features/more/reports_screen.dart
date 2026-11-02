@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/api.dart';
 import '../../core/app_state.dart';
 import '../../core/format.dart';
+import '../../core/pdf_export.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -1508,6 +1509,68 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
+  Future<void> _downloadActiveReportPdf() async {
+    final tabTitle = switch (_tab) {
+      'TRIAL' => 'Trial Balance',
+      'LEDGER' => 'General Ledger',
+      'PARTY' => 'Party Statement',
+      'AGEING' => 'AR / AP Ageing',
+      'STOCK' => 'Stock Valuation',
+      'MARGIN' => 'Gross Margin',
+      _ => 'Compliance Report',
+    };
+    final activeMap = switch (_tab) {
+      'TRIAL' => _trial ?? const <String, dynamic>{},
+      'LEDGER' => _ledger ?? const <String, dynamic>{},
+      'PARTY' => _partyStmt ?? const <String, dynamic>{},
+      'AGEING' => _ageing ?? const <String, dynamic>{},
+      'STOCK' => _stockVal ?? const <String, dynamic>{},
+      'MARGIN' => _margin ?? const <String, dynamic>{},
+      _ => const <String, dynamic>{},
+    };
+    final rowsRaw = asList(
+      activeMap,
+      keys: const ['accounts', 'entries', 'lines', 'rows', 'items', 'invoices', 'articles', 'buckets'],
+    );
+    final summary = asMap(activeMap['summary']);
+
+    final pdfRows = <List<String>>[];
+    for (var i = 0; i < rowsRaw.length; i++) {
+      final r = rowsRaw[i];
+      final label = '${r['accountName'] ?? r['partyName'] ?? r['displayName'] ?? r['description'] ?? r['documentNumber'] ?? r['tag'] ?? r['code'] ?? 'Row ${i + 1}'}';
+      final ref = '${r['accountCode'] ?? r['documentNumber'] ?? r['tag'] ?? r['bucket'] ?? r['entryDate'] ?? '-'}';
+      final colA = '${r['debitAmount'] ?? r['grossWeightGrams'] ?? r['revenueAmount'] ?? r['openingBalance'] ?? '-'}';
+      final colB = '${r['creditAmount'] ?? r['carryingCost'] ?? r['grossMarginAmount'] ?? r['closingBalance'] ?? r['outstandingAmount'] ?? r['totalAmount'] ?? '-'}';
+      pdfRows.add(['${i + 1}', label, ref, colA, colB]);
+    }
+
+    await ErpPdfExporter.downloadSpec(
+      context,
+      fileName: 'Report-${tabTitle.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '-')}-${todayIso()}.pdf',
+      spec: PdfDocumentSpec(
+        documentType: 'COMPLIANCE REPORT',
+        documentNumber: '${_tab}-${todayIso()}',
+        title: '$tabTitle Report',
+        status: '${rowsRaw.length} row(s)',
+        dateLabel: todayIso(),
+        metaPairs: [
+          ('Report', tabTitle),
+          ('As Of / Date', todayIso()),
+          for (final e in summary.entries.take(6))
+            (humanize(e.key), '${e.value}'),
+        ],
+        columns: const [
+          PdfTableColumn('#', flex: 0.4),
+          PdfTableColumn('Account / Party / Description', flex: 2.3),
+          PdfTableColumn('Code / Ref', flex: 1.1),
+          PdfTableColumn('Debit / Weight', flex: 1.1, alignRight: true),
+          PdfTableColumn('Credit / Value', flex: 1.2, alignRight: true),
+        ],
+        rows: pdfRows,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AppState>();
@@ -1530,6 +1593,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
       searchHint: 'Search accounts, counterparties, tags or invoices...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
+        IconButton(
+          tooltip: 'Download Active Report PDF',
+          onPressed: _loading ? null : _downloadActiveReportPdf,
+          icon: const Icon(Icons.picture_as_pdf_outlined, color: Pal.goldSoft),
+        ),
         IconButton(
           onPressed: _loadActiveTab,
           icon: const Icon(Icons.refresh_rounded, color: Pal.goldSoft),

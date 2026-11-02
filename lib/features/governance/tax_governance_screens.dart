@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 
 import '../../core/api.dart';
 import '../../core/app_state.dart';
+import '../../core/device_bridge.dart';
 import '../../core/format.dart';
+import '../../core/pdf_export.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -5440,21 +5442,90 @@ class _GstEInvoicesBillsScreenState extends State<GstEInvoicesBillsScreen> {
                       style: T.body(15.8, weight: FontWeight.w700),
                     ),
                   ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
                   GoldButton(
-                    label: 'Copy Output',
+                    label: 'Download PDF',
                     compact: true,
-                    icon: Icons.copy_rounded,
+                    icon: Icons.download_rounded,
+                    onPressed: () {
+                      final docNum =
+                          '${snap['documentNumber'] ?? shortId('${snap['id'] ?? _sourceId.text}')}';
+                      final plainLines = htmlOrText
+                          .replaceAll(RegExp(r'<[^>]+>'), ' ')
+                          .replaceAll('&nbsp;', ' ')
+                          .replaceAll('&amp;', '&')
+                          .split('\n')
+                          .map((s) => s.trim())
+                          .where((s) => s.isNotEmpty)
+                          .take(40)
+                          .toList();
+                      ErpPdfExporter.downloadSpec(
+                        context,
+                        renderedHtml:
+                            htmlOrText.contains('<') ? htmlOrText : null,
+                        spec: PdfDocumentSpec(
+                          documentType: humanize(_sourceType).toUpperCase(),
+                          documentNumber: docNum,
+                          title: 'Official Rendered $_sourceType ($docNum)',
+                          status:
+                              'Layout ${snap['layoutType'] ?? snap['layout'] ?? 'A4'}',
+                          metaPairs: [
+                            ('Document Type', humanize(_sourceType)),
+                            ('Document #', docNum),
+                            (
+                              'Layout',
+                              '${snap['layoutType'] ?? snap['layout'] ?? 'A4'}',
+                            ),
+                            ('Reprint #', '${snap['reprintCount'] ?? 0}'),
+                          ],
+                          columns: const [
+                            PdfTableColumn('Rendered Document Line', flex: 1),
+                          ],
+                          rows: [
+                            for (final pl in plainLines) [pl],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      DeviceBridge.printHtmlDocument(
+                        html: htmlOrText.contains('<')
+                            ? htmlOrText
+                            : '<pre style="font-family:monospace;padding:24px;">$htmlOrText</pre>',
+                        jobName:
+                            '${snap['documentNumber'] ?? _sourceType}',
+                      );
+                    },
+                    icon: const Icon(Icons.print_outlined, size: 16),
+                    label: const Text('Print / Save PDF'),
+                  ),
+                  OutlinedButton.icon(
                     onPressed: () async {
                       await Clipboard.setData(ClipboardData(text: htmlOrText));
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
                           const SnackBar(
-                            content:
-                                Text('Rendered print output copied to clipboard.'),
+                            content: Text(
+                              'Rendered print output copied to clipboard.',
+                            ),
                           ),
                         );
                       }
                     },
+                    icon: const Icon(Icons.copy_rounded, size: 15),
+                    label: const Text('Copy'),
                   ),
                 ],
               ),
@@ -8418,16 +8489,16 @@ class _CompanyInvoiceProfileScreenState
   }
 
   Future<void> _openUploadLogoModal() async {
-    final urlCtrl = TextEditingController();
-    final dataCtrl = TextEditingController();
     Uint8List? stagedBytes;
     String? stagedMime;
+    String stagedName = 'showroom-logo.png';
     String? modalError;
     bool modalBusy = false;
-    bool fetchingUrl = false;
+    bool pickingPhoto = false;
 
     void stageValidatedBytes(
       Uint8List decoded,
+      String fallbackName,
       void Function(void Function()) setModal,
     ) {
       if (decoded.length > _maxLogoBytes) {
@@ -8435,7 +8506,7 @@ class _CompanyInvoiceProfileScreenState
           stagedBytes = null;
           stagedMime = null;
           modalError =
-              'Image exceeds 512 KB limit (${(decoded.length / 1024).toStringAsFixed(1)} KB).';
+              'Selected photo exceeds 512 KB (${(decoded.length / 1024).toStringAsFixed(1)} KB). Choose a smaller logo image.';
         });
         return;
       }
@@ -8451,44 +8522,9 @@ class _CompanyInvoiceProfileScreenState
       setModal(() {
         stagedBytes = decoded;
         stagedMime = mime;
+        stagedName = fallbackName;
         modalError = null;
       });
-    }
-
-    void parseInput(String raw, void Function(void Function()) setModal) {
-      final trimmed = raw.trim();
-      if (trimmed.isEmpty) {
-        setModal(() {
-          stagedBytes = null;
-          stagedMime = null;
-          modalError = null;
-        });
-        return;
-      }
-      if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
-        urlCtrl.text = trimmed;
-        setModal(() {
-          modalError =
-              'Tap "Fetch URL" above to load the image from that link.';
-        });
-        return;
-      }
-      try {
-        final comma = trimmed.indexOf(',');
-        final b64Part = (trimmed.startsWith('data:') && comma >= 0)
-            ? trimmed.substring(comma + 1)
-            : trimmed;
-        final cleaned = b64Part.replaceAll(RegExp(r'\s+'), '');
-        final decoded = base64Decode(cleaned);
-        stageValidatedBytes(decoded, setModal);
-      } catch (_) {
-        setModal(() {
-          stagedBytes = null;
-          stagedMime = null;
-          modalError =
-              'Enter an https:// image URL above or paste a Data URL / Base64 PNG, JPEG, or WebP image.';
-        });
-      }
     }
 
     await showModalBottomSheet<void>(
@@ -8501,31 +8537,33 @@ class _CompanyInvoiceProfileScreenState
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) {
-          Future<void> fetchFromUrl() async {
-            final link = urlCtrl.text.trim();
-            if (link.isEmpty) {
-              setModal(
-                () => modalError = 'Paste an https:// logo image URL first.',
-              );
-              return;
-            }
+          Future<void> pickFromDevice(String mode) async {
             setModal(() {
-              fetchingUrl = true;
+              pickingPhoto = true;
               modalError = null;
             });
             try {
-              final bytes =
-                  await context.read<ApiClient>().fetchExternalBytes(link);
-              if (ctx.mounted) {
-                stageValidatedBytes(bytes, setModal);
+              final picked = await DeviceBridge.pickLogoImage(
+                mode: mode,
+                maxBytes: 500 * 1024,
+              );
+              if (!ctx.mounted) return;
+              if (picked != null) {
+                stageValidatedBytes(picked.bytes, picked.fileName, setModal);
               }
-            } on ApiException catch (e) {
+            } on PlatformException catch (e) {
               if (ctx.mounted) {
-                setModal(() => modalError = e.message);
+                setModal(
+                  () => modalError = e.message ?? 'Could not open device photos.',
+                );
+              }
+            } catch (e) {
+              if (ctx.mounted) {
+                setModal(() => modalError = 'Unable to pick photo: $e');
               }
             } finally {
               if (ctx.mounted) {
-                setModal(() => fetchingUrl = false);
+                setModal(() => pickingPhoto = false);
               }
             }
           }
@@ -8534,7 +8572,7 @@ class _CompanyInvoiceProfileScreenState
             if (stagedBytes == null || stagedMime == null) {
               setModal(
                 () => modalError =
-                    'Load a valid PNG, JPEG, or WebP image (up to 512 KB) first.',
+                    'Select your logo from Device Photos or Files first.',
               );
               return;
             }
@@ -8546,7 +8584,8 @@ class _CompanyInvoiceProfileScreenState
             final ext = stagedMime == 'image/png'
                 ? 'png'
                 : (stagedMime == 'image/webp' ? 'webp' : 'jpg');
-            final filename = 'showroom-logo.$ext';
+            final filename =
+                stagedName.isNotEmpty ? stagedName : 'showroom-logo.$ext';
             final b64 = base64Encode(stagedBytes!);
             final dataUrl = 'data:$stagedMime;base64,$b64';
 
@@ -8648,7 +8687,7 @@ class _CompanyInvoiceProfileScreenState
               18,
               18,
               18,
-              MediaQuery.of(ctx).viewInsets.bottom + 22,
+              MediaQuery.of(ctx).viewInsets.bottom + 24,
             ),
             child: SingleChildScrollView(
               child: Column(
@@ -8663,12 +8702,12 @@ class _CompanyInvoiceProfileScreenState
                           children: [
                             Text(
                               'Upload Showroom Logo',
-                              style: T.body(16.5, weight: FontWeight.w800),
+                              style: T.body(17, weight: FontWeight.w800),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               'PNG, JPEG, or WebP · up to 512 KB. Stored privately in this tenant and branch\'s database scope.',
-                              style: T.body(11.8, color: Pal.muted),
+                              style: T.body(12, color: Pal.muted),
                             ),
                           ],
                         ),
@@ -8679,104 +8718,150 @@ class _CompanyInvoiceProfileScreenState
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   if (modalError != null) ...[
                     ErrorBanner(modalError!),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                   ],
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: SaasField(
-                          label: 'Direct Logo Image URL (https://...)',
-                          controller: urlCtrl,
-                          hint: 'https://.../logo.png',
-                          keyboardType: TextInputType.url,
-                        ),
+
+                  // Native Device Photos / Gallery Card Button (`image-63.png` upgrade)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: (pickingPhoto || modalBusy)
+                        ? null
+                        : () => pickFromDevice('photos'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 15,
                       ),
-                      const SizedBox(width: 10),
-                      OutlinedButton.icon(
-                        onPressed:
-                            (fetchingUrl || modalBusy) ? null : fetchFromUrl,
-                        icon: fetchingUrl
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFBF5E4),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Pal.goldBorder, width: 1.2),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Pal.card,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Pal.goldBorder),
+                            ),
+                            child: pickingPhoto
+                                ? const Padding(
+                                    padding: EdgeInsets.all(11),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.photo_library_outlined,
+                                    color: Pal.goldDeep,
+                                    size: 22,
+                                  ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Upload from Device Photos',
+                                  style: T.body(
+                                    14.5,
+                                    color: Pal.ink,
+                                    weight: FontWeight.w800,
+                                  ),
                                 ),
-                              )
-                            : const Icon(
-                                Icons.cloud_download_outlined,
-                                size: 16,
-                              ),
-                        label: const Text('Fetch URL'),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Choose your showroom or company logo from phone gallery',
+                                  style: T.body(12, color: Pal.muted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            color: Pal.goldDeep,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          final clip =
-                              await Clipboard.getData(Clipboard.kTextPlain);
-                          final txt = (clip?.text ?? '').trim();
-                          if (txt.isNotEmpty) {
-                            if (txt.startsWith('https://') ||
-                                txt.startsWith('http://')) {
-                              urlCtrl.text = txt;
-                              await fetchFromUrl();
-                            } else {
-                              dataCtrl.text = txt;
-                              parseInput(txt, setModal);
-                            }
-                          }
-                        },
-                        icon: const Icon(Icons.content_paste_rounded, size: 16),
-                        label: const Text('Paste URL or Image Base64'),
-                      ),
-                    ],
+                    ),
                   ),
                   const SizedBox(height: 10),
-                  SaasField(
-                    label: 'Or Image Data URL / Base64 (PNG / JPEG / WebP ≤ 512 KB)',
-                    controller: dataCtrl,
-                    mono: true,
-                    maxLines: 3,
-                    onChanged: (v) => parseInput(v, setModal),
+                  OutlinedButton.icon(
+                    onPressed: (pickingPhoto || modalBusy)
+                        ? null
+                        : () => pickFromDevice('files'),
+                    icon: const Icon(Icons.folder_open_rounded, size: 18),
+                    label: const Text('Browse Device Files / Downloads'),
                   ),
+
                   if (stagedBytes != null) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                     SaasSubBox(
                       child: Row(
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.memory(
-                              stagedBytes!,
-                              width: 56,
-                              height: 56,
-                              fit: BoxFit.contain,
+                          Container(
+                            width: 64,
+                            height: 64,
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Pal.goldBorder),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                stagedBytes!,
+                                fit: BoxFit.contain,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: Text(
-                              '$stagedMime · ${(stagedBytes!.length / 1024).toStringAsFixed(1)} KB ready',
-                              style: T.mono(12, weight: FontWeight.w700),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Selected Logo Ready',
+                                  style: T.body(13.5, weight: FontWeight.w800),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '$stagedMime · ${(stagedBytes!.length / 1024).toStringAsFixed(1)} KB',
+                                  style: T.mono(11.8, color: Pal.ok),
+                                ),
+                              ],
                             ),
+                          ),
+                          IconButton(
+                            tooltip: 'Clear selection',
+                            onPressed: modalBusy
+                                ? null
+                                : () => setModal(() {
+                                      stagedBytes = null;
+                                      stagedMime = null;
+                                    }),
+                            icon: const Icon(Icons.delete_outline_rounded),
                           ),
                         ],
                       ),
                     ),
                   ],
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 16),
                   RoyalGoldButton(
+                    icon: Icons.cloud_upload_outlined,
                     label: 'Upload logo',
                     busy: modalBusy,
-                    onPressed: modalBusy ? null : uploadNow,
+                    onPressed: (modalBusy || stagedBytes == null)
+                        ? null
+                        : uploadNow,
                   ),
                 ],
               ),
@@ -8785,9 +8870,6 @@ class _CompanyInvoiceProfileScreenState
         },
       ),
     );
-
-    urlCtrl.dispose();
-    dataCtrl.dispose();
   }
 
   Future<void> _removeLogo() async {

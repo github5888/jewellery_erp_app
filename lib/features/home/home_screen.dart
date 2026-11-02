@@ -7,6 +7,7 @@ import '../../core/api.dart';
 import '../../core/app_state.dart';
 import '../../core/format.dart';
 import '../../core/models.dart';
+import '../../core/pdf_export.dart';
 import '../../core/rates.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -1223,6 +1224,21 @@ class _HomeScreenState extends State<HomeScreen> {
                                             13,
                                             color: Pal.goldDeep,
                                             w: FontWeight.w800,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          tooltip: 'Download Invoice PDF',
+                                          onPressed: () =>
+                                              ErpPdfExporter.downloadSalesInvoice(
+                                            context,
+                                            inv,
+                                          ),
+                                          icon: const Icon(
+                                            Icons.download_rounded,
+                                            size: 18,
+                                            color: Pal.goldDeep,
                                           ),
                                         ),
                                       ],

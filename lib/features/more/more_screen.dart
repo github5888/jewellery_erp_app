@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/api.dart';
 import '../../core/app_state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -59,7 +57,6 @@ class _MoreScreenState extends State<MoreScreen> {
     final tenantTitle = app.tenantName.trim().isNotEmpty
         ? app.tenantName.trim()
         : (app.userName.trim().isNotEmpty ? app.userName.trim() : 'Enterprise Workspace');
-    final initial = tenantTitle[0].toUpperCase();
     final showroomLine = [
       if (app.tenantName.trim().isNotEmpty) app.tenantName.trim(),
       if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
@@ -400,246 +397,74 @@ class _MoreScreenState extends State<MoreScreen> {
                 );
               }),
 
-          // Bottom `Account & Password` Card matching the bottom of `image-3.png`
+          // Bottom `ACCOUNT & SESSION` Card — Sign out only (`image-62.png`)
           const SectionLabel('ACCOUNT & SESSION'),
           Panel(
             radius: 16,
             padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                InkWell(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                  onTap: () => _showAccountPasswordSheet(context),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: (app.showroomLogoBytes != null &&
-                                    app.showroomLogoBytes!.isNotEmpty)
-                                ? Colors.white
-                                : const Color(0xFFF3F5F8),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: (app.showroomLogoBytes != null &&
-                                      app.showroomLogoBytes!.isNotEmpty)
-                                  ? Pal.goldBorder
-                                  : Pal.line,
-                            ),
-                          ),
-                          child: (app.showroomLogoBytes != null &&
-                                  app.showroomLogoBytes!.isNotEmpty)
-                              ? ClipOval(
-                                  child: Image.memory(
-                                    app.showroomLogoBytes!,
-                                    width: 36,
-                                    height: 36,
-                                    fit: BoxFit.cover,
-                                    gaplessPlayback: true,
-                                    errorBuilder: (_, __, ___) => Text(
-                                      initial,
-                                      style: T.body(
-                                        14.5,
-                                        color: Pal.ink,
-                                        w: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              : Text(
-                                  initial,
-                                  style: T.body(
-                                    14.5,
-                                    color: Pal.ink,
-                                    w: FontWeight.w800,
-                                  ),
-                                ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                tenantTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: T.body(14, color: Pal.ink, w: FontWeight.w800),
-                              ),
-                              const SizedBox(height: 1),
-                              Text(
-                                'Account & Password',
-                                style: T.body(12, color: Pal.muted),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.chevron_right_rounded, size: 20, color: Pal.muted),
-                      ],
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: Pal.card,
+                    title: Text('Sign out of workspace?', style: T.display(20)),
+                    content: Text(
+                      'Your session will be closed safely. Unsubmitted cart items on this device will be cleared.',
+                      style: T.body(13.5, color: Pal.muted),
                     ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Pal.danger,
+                          minimumSize: const Size(110, 42),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Sign out'),
+                      ),
+                    ],
                   ),
+                );
+                if (ok == true) app.logout();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: Pal.dangerWash,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Pal.danger.withValues(alpha: 0.22)),
+                      ),
+                      child: const Icon(
+                        Icons.logout_rounded,
+                        size: 18,
+                        color: Pal.danger,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Sign out',
+                        style: T.body(13.8, w: FontWeight.w700, color: Pal.danger),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded, size: 19, color: Pal.muted),
+                  ],
                 ),
-                if (!app.mfaEnrolled) ...[
-                  const Divider(height: 1, indent: 64),
-                  InkWell(
-                    onTap: () => _showMfaEnrollment(context),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: Pal.goldWash,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Pal.goldBorder),
-                            ),
-                            child: const Icon(
-                              Icons.shield_outlined,
-                              size: 18,
-                              color: Pal.goldDeep,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Enroll Authenticator 2FA',
-                              style: T.body(13.8, w: FontWeight.w700, color: Pal.ink),
-                            ),
-                          ),
-                          const Icon(Icons.chevron_right_rounded, size: 19, color: Pal.muted),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-                if (app.branchCount > 1) ...[
-                  const Divider(height: 1, indent: 64),
-                  InkWell(
-                    onTap: app.switchShowroom,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: Pal.goldWash,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Pal.goldBorder),
-                            ),
-                            child: const Icon(
-                              Icons.swap_horiz_rounded,
-                              size: 18,
-                              color: Pal.goldDeep,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Switch Showroom Context',
-                              style: T.body(13.8, w: FontWeight.w700, color: Pal.ink),
-                            ),
-                          ),
-                          const Icon(Icons.chevron_right_rounded, size: 19, color: Pal.muted),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-                const Divider(height: 1, indent: 64),
-                InkWell(
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
-                  onTap: () async {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        backgroundColor: Pal.card,
-                        title: Text('Sign out of workspace?', style: T.display(20)),
-                        content: Text(
-                          'Your session will be closed safely. Unsubmitted cart items on this device will be cleared.',
-                          style: T.body(13.5, color: Pal.muted),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: Pal.danger,
-                              minimumSize: const Size(110, 42),
-                            ),
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('Sign out'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (ok == true) app.logout();
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: Pal.dangerWash,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Pal.danger.withValues(alpha: 0.22)),
-                          ),
-                          child: const Icon(
-                            Icons.logout_rounded,
-                            size: 18,
-                            color: Pal.danger,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Sign out',
-                            style: T.body(13.8, w: FontWeight.w700, color: Pal.danger),
-                          ),
-                        ),
-                        const Icon(Icons.chevron_right_rounded, size: 19, color: Pal.muted),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Future<void> _showAccountPasswordSheet(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _AccountPasswordSheet(
-        onEnrollMfa: () {
-          Navigator.pop(context);
-          _showMfaEnrollment(context);
-        },
-      ),
-    );
-  }
-
-  Future<void> _showMfaEnrollment(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const _MfaEnrollSheet(),
     );
   }
 }
@@ -700,296 +525,6 @@ class _MobileSidebarTile extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _AccountPasswordSheet extends StatefulWidget {
-  const _AccountPasswordSheet({required this.onEnrollMfa});
-  final VoidCallback onEnrollMfa;
-
-  @override
-  State<_AccountPasswordSheet> createState() => _AccountPasswordSheetState();
-}
-
-class _AccountPasswordSheetState extends State<_AccountPasswordSheet> {
-  final _current = TextEditingController();
-  final _next = TextEditingController();
-  final _confirm = TextEditingController();
-  bool _busy = false;
-  bool _hideCurrent = true;
-  bool _hideNext = true;
-  String? _err;
-
-  @override
-  void dispose() {
-    _current.dispose();
-    _next.dispose();
-    _confirm.dispose();
-    super.dispose();
-  }
-
-  Future<void> _changePassword() async {
-    if (_current.text.isEmpty || _next.text.length < 12) {
-      setState(() => _err = 'Enter your current password and a new password (min 12 characters).');
-      return;
-    }
-    if (_next.text != _confirm.text) {
-      setState(() => _err = 'New password and confirmation do not match.');
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _err = null;
-    });
-    final api = context.read<ApiClient>();
-    try {
-      try {
-        await api.post('/auth/password/change', body: {
-          'currentPassword': _current.text,
-          'newPassword': _next.text,
-        });
-      } on ApiException catch (e) {
-        if (e.status == 404) {
-          await api.post('/auth/password', body: {
-            'currentPassword': _current.text,
-            'newPassword': _next.text,
-          });
-        } else {
-          rethrow;
-        }
-      }
-      if (!mounted) return;
-      Navigator.pop(context);
-      toast(context, 'Password updated successfully.');
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _err = e.message);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(20, 4, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('Account & Password', style: T.display(21)),
-          const SizedBox(height: 10),
-          Panel(
-            color: Pal.surfaceAlt,
-            child: Column(
-              children: [
-                KVRow('User', app.userName.isEmpty ? 'Workspace User' : app.userName, bold: true),
-                KVRow('Email', app.userEmail),
-                KVRow('Tenant', app.tenantName),
-                KVRow('Showroom', '${app.branchName} (${app.branchCode})'),
-                KVRow('2FA Security', app.mfaEnrolled ? 'Active (TOTP)' : 'Not enrolled'),
-              ],
-            ),
-          ),
-          if (!app.mfaEnrolled) ...[
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: widget.onEnrollMfa,
-              icon: const Icon(Icons.shield_outlined, size: 17),
-              label: const Text('Enroll Two-Factor Authentication (2FA)'),
-            ),
-          ],
-          const SizedBox(height: 14),
-          const FieldLabel('Current password'),
-          TextField(
-            controller: _current,
-            obscureText: _hideCurrent,
-            decoration: InputDecoration(
-              suffixIcon: IconButton(
-                icon: Icon(_hideCurrent ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                onPressed: () => setState(() => _hideCurrent = !_hideCurrent),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          const FieldLabel('New password (min 12 chars)'),
-          TextField(
-            controller: _next,
-            obscureText: _hideNext,
-            decoration: InputDecoration(
-              suffixIcon: IconButton(
-                icon: Icon(_hideNext ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                onPressed: () => setState(() => _hideNext = !_hideNext),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          const FieldLabel('Confirm new password'),
-          TextField(
-            controller: _confirm,
-            obscureText: _hideNext,
-          ),
-          if (_err != null) ...[
-            const SizedBox(height: 10),
-            Text(_err!, style: T.body(12.8, color: Pal.danger, w: FontWeight.w700)),
-          ],
-          const SizedBox(height: 14),
-          RoyalGoldButton(
-            label: _busy ? 'Updating…' : 'Update Password',
-            busy: _busy,
-            onPressed: _changePassword,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MfaEnrollSheet extends StatefulWidget {
-  const _MfaEnrollSheet();
-  @override
-  State<_MfaEnrollSheet> createState() => _MfaEnrollSheetState();
-}
-
-class _MfaEnrollSheetState extends State<_MfaEnrollSheet> {
-  String? _secret;
-  List<String>? _recoveryCodes;
-  final _code = TextEditingController();
-  bool _loading = true;
-  bool _verifying = false;
-  String? _err;
-
-  @override
-  void initState() {
-    super.initState();
-    _start();
-  }
-
-  @override
-  void dispose() {
-    _code.dispose();
-    super.dispose();
-  }
-
-  Future<void> _start() async {
-    try {
-      final d = asMap(await context.read<ApiClient>().post('/auth/mfa/enrollment'));
-      if (mounted) {
-        setState(() {
-          _secret = '${d['secret'] ?? ''}';
-          _loading = false;
-        });
-      }
-    } on ApiException catch (e) {
-      if (mounted) {
-        setState(() {
-          _err = e.message;
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _verify() async {
-    if (_code.text.trim().length != 6) {
-      setState(() => _err = 'Enter the 6-digit code from your authenticator app.');
-      return;
-    }
-    setState(() {
-      _verifying = true;
-      _err = null;
-    });
-    try {
-      final api = context.read<ApiClient>();
-      final app = context.read<AppState>();
-      final d = asMap(await api.post(
-        '/auth/mfa/enrollment/verify',
-        body: {'code': _code.text.trim()},
-      ));
-      final codes = (d['recoveryCodes'] is List)
-          ? (d['recoveryCodes'] as List).map((e) => '$e').toList()
-          : <String>[];
-      await app.refreshSession();
-      if (mounted) setState(() => _recoveryCodes = codes);
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _err = e.message);
-    }
-    if (mounted) setState(() => _verifying = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('Two-Factor Authentication (TOTP)', style: T.display(22)),
-          const SizedBox(height: 8),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_recoveryCodes != null) ...[
-            Text(
-              '2FA is now active! Store these recovery codes safely — each can be used once if you lose your phone:',
-              style: T.body(13.5, color: Pal.ok, w: FontWeight.w700),
-            ),
-            const SizedBox(height: 12),
-            Panel(
-              color: Pal.surfaceAlt,
-              child: SelectableText(_recoveryCodes!.join('\n'), style: T.mono(13)),
-            ),
-            const SizedBox(height: 14),
-            FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
-          ] else ...[
-            Text(
-              'Add this secret key in Google Authenticator, Authy, or 1Password, then enter the 6-digit code:',
-              style: T.body(13, color: Pal.muted),
-            ),
-            if (_secret != null && _secret!.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Panel(
-                color: Pal.surfaceAlt,
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: _secret!));
-                  toast(context, 'TOTP secret copied.');
-                },
-                child: Row(children: [
-                  Expanded(child: SelectableText(_secret!, style: T.mono(13.5, w: FontWeight.w700))),
-                  const Icon(Icons.copy_rounded, size: 17, color: Pal.goldDeep),
-                ]),
-              ),
-            ],
-            const SizedBox(height: 14),
-            const FieldLabel('6-Digit Verification Code'),
-            TextField(
-              controller: _code,
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(6),
-              ],
-              style: T.mono(22, w: FontWeight.w700),
-              decoration: const InputDecoration(hintText: '000000'),
-            ),
-            if (_err != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(_err!, style: T.body(13, color: Pal.danger, w: FontWeight.w700)),
-              ),
-            const SizedBox(height: 16),
-            RoyalGoldButton(
-              label: 'Verify & Activate 2FA',
-              busy: _verifying,
-              onPressed: _verifying ? null : _verify,
-            ),
-          ],
-        ],
       ),
     );
   }

@@ -10,6 +10,8 @@
 	<string>Jewellery ERP</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is used to scan jewellery ornament barcodes and HUID tags at the showroom counter.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Photo library access is used to select your showroom or company logo for tax invoices.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
