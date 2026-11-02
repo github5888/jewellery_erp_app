@@ -77,7 +77,7 @@ class ApiClient extends ChangeNotifier {
   /// Retained for backward compatibility; no longer pretty-printed per call.
   final List<ApiLogEntry> log = [];
 
-  static const Duration _kGetCacheTtl = Duration(seconds: 18);
+  static const Duration _kGetCacheTtl = Duration(seconds: 10);
   final Map<String, _CachedGetEntry> _getCache = <String, _CachedGetEntry>{};
   final Map<String, Future<dynamic>> _inflightGets = <String, Future<dynamic>>{};
 
@@ -113,6 +113,28 @@ class ApiClient extends ChangeNotifier {
 
   void clearLog() {
     log.clear();
+    notifyListeners();
+  }
+
+  void _recordFast(
+    String method,
+    String path,
+    int? status,
+    String summary,
+    int durationMs,
+  ) {
+    log.insert(
+      0,
+      ApiLogEntry(
+        method,
+        path,
+        status,
+        summary,
+        'Base URL: ${_dio.options.baseUrl}',
+        durationMs: durationMs,
+      ),
+    );
+    if (log.length > 40) log.removeLast();
   }
 
   /// Clears cached GET responses (called automatically on all mutations and context switches).
@@ -504,6 +526,7 @@ class ApiClient extends ChangeNotifier {
         headers['X-XSRF-TOKEN'] = t;
       }
     }
+    final sw = Stopwatch()..start();
     try {
       final res = await _dio.request<dynamic>(
         path,
@@ -511,11 +534,20 @@ class ApiClient extends ChangeNotifier {
         queryParameters: query,
         options: Options(method: method, headers: headers),
       );
+      sw.stop();
       _learnFromHeaders(res.headers);
+      _recordFast(
+        method,
+        path,
+        res.statusCode,
+        '${res.statusCode ?? 200} OK',
+        sw.elapsedMilliseconds,
+      );
       final b = res.data;
       if (b is Map && b.containsKey('data')) return b['data'];
       return b;
     } on DioException catch (e) {
+      sw.stop();
       final status = e.response?.statusCode;
       final b = e.response?.data;
       _learnFromHeaders(e.response?.headers);
@@ -536,6 +568,7 @@ class ApiClient extends ChangeNotifier {
         code = 'TIMEOUT';
         msg = 'Gateway timed out waiting for a response. Please retry.';
       }
+      _recordFast(method, path, status, '$code: $msg', sw.elapsedMilliseconds);
       if (status == 401 &&
           !quiet &&
           path != '/auth/login' &&

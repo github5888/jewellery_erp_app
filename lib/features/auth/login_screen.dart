@@ -10,6 +10,7 @@ import '../../core/app_state.dart';
 import '../../core/build.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../debug/api_inspector.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -91,7 +92,20 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Gateway Configuration', style: T.display(21)),
+                Row(children: [
+                  Expanded(child: Text('Gateway Configuration', style: T.display(21))),
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(builder: (_) => const ApiInspector()),
+                      );
+                    },
+                    icon: const Icon(Icons.monitor_heart_outlined, size: 16),
+                    label: const Text('Diagnostics'),
+                  ),
+                ]),
                 const SizedBox(height: 12),
                 for (final preset in kServerPresets)
                   Padding(
