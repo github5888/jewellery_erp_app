@@ -6046,7 +6046,7 @@ class _GstEInvoicesBillsScreenState extends State<GstEInvoicesBillsScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// 6. SHOWROOM HIERARCHY (`/organization`) — `image-55..56.png`
+// 6. SHOWROOM HIERARCHY (`/organization`) — `image-69.png`
 // ---------------------------------------------------------------------------
 
 class ShowroomHierarchyScreen extends StatefulWidget {
@@ -6060,7 +6060,7 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
   final _search = TextEditingController();
   List<Map<String, dynamic>> _entities = [];
   bool _loading = true;
-  bool _busy = false;
+  final bool _busy = false;
   String? _error;
 
   @override
@@ -6075,21 +6075,122 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
     super.dispose();
   }
 
+  List<Map<String, dynamic>> _normalizeOrganization(
+    dynamic raw,
+    AppState app,
+  ) {
+    final root = raw is Map
+        ? asMap(raw['organization'] ?? raw['workspace'] ?? raw)
+        : <String, dynamic>{};
+
+    final rawEntities = raw is List
+        ? asList(raw)
+        : asList(root, keys: const ['legalEntities', 'entities', 'items']);
+    final topBranches = raw is Map
+        ? asList(root['branches'])
+        : const <Map<String, dynamic>>[];
+
+    final byId = <String, Map<String, dynamic>>{};
+    for (final e in rawEntities) {
+      final eid = '${e['id'] ?? e['legalEntityId'] ?? ''}'.trim();
+      if (eid.isEmpty) continue;
+      final branchList = <Map<String, dynamic>>[...asList(e['branches'])];
+      byId[eid] = {
+        ...e,
+        'id': eid,
+        'legalName': '${e['legalName'] ?? e['name'] ?? 'Legal Entity'}',
+        'branches': branchList,
+      };
+    }
+
+    // Attach sibling top-level `branches` if `/organization` returned them flat
+    for (final b in topBranches) {
+      final bid = '${b['id'] ?? b['branchId'] ?? ''}'.trim();
+      final eid =
+          '${b['legalEntityId'] ?? asMap(b['legalEntity'])['id'] ?? ''}'.trim();
+      if (bid.isEmpty || eid.isEmpty) continue;
+      final ent = byId.putIfAbsent(eid, () {
+        final leMap = asMap(b['legalEntity']);
+        return {
+          'id': eid,
+          'legalName':
+              '${leMap['legalName'] ?? leMap['name'] ?? (app.entityName.isNotEmpty ? app.entityName : 'Legal Entity')}',
+          'branches': <Map<String, dynamic>>[],
+        };
+      });
+      final list = ent['branches'] as List<Map<String, dynamic>>;
+      if (!list.any((x) => '${x['id'] ?? x['branchId']}' == bid)) {
+        list.add({...b, 'id': bid});
+      }
+    }
+
+    // Merge known entities & branches from active session (`AppState.options`)
+    for (final opt in app.options) {
+      if (opt.entityId.isEmpty) continue;
+      final ent = byId.putIfAbsent(
+        opt.entityId,
+        () => {
+          'id': opt.entityId,
+          'legalName': opt.entityName.isNotEmpty
+              ? opt.entityName
+              : (app.tenantName.isNotEmpty ? app.tenantName : 'Legal Entity'),
+          'functionalCurrency': opt.currency,
+          'timezone': opt.timezone,
+          'branches': <Map<String, dynamic>>[],
+        },
+      );
+      final list = ent['branches'] as List<Map<String, dynamic>>;
+      if (opt.branchId.isNotEmpty &&
+          !list.any((x) => '${x['id'] ?? x['branchId']}' == opt.branchId)) {
+        list.add({
+          'id': opt.branchId,
+          'code': opt.branchCode,
+          'name': opt.branchName,
+          'state': 'ACTIVE',
+        });
+      }
+    }
+
+    if (byId.isEmpty && app.selectedEntityId.isNotEmpty) {
+      byId[app.selectedEntityId] = {
+        'id': app.selectedEntityId,
+        'legalName': app.entityName.isNotEmpty
+            ? app.entityName
+            : (app.tenantName.isNotEmpty ? app.tenantName : 'Legal Entity'),
+        'functionalCurrency': app.currency,
+        'timezone': app.timezone,
+        'branches': <Map<String, dynamic>>[
+          if (app.selectedBranchId.isNotEmpty)
+            {
+              'id': app.selectedBranchId,
+              'code': app.branchCode,
+              'name': app.branchName,
+              'state': 'ACTIVE',
+            },
+        ],
+      };
+    }
+
+    return byId.values.toList();
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
     });
+    final app = context.read<AppState>();
     try {
       final d = await context.read<ApiClient>().get('/organization');
       if (!mounted) return;
-      final list = asList(
-        d,
-        keys: const ['legalEntities', 'entities', 'items'],
-      );
-      setState(() => _entities = list);
+      setState(() => _entities = _normalizeOrganization(d, app));
     } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (!mounted) return;
+      final fallback = _normalizeOrganization(const <String, dynamic>{}, app);
+      setState(() {
+        if (fallback.isNotEmpty) _entities = fallback;
+        _error = e.message;
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -6097,29 +6198,10 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
 
   Future<void> _openAddBranchModal({Map<String, dynamic>? presetEntity}) async {
     final app = context.read<AppState>();
-    final availableEntities = <Map<String, dynamic>>[..._entities];
+    var availableEntities = <Map<String, dynamic>>[..._entities];
     if (availableEntities.isEmpty) {
-      final seen = <String>{};
-      for (final opt in app.options) {
-        if (opt.entityId.isNotEmpty && seen.add(opt.entityId)) {
-          availableEntities.add({
-            'id': opt.entityId,
-            'legalName': opt.entityName.isNotEmpty
-                ? opt.entityName
-                : (app.tenantName.isNotEmpty ? app.tenantName : 'Legal Entity'),
-          });
-        }
-      }
-      if (availableEntities.isEmpty && app.selectedEntityId.isNotEmpty) {
-        availableEntities.add({
-          'id': app.selectedEntityId,
-          'legalName': app.entityName.isNotEmpty
-              ? app.entityName
-              : (app.tenantName.isNotEmpty ? app.tenantName : 'Legal Entity'),
-        });
-      }
+      availableEntities = _normalizeOrganization(const <String, dynamic>{}, app);
     }
-
     if (availableEntities.isEmpty) {
       await _openAddEntityModal();
       return;
@@ -6127,15 +6209,16 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
 
     final created = await showDialog<bool>(
       context: context,
+      barrierDismissible: true,
       builder: (_) => _AddShowroomBranchDialog(
         entities: availableEntities,
         presetEntity: presetEntity,
       ),
     );
     if (created == true && mounted) {
-      await _load();
+      await context.read<AppState>().refreshSession();
       if (mounted) {
-        await context.read<AppState>().refreshSession();
+        await _load();
       }
     }
   }
@@ -6143,12 +6226,13 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
   Future<void> _openAddEntityModal() async {
     final created = await showDialog<bool>(
       context: context,
+      barrierDismissible: true,
       builder: (_) => const _AddLegalEntityDialog(),
     );
     if (created == true && mounted) {
-      await _load();
+      await context.read<AppState>().refreshSession();
       if (mounted) {
-        await context.read<AppState>().refreshSession();
+        await _load();
       }
     }
   }
@@ -6189,9 +6273,13 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
       if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
     ].join(' · ');
 
+    final effectiveEntities = _entities.isNotEmpty
+        ? _entities
+        : _normalizeOrganization(const <String, dynamic>{}, app);
+
     final q = _search.text.trim().toLowerCase();
     final filteredEntities = <Map<String, dynamic>>[];
-    for (final e in _entities) {
+    for (final e in effectiveEntities) {
       final branches = asList(e['branches']);
       if (q.isEmpty) {
         filteredEntities.add({...e, '_filteredBranches': branches});
@@ -6240,7 +6328,7 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
               const SizedBox(height: 12),
             ],
 
-            // Main `Organization Hierarchy` Card (`image-55.png`)
+            // Main `Organization Hierarchy` Card (`image-69.png` background)
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -6289,7 +6377,7 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                   ),
                   const SizedBox(height: 14),
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Expanded(
                         child: Column(
@@ -6313,7 +6401,7 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                       ),
                       const SizedBox(width: 10),
                       GoldButton(
-                        label: '+ Add branch',
+                        label: '+ Add Branch',
                         compact: true,
                         busy: _busy,
                         onPressed:
@@ -6321,30 +6409,8 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(6),
-                      onTap: _openAddEntityModal,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 3,
-                        ),
-                        child: Text(
-                          '+ New legal entity',
-                          style: T.body(
-                            11.8,
-                            weight: FontWeight.w700,
-                            color: Pal.goldDeep,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  if (_loading)
+                  const SizedBox(height: 14),
+                  if (_loading && effectiveEntities.isEmpty)
                     const Skeleton(height: 120)
                   else if (filteredEntities.isEmpty)
                     const SaasEmptyBox(
@@ -6358,7 +6424,8 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                           final ent = filteredEntities[idx];
                           final branches = asList(ent['_filteredBranches']);
                           final ccy =
-                              '${ent['functionalCurrency'] ?? 'INR'}'.trim();
+                              '${ent['functionalCurrency'] ?? ent['currency'] ?? 'INR'}'
+                                  .trim();
                           final tz =
                               '${ent['timezone'] ?? 'Asia/Kolkata'}'.trim();
                           final gstin =
@@ -6378,18 +6445,18 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                                 Row(
                                   children: [
                                     Container(
-                                      width: 40,
-                                      height: 40,
+                                      width: 38,
+                                      height: 38,
                                       decoration: BoxDecoration(
-                                        color: Pal.goldTint,
-                                        borderRadius:
-                                            BorderRadius.circular(11),
-                                        border:
-                                            Border.all(color: Pal.borderGold),
+                                        color: const Color(0xFFFBF3DC),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: const Color(0xFFEBD79C),
+                                        ),
                                       ),
                                       child: const Icon(
                                         Icons.apartment_rounded,
-                                        size: 20,
+                                        size: 19,
                                         color: Pal.goldDeep,
                                       ),
                                     ),
@@ -6402,7 +6469,7 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                                           Text(
                                             '${ent['legalName'] ?? ent['name'] ?? 'Legal Entity'}',
                                             style: T.body(
-                                              14.8,
+                                              15,
                                               weight: FontWeight.w800,
                                               color: Pal.ink,
                                             ),
@@ -6416,27 +6483,16 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                                                 'GSTIN: $gstin',
                                             ].join(' · '),
                                             style: T.body(
-                                              11.8,
+                                              11.6,
                                               color: Pal.muted,
                                             ),
                                           ),
                                         ],
                                       ),
                                     ),
-                                    IconButton(
-                                      tooltip: 'Add branch to this entity',
-                                      onPressed: () => _openAddBranchModal(
-                                        presetEntity: ent,
-                                      ),
-                                      icon: const Icon(
-                                        Icons.add_circle_outline_rounded,
-                                        size: 20,
-                                        color: Pal.goldDeep,
-                                      ),
-                                    ),
                                   ],
                                 ),
-                                const SizedBox(height: 10),
+                                const SizedBox(height: 12),
                                 if (branches.isEmpty)
                                   Padding(
                                     padding:
@@ -6451,19 +6507,13 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                                       bIdx < branches.length;
                                       bIdx++) ...[
                                     if (bIdx > 0)
-                                      const Divider(
-                                        height: 1,
-                                        color: Pal.divider,
-                                      ),
+                                      const SizedBox(height: 6),
                                     Builder(
                                       builder: (_) {
                                         final b = branches[bIdx];
                                         final isCurrent =
                                             app.selectedBranchId ==
                                                 '${b['id']}';
-                                        final st =
-                                            '${b['state'] ?? b['status'] ?? 'ACTIVE'}'
-                                                .toUpperCase();
                                         return InkWell(
                                           borderRadius:
                                               BorderRadius.circular(10),
@@ -6471,62 +6521,70 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                                               _activateShowroom(app, ent, b),
                                           child: Padding(
                                             padding: const EdgeInsets.symmetric(
-                                              vertical: 10,
+                                              vertical: 6,
                                               horizontal: 4,
                                             ),
                                             child: Row(
                                               children: [
-                                                Icon(
-                                                  Icons.location_on_outlined,
-                                                  size: 16,
-                                                  color: isCurrent
-                                                      ? Pal.gold
-                                                      : Pal.goldDeep,
+                                                Container(
+                                                  width: 7,
+                                                  height: 7,
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                    color: Pal.gold,
+                                                    shape: BoxShape.circle,
+                                                  ),
                                                 ),
-                                                const SizedBox(width: 8),
+                                                const SizedBox(width: 10),
+                                                if ('${b['code'] ?? ''}'
+                                                    .isNotEmpty) ...[
+                                                  Container(
+                                                    padding: const EdgeInsets
+                                                        .symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 3,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.white,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                        6,
+                                                      ),
+                                                      border: Border.all(
+                                                        color: Pal.border,
+                                                      ),
+                                                    ),
+                                                    child: Text(
+                                                      '${b['code']}',
+                                                      style: T.mono(
+                                                        11.5,
+                                                        weight: FontWeight.w700,
+                                                        color: Pal.ink,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                ],
                                                 Expanded(
-                                                  child: RichText(
-                                                    maxLines: 2,
+                                                  child: Text(
+                                                    '${b['name'] ?? ''}',
+                                                    maxLines: 1,
                                                     overflow:
                                                         TextOverflow.ellipsis,
-                                                    text: TextSpan(
-                                                      children: [
-                                                        TextSpan(
-                                                          text:
-                                                              '${b['code'] ?? ''}',
-                                                          style: T.mono(
-                                                            12.5,
-                                                            weight:
-                                                                FontWeight.w700,
-                                                            color: Pal.ink,
-                                                          ),
-                                                        ),
-                                                        TextSpan(
-                                                          text:
-                                                              '  ·  ${b['name'] ?? ''}',
-                                                          style: T.body(
-                                                            13,
-                                                            weight: isCurrent
-                                                                ? FontWeight
-                                                                    .w700
-                                                                : FontWeight
-                                                                    .w500,
-                                                            color: Pal.ink,
-                                                          ),
-                                                        ),
-                                                      ],
+                                                    style: T.body(
+                                                      13.5,
+                                                      weight: isCurrent
+                                                          ? FontWeight.w700
+                                                          : FontWeight.w500,
+                                                      color: Pal.ink,
                                                     ),
                                                   ),
                                                 ),
-                                                if (isCurrent) ...[
+                                                if (isCurrent)
                                                   Container(
-                                                    margin:
-                                                        const EdgeInsets.only(
-                                                      right: 6,
-                                                    ),
                                                     padding: const EdgeInsets
                                                         .symmetric(
-                                                      horizontal: 7,
+                                                      horizontal: 8,
                                                       vertical: 2.5,
                                                     ),
                                                     decoration: BoxDecoration(
@@ -6540,15 +6598,13 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
                                                       ),
                                                     ),
                                                     child: Text(
-                                                      'CURRENT',
+                                                      'ACTIVE',
                                                       style: T.caps(
-                                                        9.2,
+                                                        9,
                                                         color: Pal.goldDeep,
                                                       ),
                                                     ),
                                                   ),
-                                                ],
-                                                StatusPill(st),
                                               ],
                                             ),
                                           ),
@@ -6572,11 +6628,7 @@ class _ShowroomHierarchyScreenState extends State<ShowroomHierarchyScreen> {
   }
 }
 
-/// Exact `Add Showroom Branch` modal dialog (`image-69.png`):
-/// - Soft gold icon badge + `Add Showroom Branch` + Legal Entity subtitle
-/// - `BRANCH CODE` (`e.g. A-03`) with inline `Please fill in this field.` validation
-/// - `BRANCH NAME` (`e.g. City Centre Mall Showroom`) with inline validation
-/// - Bottom divider + `Cancel` + golden `Create Branch` button
+/// Exact 1:1 `Add Showroom Branch` modal (`image-69.png`)
 class _AddShowroomBranchDialog extends StatefulWidget {
   const _AddShowroomBranchDialog({
     required this.entities,
@@ -6625,13 +6677,6 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
       });
       return;
     }
-    if (cleanName.length < 2) {
-      setState(() {
-        _nameMissing = true;
-        _modalError = 'Branch Name must be at least 2 characters.';
-      });
-      return;
-    }
 
     setState(() {
       _busy = true;
@@ -6640,16 +6685,68 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
       _modalError = null;
     });
 
+    final api = context.read<ApiClient>();
+    Map<String, dynamic> activeEntity = widget.entities.first;
+    for (final e in widget.entities) {
+      if ('${e['id']}' == _selectedEntityId) {
+        activeEntity = e;
+        break;
+      }
+    }
+    final tz = '${activeEntity['timezone'] ?? 'Asia/Kolkata'}'.trim();
+
+    final attempts = <Future<dynamic> Function()>[
+      () => api.post(
+            '/organization/branches',
+            idempotent: true,
+            body: {
+              'legalEntityId': _selectedEntityId,
+              'code': cleanCode,
+              'name': cleanName,
+            },
+          ),
+      () => api.post(
+            '/organization/branches',
+            idempotent: true,
+            body: {
+              'legalEntityId': _selectedEntityId,
+              'code': cleanCode,
+              'name': cleanName,
+              'timezone': tz.isEmpty ? 'Asia/Kolkata' : tz,
+            },
+          ),
+      () => api.post(
+            '/organization/legal-entities/$_selectedEntityId/branches',
+            idempotent: true,
+            body: {
+              'code': cleanCode,
+              'name': cleanName,
+            },
+          ),
+    ];
+
     try {
-      await context.read<ApiClient>().post(
-        '/organization/branches',
-        idempotent: true,
-        body: {
-          'legalEntityId': _selectedEntityId,
-          'code': cleanCode,
-          'name': cleanName,
-        },
-      );
+      ApiException? lastErr;
+      var ok = false;
+      for (var i = 0; i < attempts.length; i++) {
+        try {
+          await attempts[i]();
+          ok = true;
+          break;
+        } on ApiException catch (e) {
+          lastErr = e;
+          if ((e.status == 400 ||
+                  e.status == 404 ||
+                  e.status == 405 ||
+                  e.status == 422) &&
+              i + 1 < attempts.length) {
+            continue;
+          }
+          rethrow;
+        }
+      }
+      if (!ok && lastErr != null) throw lastErr;
+
       if (!mounted) return;
       final messenger = ScaffoldMessenger.maybeOf(context);
       Navigator.of(context).pop(true);
@@ -6683,15 +6780,16 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
     return Dialog(
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
+      elevation: 14,
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: Pal.border),
+        side: const BorderSide(color: Color(0xFFE8E2D5)),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: const BoxConstraints(maxWidth: 400),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -6700,25 +6798,24 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFBF3DC),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFEBD79C)),
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFBF3DC),
+                      shape: BoxShape.circle,
                     ),
                     child: const Icon(
                       Icons.apartment_rounded,
-                      size: 19,
+                      size: 18,
                       color: Pal.goldDeep,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 11),
                   Expanded(
                     child: Text(
                       'Add Showroom Branch',
                       style: T.body(
-                        17,
+                        17.5,
                         weight: FontWeight.w800,
                         color: Pal.ink,
                       ),
@@ -6731,7 +6828,7 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
                 entityTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: T.body(12.6, color: Pal.muted),
+                style: T.body(12.8, color: Pal.muted),
               ),
               const SizedBox(height: 18),
               if (_modalError != null) ...[
@@ -6753,44 +6850,56 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
               ],
               Text(
                 'BRANCH CODE',
-                style: T.caps(10.5, color: Pal.ink),
+                style: T.caps(10.5, color: const Color(0xFF534E46)),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 7),
               TextField(
                 controller: _codeCtrl,
                 textCapitalization: TextCapitalization.characters,
-                style: T.mono(13.5, color: Pal.ink),
+                style: T.body(13.8, color: Pal.ink),
                 onChanged: (_) {
                   if (_codeMissing) setState(() => _codeMissing = false);
                 },
                 decoration: InputDecoration(
                   hintText: 'e.g. A-03',
+                  filled: true,
+                  fillColor: const Color(0xFFFAFAFA),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 13,
+                  ),
                   errorText:
                       _codeMissing ? 'Please fill in this field.' : null,
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               Text(
                 'BRANCH NAME',
-                style: T.caps(10.5, color: Pal.ink),
+                style: T.caps(10.5, color: const Color(0xFF534E46)),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 7),
               TextField(
                 controller: _nameCtrl,
-                style: T.body(13.5, color: Pal.ink),
+                style: T.body(13.8, color: Pal.ink),
                 onChanged: (_) {
                   if (_nameMissing) setState(() => _nameMissing = false);
                 },
                 onSubmitted: (_) => _submit(),
                 decoration: InputDecoration(
                   hintText: 'e.g. City Centre Mall Showroom',
+                  filled: true,
+                  fillColor: const Color(0xFFFAFAFA),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 13,
+                  ),
                   errorText:
                       _nameMissing ? 'Please fill in this field.' : null,
                 ),
               ),
               const Padding(
-                padding: EdgeInsets.symmetric(vertical: 18),
-                child: Divider(height: 1, color: Pal.divider),
+                padding: EdgeInsets.only(top: 20, bottom: 14),
+                child: Divider(height: 1, color: Color(0xFFEEE9DE)),
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -6801,9 +6910,9 @@ class _AddShowroomBranchDialogState extends State<_AddShowroomBranchDialog> {
                     child: Text(
                       'Cancel',
                       style: T.body(
-                        13.5,
+                        13.8,
                         weight: FontWeight.w600,
-                        color: Pal.muted,
+                        color: const Color(0xFF5F5A52),
                       ),
                     ),
                   ),
@@ -6895,7 +7004,7 @@ class _AddLegalEntityDialogState extends State<_AddLegalEntityDialog> {
         side: const BorderSide(color: Pal.border),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: const BoxConstraints(maxWidth: 400),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
           child: Column(
@@ -6904,7 +7013,7 @@ class _AddLegalEntityDialogState extends State<_AddLegalEntityDialog> {
             children: [
               Text(
                 'Add Legal Entity',
-                style: T.body(17, weight: FontWeight.w800, color: Pal.ink),
+                style: T.body(17.5, weight: FontWeight.w800, color: Pal.ink),
               ),
               const SizedBox(height: 14),
               if (_modalError != null) ...[
@@ -6964,8 +7073,107 @@ class _AddLegalEntityDialogState extends State<_AddLegalEntityDialog> {
 }
 
 // ---------------------------------------------------------------------------
-// 7. ACCESS CONTROL & ROLES (`/access` + `/support-grants`) — `image-57..58.png`
+// 7. ACCESS CONTROL & ROLES (`/access`, `/support-grants`) — `image-70.png`
 // ---------------------------------------------------------------------------
+
+const Map<String, String> _kErpPermissionCatalog = <String, String>{
+  'accounting.fiscal.approve':
+      'Independently approve fiscal workflow snapshots',
+  'accounting.fiscal.post':
+      'Post approved opening/closing/reopening atomically',
+  'accounting.fiscal.prepare': 'Prepare annual close and linked reopening',
+  'accounting.fiscal.read':
+      'Read entity-wide opening and fiscal-close evidence',
+  'accounting.journal.create': 'Create manual journal drafts',
+  'accounting.journal.post': 'Post balanced journals',
+  'accounting.journal.read': 'Read ledger accounts, periods and journals',
+  'accounting.journal.reverse': 'Reverse posted journals with audit reason',
+  'accounting.period.manage': 'Open, lock and reopen accounting posting periods',
+  'access.members.manage': 'Assign and update tenant member role scopes',
+  'access.read': 'Read tenant roles, permissions and member assignments',
+  'access.roles.manage': 'Create and update tenant-scoped roles and permissions',
+  'approvals.memo.issue': 'Issue showroom approval memos and consignments',
+  'approvals.memo.read': 'Read approval memos and open consignment items',
+  'approvals.memo.settle': 'Return or convert approval memo items to sales',
+  'banking.account.manage': 'Create and configure bank and settlement accounts',
+  'banking.read': 'Read bank statements, clearings and reconciliations',
+  'banking.reconcile': 'Import bank statements and match ledger lines',
+  'chain_analytics.read': 'Read multi-branch chain performance analytics',
+  'custom_orders.create': 'Book custom jewellery orders and customer advances',
+  'custom_orders.manage': 'Update custom order milestones, quotes and delivery',
+  'custom_orders.read': 'Read custom orders and workshop progress',
+  'documents.render': 'Render and print governed showroom documents and PDFs',
+  'documents.templates.manage':
+      'Create, clone and publish invoice/document templates',
+  'documents.templates.read': 'Read document templates and invoice profile',
+  'gst_compliance.einvoice.manage':
+      'Generate, cancel and reconcile e-Invoices and e-Way bills',
+  'gst_compliance.read': 'Read GST registrations, HSN policies and compliance',
+  'gst_returns.export': 'Generate and download GSTR-1 / GSTR-3B return exports',
+  'gst_returns.prepare': 'Prepare GST return working papers and 2B matches',
+  'gst_returns.read': 'Read GST return periods, filings and reconciliations',
+  'integrations.manage': 'Configure webhooks, ERP connectors and API keys',
+  'integrations.read': 'Read integration connectors and delivery logs',
+  'inter_entity.trade.manage':
+      'Create, dispatch and settle inter-entity bullion/stock trades',
+  'inter_entity.trade.read': 'Read inter-entity trades and paired settlements',
+  'inventory.adjust': 'Record governed stock adjustments and physical counts',
+  'inventory.lot.manage': 'Create and split metal/stone inventory lots',
+  'inventory.read': 'Read tagged showroom stock, lots and vault balances',
+  'inventory.tag.create': 'Create and print barcoded/RFID ornament tags',
+  'inventory.tag.manage': 'Update ornament tag attributes, status and location',
+  'job_work.issue': 'Issue bullion and stones to karigars / workshops',
+  'job_work.read': 'Read karigar job orders, balances and wastage',
+  'job_work.receive': 'Receive finished ornaments and settle karigar wastage',
+  'materials.manage': 'Configure metals, purity grades and item categories',
+  'materials.read': 'Read metal masters, purities and making rules',
+  'messaging.read': 'Read customer WhatsApp/SMS notifications and consents',
+  'messaging.send': 'Dispatch transactional invoices and campaign alerts',
+  'old_metal.intake.create': 'Record old gold/silver buyback melting intakes',
+  'old_metal.policy.manage': 'Configure old metal purity deduction policies',
+  'old_metal.read': 'Read old metal buyback registers and assay valuations',
+  'organization.branch.manage': 'Create and update showroom branches',
+  'organization.entity.manage':
+      'Create and configure legal entities and invoice profiles',
+  'organization.read': 'Read organization hierarchy, entities and branches',
+  'parties.manage': 'Create and update customer, supplier and karigar profiles',
+  'parties.read': 'Read party directory, KYC details and ledger balances',
+  'payments.allocate': 'Allocate receipts and disbursements against open bills',
+  'payments.create':
+      'Record customer receipts, supplier payouts and customer refunds',
+  'payments.read': 'Read showroom settlements, instruments and open items',
+  'payments.reverse': 'Reverse posted settlements with governed audit reason',
+  'pos_shifts.close': 'Count tender drawers and close POS cashier shifts',
+  'pos_shifts.open': 'Open showroom POS cashier shifts and float balances',
+  'pos_shifts.read': 'Read POS shifts, cashups and variance reports',
+  'procurement.grn.post': 'Receive supplier bullion/ornament goods receipts',
+  'procurement.invoice.post': 'Post supplier purchase bills and input GST',
+  'procurement.order.create': 'Create supplier purchase orders',
+  'procurement.read': 'Read purchase orders, GRNs and supplier bills',
+  'rate_fixing.manage': 'Book and settle unfixed bullion rate-cut contracts',
+  'rate_fixing.read': 'Read open bullion rate-fixing contracts and exposures',
+  'rates.manage': 'Create rate books and draft showroom metal rate versions',
+  'rates.publish': 'Publish live showroom gold, silver and platinum rates',
+  'rates.read': 'Read live and historical showroom bullion rate boards',
+  'refining.manage': 'Issue old metal lots to refinery and post assay outturn',
+  'refining.read': 'Read refinery batches, melting losses and fine recovery',
+  'repairs.create': 'Accept customer ornament repair jobs and estimates',
+  'repairs.manage': 'Update repair workshop status, charges and delivery',
+  'repairs.read': 'Read repair intake register and workshop tickets',
+  'reports.accounting.read':
+      'Read Trial Balance, General Ledger, Party Statement and Ageing',
+  'reports.inventory.read': 'Read Stock Valuation and Gross Margin reports',
+  'sales.credit_note.post': 'Create and post governed sales returns/credit notes',
+  'sales.estimate.create': 'Create showroom price estimates and proforma slips',
+  'sales.invoice.create': 'Create draft POS sales invoices',
+  'sales.invoice.post': 'Finalize and post showroom tax invoices',
+  'sales.read': 'Read showroom estimates, sales invoices and credit notes',
+  'stock_transfers.dispatch': 'Create and dispatch inter-branch stock transfers',
+  'stock_transfers.read': 'Read inter-branch stock transfer manifests',
+  'stock_transfers.receive': 'Verify and receive incoming branch stock transfers',
+  'support_grants.manage': 'Approve, revoke or expire platform support grants',
+  'support_grants.read': 'Read time-limited platform support access grants',
+};
 
 class AccessControlScreen extends StatefulWidget {
   const AccessControlScreen({super.key});
@@ -6975,16 +7183,12 @@ class AccessControlScreen extends StatefulWidget {
 
 class _AccessControlScreenState extends State<AccessControlScreen> {
   final _search = TextEditingController();
-  Map<String, dynamic> _access = const {};
-  List<Map<String, dynamic>> _entities = const [];
-  List<Map<String, dynamic>> _grants = const [];
+  Map<String, dynamic> _access = {};
+  Map<String, dynamic> _org = {};
+  List<Map<String, dynamic>> _grants = [];
   bool _loading = true;
-  bool _busy = false;
+  final bool _busy = false;
   String? _error;
-
-  final _supportDecisionReason = TextEditingController(
-    text: 'Reviewed tenant support request scope and duration.',
-  );
 
   @override
   void initState() {
@@ -6995,8 +7199,13 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
   @override
   void dispose() {
     _search.dispose();
-    _supportDecisionReason.dispose();
     super.dispose();
+  }
+
+  Map<String, dynamic> get _accessRoot {
+    if (_access['workspace'] is Map) return asMap(_access['workspace']);
+    if (_access['access'] is Map) return asMap(_access['access']);
+    return _access;
   }
 
   Future<void> _load() async {
@@ -7008,16 +7217,13 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
     try {
       final results = await Future.wait<dynamic>([
         api.get('/access'),
-        api.get('/organization').catchError((_) => const <dynamic>[]),
-        api.get('/support-grants').catchError((_) => const <dynamic>[]),
+        api.get('/organization').catchError((_) => <String, dynamic>{}),
+        api.get('/support-grants').catchError((_) => <String, dynamic>{}),
       ]);
       if (!mounted) return;
       setState(() {
         _access = asMap(results[0]);
-        _entities = asList(
-          results[1],
-          keys: const ['legalEntities', 'entities', 'items'],
-        );
+        _org = asMap(results[1]);
         _grants = asList(
           results[2],
           keys: const ['grants', 'supportGrants', 'items'],
@@ -7031,149 +7237,190 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
   }
 
   List<Map<String, dynamic>> _allOrgBranches() {
-    final out = <Map<String, dynamic>>[];
-    for (final e in _entities) {
+    final byId = <String, Map<String, dynamic>>{};
+    final orgRoot = _org['organization'] is Map
+        ? asMap(_org['organization'])
+        : _org;
+    for (final e in asList(orgRoot, keys: const ['legalEntities', 'entities'])) {
       for (final b in asList(e['branches'])) {
-        out.add({...b, '_entityName': '${e['legalName'] ?? e['name'] ?? ''}'});
+        final bid = '${b['id'] ?? b['branchId'] ?? ''}'.trim();
+        if (bid.isNotEmpty) byId[bid] = {...b, 'id': bid};
+      }
+    }
+    for (final b in asList(orgRoot['branches'])) {
+      final bid = '${b['id'] ?? b['branchId'] ?? ''}'.trim();
+      if (bid.isNotEmpty) byId[bid] = {...b, 'id': bid};
+    }
+    for (final opt in context.read<AppState>().options) {
+      if (opt.branchId.isNotEmpty) {
+        byId.putIfAbsent(
+          opt.branchId,
+          () => {
+            'id': opt.branchId,
+            'code': opt.branchCode,
+            'name': opt.branchName,
+          },
+        );
+      }
+    }
+    return byId.values.toList();
+  }
+
+  String _humanizePermKey(String key) {
+    if (_kErpPermissionCatalog.containsKey(key)) {
+      return _kErpPermissionCatalog[key]!;
+    }
+    final parts = key
+        .split(RegExp(r'[._:-]+'))
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return 'Governed workspace permission';
+    if (parts.length == 1) return 'Allow ${parts.first} operations';
+    final action = parts.last;
+    final subject = parts.sublist(0, parts.length - 1).join(' ');
+    return '${action[0].toUpperCase()}${action.substring(1)} $subject';
+  }
+
+  List<({String key, String description})> _extractPermissionCatalog() {
+    final byKey = <String, String>{};
+
+    void absorbItem(dynamic p) {
+      if (p is String) {
+        final k = p.trim();
+        if (k.isNotEmpty) {
+          byKey.putIfAbsent(k, () => _humanizePermKey(k));
+        }
+      } else if (p is Map) {
+        final inner = p['permission'] is Map ? asMap(p['permission']) : p;
+        final k =
+            '${inner['key'] ?? inner['permissionKey'] ?? inner['code'] ?? inner['id'] ?? p['permissionKey'] ?? p['key'] ?? ''}'
+                .trim();
+        if (k.isEmpty) return;
+        final desc =
+            '${inner['description'] ?? inner['summary'] ?? inner['label'] ?? inner['name'] ?? p['description'] ?? ''}'
+                .trim();
+        if (desc.isNotEmpty && desc != k) {
+          byKey[k] = desc;
+        } else {
+          byKey.putIfAbsent(k, () => _humanizePermKey(k));
+        }
+      }
+    }
+
+    void absorbCollection(dynamic raw) {
+      if (raw is Iterable) {
+        for (final item in raw) {
+          absorbItem(item);
+        }
+      } else if (raw is Map) {
+        for (final entry in raw.entries) {
+          final k = '${entry.key}'.trim();
+          final v = entry.value;
+          if (k.contains('.') && (v is String || v is bool || v is Map)) {
+            if (v is String && v.trim().isNotEmpty) {
+              byKey[k] = v.trim();
+            } else if (v is Map) {
+              absorbItem({'key': k, ...v});
+            } else {
+              byKey.putIfAbsent(k, () => _humanizePermKey(k));
+            }
+          } else if (v is Iterable) {
+            for (final item in v) {
+              absorbItem(item);
+            }
+          }
+        }
+      }
+    }
+
+    final root = _accessRoot;
+    for (final mapCandidate in [_access, root]) {
+      for (final field in const [
+        'permissions',
+        'permissionCatalog',
+        'availablePermissions',
+        'allPermissions',
+        'catalog',
+        'permissionGroups',
+      ]) {
+        absorbCollection(mapCandidate[field]);
+      }
+    }
+
+    final roles = asList(root, keys: const ['roles', 'tenantRoles', 'items']);
+    for (final r in roles) {
+      absorbCollection(r['permissions']);
+      absorbCollection(r['permissionKeys']);
+      absorbCollection(r['rolePermissions']);
+      absorbCollection(r['grantedPermissions']);
+    }
+
+    final sessionUser = context.read<AppState>().user;
+    absorbCollection(sessionUser['permissions']);
+    absorbCollection(sessionUser['permissionKeys']);
+
+    // Guarantee non-empty catalog when `/access` returns summary counts only
+    if (byKey.isEmpty) {
+      byKey.addAll(_kErpPermissionCatalog);
+    }
+
+    final list = [
+      for (final e in byKey.entries) (key: e.key, description: e.value),
+    ];
+    list.sort((a, b) => a.key.compareTo(b.key));
+    return list;
+  }
+
+  Set<String> _rolePermSet(Map<String, dynamic> role) {
+    final out = <String>{};
+    for (final field in const [
+      'permissionKeys',
+      'permissions',
+      'rolePermissions',
+      'grantedPermissions',
+    ]) {
+      final raw = role[field];
+      if (raw is Iterable) {
+        for (final p in raw) {
+          if (p is String && p.trim().isNotEmpty) {
+            out.add(p.trim());
+          } else if (p is Map) {
+            final inner = p['permission'] is Map ? asMap(p['permission']) : p;
+            final k =
+                '${inner['key'] ?? inner['permissionKey'] ?? inner['code'] ?? p['permissionKey'] ?? ''}'
+                    .trim();
+            if (k.isNotEmpty) out.add(k);
+          }
+        }
       }
     }
     return out;
   }
 
-  int _memberRoleCount(Map<String, dynamic> m) {
-    for (final k in const [
-      'roleIds',
-      'roles',
-      'assignedRoles',
-      'assignments',
-    ]) {
-      if (m[k] is List) return (m[k] as List).length;
-    }
-    if (m['roleCount'] != null) return asInt(m['roleCount']);
-    return 0;
+  int _rolePermCount(Map<String, dynamic> role) {
+    final explicitCount = asInt(
+      role['permissionCount'] ??
+          asMap(role['_count'])['permissions'] ??
+          asMap(role['_count'])['rolePermissions'],
+    );
+    if (explicitCount > 0) return explicitCount;
+    return _rolePermSet(role).length;
   }
 
-  int _memberBranchScopeCount(Map<String, dynamic> m) {
-    for (final k in const [
-      'branchIds',
-      'branches',
-      'branchScopes',
-      'scopes',
-    ]) {
-      if (m[k] is List) return (m[k] as List).length;
+  Future<void> _openRoleModal({Map<String, dynamic>? existingRole}) async {
+    if (_loading && _access.isEmpty) {
+      await _load();
+      if (!mounted) return;
     }
-    final assigns = asList(m['assignments']);
-    if (assigns.isNotEmpty) {
-      final bSet = <String>{};
-      for (final a in assigns) {
-        for (final bid in asList(a['branchIds'])) {
-          bSet.add('$bid');
-        }
-        if (a['branchIds'] is List) {
-          for (final rawId in (a['branchIds'] as List)) {
-            if ('$rawId'.isNotEmpty) bSet.add('$rawId');
-          }
-        }
-        final single = '${a['branchId'] ?? ''}'.trim();
-        if (single.isNotEmpty) bSet.add(single);
-      }
-      if (bSet.isNotEmpty) return bSet.length;
-    }
-    if (m['branchScopeCount'] != null) return asInt(m['branchScopeCount']);
-    return _allOrgBranches().length;
-  }
-
-  static const Map<String, String> _knownPermDescriptions = {
-    'accounting.fiscal.approve':
-        'Independently approve fiscal workflow snapshots',
-    'accounting.fiscal.post':
-        'Post approved opening/closing/reopening atomically',
-    'accounting.fiscal.prepare':
-        'Prepare annual close and linked reopening',
-    'accounting.fiscal.read':
-        'Read entity-wide opening and fiscal-close evidence',
-    'accounting.journal.create': 'Create manual journal drafts',
-    'accounting.journal.post': 'Post balanced journals',
-    'accounting.journal.reverse': 'Reverse posted accounting journals',
-    'accounting.read': 'Read chart of accounts, periods, series, and journals',
-  };
-
-  static String _fallbackDescribePerm(String key) {
-    final hit = _knownPermDescriptions[key];
-    if (hit != null) return hit;
-    final parts = key.split('.');
-    if (parts.length >= 2) {
-      final action = humanize(parts.last);
-      final domain = parts.sublist(0, parts.length - 1).map(humanize).join(' ');
-      return '$action access for ${domain.toLowerCase()}';
-    }
-    return 'Authorize ${humanize(key).toLowerCase()} operations';
-  }
-
-  List<Map<String, dynamic>> _extractPermissionCatalog() {
-    final byKey = <String, Map<String, dynamic>>{};
-
-    void ingestList(dynamic rawList) {
-      if (rawList is! List) return;
-      for (final item in rawList) {
-        if (item is Map) {
-          final k = '${item['key'] ?? item['code'] ?? item['permissionKey'] ?? ''}'
-              .trim();
-          if (k.isEmpty) continue;
-          final desc = '${item['description'] ?? item['summary'] ?? item['label'] ?? ''}'
-              .trim();
-          final prev = byKey[k];
-          if (prev == null || ('${prev['description']}'.isEmpty && desc.isNotEmpty)) {
-            byKey[k] = {
-              'key': k,
-              'description': desc.isNotEmpty ? desc : _fallbackDescribePerm(k),
-            };
-          }
-        } else if (item != null) {
-          final k = '$item'.trim();
-          if (k.isNotEmpty && !byKey.containsKey(k)) {
-            byKey[k] = {
-              'key': k,
-              'description': _fallbackDescribePerm(k),
-            };
-          }
-        }
-      }
-    }
-
-    for (final entry in _access.entries) {
-      final ek = entry.key.toLowerCase();
-      if (ek.contains('perm') || ek.contains('catalog')) {
-        if (entry.value is List) {
-          ingestList(entry.value);
-        } else if (entry.value is Map) {
-          for (final sub in (entry.value as Map).values) {
-            if (sub is List) ingestList(sub);
-          }
-        }
-      }
-    }
-
-    for (final role in asList(_access['roles'])) {
-      ingestList(role['permissions']);
-      ingestList(role['permissionKeys']);
-    }
-
-    final list = byKey.values.toList()
-      ..sort((a, b) => '${a['key']}'.compareTo('${b['key']}'));
-    return list;
-  }
-
-  // `Create tenant role` / `Edit tenant role` modal dialog (`image-70.png`)
-  Future<void> _openCreateRoleModal(
-    List<Map<String, dynamic>> perms, {
-    Map<String, dynamic>? existingRole,
-  }) async {
+    final catalog = _extractPermissionCatalog();
     final saved = await showDialog<bool>(
       context: context,
+      barrierDismissible: true,
       builder: (_) => _TenantRoleDialog(
-        permissions: perms,
+        catalog: catalog,
         existingRole: existingRole,
+        initialPermissions:
+            existingRole != null ? _rolePermSet(existingRole) : const {},
       ),
     );
     if (saved == true && mounted) {
@@ -7181,102 +7428,6 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
     }
   }
 
-  Future<void> _openRolePermissionsInspector(
-    Map<String, dynamic> role,
-    List<Map<String, dynamic>> allPerms,
-  ) async {
-    final roleKeys = <String>{
-      for (final k in (role['permissionKeys'] is List
-          ? role['permissionKeys'] as List
-          : const []))
-        '$k',
-    };
-    final descByKey = <String, String>{
-      for (final p in allPerms) '${p['key'] ?? ''}': '${p['description'] ?? ''}',
-    };
-    final sortedKeys = roleKeys.toList()..sort();
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Pal.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.7,
-        maxChildSize: 0.92,
-        minChildSize: 0.45,
-        builder: (ctx, scrollCtrl) => Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${role['name'] ?? role['key']}',
-                          style: T.body(16, weight: FontWeight.w800),
-                        ),
-                        Text(
-                          '${role['key'] ?? ''} · ${sortedKeys.length} permissions',
-                          style: T.mono(11.8, color: Pal.muted),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: ListView.separated(
-                  controller: scrollCtrl,
-                  itemCount: sortedKeys.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 6),
-                  itemBuilder: (_, idx) {
-                    final k = sortedKeys[idx];
-                    final d = descByKey[k] ?? '';
-                    return Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Pal.bgTint,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Pal.border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            k,
-                            style: T.mono(12, weight: FontWeight.w700),
-                          ),
-                          if (d.isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Text(d, style: T.body(11.5, color: Pal.muted)),
-                          ],
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // `Edit` Member Assignments modal (`image-57.png`)
   Future<void> _openEditMemberModal(
     Map<String, dynamic> member,
     List<Map<String, dynamic>> roles,
@@ -7289,28 +7440,24 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
     final branches = _allOrgBranches();
 
     final selRoleIds = <String>{};
-    if (member['roleIds'] is List) {
-      for (final id in member['roleIds'] as List) {
+    if (member['roleIds'] is Iterable) {
+      for (final id in member['roleIds'] as Iterable) {
         if ('$id'.isNotEmpty) selRoleIds.add('$id');
       }
     }
-    for (final r in asList(member['roles'])) {
-      final rid = '${r['id'] ?? r['roleId'] ?? ''}'.trim();
-      if (rid.isNotEmpty) selRoleIds.add(rid);
-    }
-    for (final a in asList(member['assignments'])) {
-      final rid = '${a['roleId'] ?? ''}'.trim();
+    for (final r in asList(member, keys: const ['roles', 'assignments', 'roleAssignments'])) {
+      final rid = '${r['roleId'] ?? asMap(r['role'])['id'] ?? r['id'] ?? ''}'.trim();
       if (rid.isNotEmpty) selRoleIds.add(rid);
     }
 
     final selBranchIds = <String>{};
-    if (member['branchIds'] is List) {
-      for (final id in member['branchIds'] as List) {
+    if (member['branchIds'] is Iterable) {
+      for (final id in member['branchIds'] as Iterable) {
         if ('$id'.isNotEmpty) selBranchIds.add('$id');
       }
     }
-    for (final b in asList(member['branches'] ?? member['branchScopes'])) {
-      final bid = '${b['id'] ?? b['branchId'] ?? ''}'.trim();
+    for (final b in asList(member, keys: const ['branches', 'branchScopes', 'scopes'])) {
+      final bid = '${b['branchId'] ?? asMap(b['branch'])['id'] ?? b['id'] ?? ''}'.trim();
       if (bid.isNotEmpty) selBranchIds.add(bid);
     }
     if (selBranchIds.isEmpty) {
@@ -7480,7 +7627,7 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
                   for (final r in roles)
                     SaasCheckRow(
                       label:
-                          '${r['name'] ?? r['key']} (${r['key'] ?? ''})',
+                          '${r['displayName'] ?? r['name'] ?? r['key']} (${r['key'] ?? ''})',
                       value: selRoleIds.contains('${r['id']}'),
                       onChanged: (v) => setModal(() {
                         final id = '${r['id']}';
@@ -7545,83 +7692,110 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
     reasonCtrl.dispose();
   }
 
-  Future<void> _decideSupportGrant(
-    Map<String, dynamic> grant,
-    String decision,
-  ) async {
-    if (_supportDecisionReason.text.trim().length < 10) {
-      setState(
-        () => _error =
-            'Support grant decision reason must be at least 10 characters.',
+  Future<void> _decideGrant(Map<String, dynamic> g, String decision) async {
+    final reasonCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        title: Text(
+          '${decision[0].toUpperCase()}${decision.substring(1)} Support Grant',
+          style: T.body(16, weight: FontWeight.w800),
+        ),
+        content: SaasField(
+          label: 'DECISION REASON (MIN 10 CHARS)',
+          controller: reasonCtrl,
+          maxLines: 2,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          GoldButton(
+            label: decision.toUpperCase(),
+            compact: true,
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+    final reason = reasonCtrl.text.trim();
+    reasonCtrl.dispose();
+    if (ok != true || !mounted) return;
+    if (reason.length < 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Decision reason must be at least 10 characters.'),
+        ),
       );
       return;
     }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
     try {
       await context.read<ApiClient>().post(
-        '/support-grants/${grant['id']}/$decision',
+        '/support-grants/${g['id']}/$decision',
         idempotent: true,
         body: {
-          'expectedVersion': asInt(grant['version'], fallback: 1),
-          'decisionReason': _supportDecisionReason.text.trim(),
+          'expectedVersion': asInt(g['version'], fallback: 1),
+          'decisionReason': reason,
         },
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Support grant $decision recorded.')),
+        SnackBar(content: Text('Support grant $decision completed.')),
       );
-      await _load();
+      _load();
     } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Pal.danger),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AppState>();
+    final app = context.watch<AppState>();
     final rates = context.watch<RatesController>();
     final gold999 = rates.find('GOLD', '999') ?? rates.find('GOLD', '24K');
-    final tenantName = auth.tenantName.trim();
-    final branchName = auth.branchName.trim();
     final workspaceSub = [
-      if (tenantName.isNotEmpty) tenantName,
-      if (branchName.isNotEmpty) branchName,
+      if (app.tenantName.trim().isNotEmpty) app.tenantName.trim(),
+      if (app.branchName.trim().isNotEmpty) app.branchName.trim(),
     ].join(' · ');
 
-    final perms = _extractPermissionCatalog();
-    final roles = asList(_access['roles']);
-    final memberships = asList(_access['memberships']);
-
+    final root = _accessRoot;
+    final allRoles = asList(root, keys: const ['roles', 'tenantRoles', 'items']);
     final q = _search.text.trim().toLowerCase();
-    final fRoles = roles.where((r) {
-      if (q.isEmpty) return true;
-      return '${r['name'] ?? ''} ${r['key'] ?? ''}'.toLowerCase().contains(q);
-    }).toList();
-    final fMembers = memberships.where((m) {
-      if (q.isEmpty) return true;
-      final u = asMap(m['user']);
-      return '${u['displayName'] ?? m['displayName'] ?? ''} ${u['email'] ?? m['email'] ?? ''}'
-          .toLowerCase()
-          .contains(q);
-    }).toList();
-    final fGrants = _grants.where((g) {
-      if (q.isEmpty) return true;
-      return '${asMap(asMap(g['operator'])['user'])['displayName'] ?? ''} ${g['reason'] ?? ''} ${g['state'] ?? ''}'
-          .toLowerCase()
-          .contains(q);
-    }).toList();
+    final roles = allRoles
+        .where(
+          (r) =>
+              q.isEmpty ||
+              '${r['name'] ?? ''} ${r['displayName'] ?? ''} ${r['key'] ?? ''}'
+                  .toLowerCase()
+                  .contains(q),
+        )
+        .toList();
+    final members = asList(
+      root,
+      keys: const ['memberships', 'members', 'users'],
+    )
+        .where((m) {
+          if (q.isEmpty) return true;
+          final u = asMap(m['user']);
+          return '${u['displayName'] ?? m['displayName'] ?? ''} ${u['email'] ?? m['email'] ?? ''}'
+              .toLowerCase()
+              .contains(q);
+        })
+        .toList();
 
     return LuxuryModuleScaffold(
       title: 'Access Control & Roles',
       subtitle: workspaceSub.isEmpty ? null : workspaceSub,
-      icon: Icons.shield_outlined,
+      icon: Icons.admin_panel_settings_rounded,
       searchController: _search,
-      searchHint: 'Search roles, members or support access grants...',
+      searchHint: 'Search roles, permission keys or members...',
       onSearchChanged: (_) => setState(() {}),
       actions: [
         IconButton(
@@ -7640,7 +7814,7 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
               const SizedBox(height: 12),
             ],
 
-            // Hero Header (`Access and roles` + `+ Create role` — image-57.png)
+            // `Access and roles` Header + `+ Create role` button (`image-70.png`)
             Container(
               padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
@@ -7689,15 +7863,12 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
                   ),
                   const SizedBox(height: 12),
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.only(top: 2),
-                        child: Icon(
-                          Icons.verified_user_outlined,
-                          size: 20,
-                          color: Pal.gold,
-                        ),
+                      const Icon(
+                        Icons.verified_user_outlined,
+                        size: 20,
+                        color: Pal.goldDeep,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -7707,336 +7878,366 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
                             Text(
                               'Access and roles',
                               style: T.body(
-                                16.5,
+                                17,
                                 weight: FontWeight.w800,
                                 color: Pal.ink,
                               ),
                             ),
-                            const SizedBox(height: 3),
+                            const SizedBox(height: 2),
                             Text(
                               'Tenant-scoped roles, permissions and member assignments.',
-                              style: T.body(12.2, color: Pal.muted),
+                              style: T.body(12, color: Pal.muted),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 10),
                       GoldButton(
                         label: '+ Create role',
                         compact: true,
-                        onPressed:
-                            _loading ? null : () => _openCreateRoleModal(perms),
+                        busy: _busy,
+                        onPressed: _busy ? null : () => _openRoleModal(),
                       ),
                     ],
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 14),
 
-            const SizedBox(height: 12),
-
-            // Card 1: `Roles` (`image-57.png`)
-            SaasFormCard(
-              title: 'Roles',
-              icon: Icons.vpn_key_outlined,
-              child: _loading
-                  ? const Skeleton(height: 76)
-                  : fRoles.isEmpty
-                      ? const SaasEmptyBox('No tenant roles configured yet.')
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (var i = 0; i < fRoles.length; i++) ...[
-                              if (i > 0)
-                                const Divider(height: 16, color: Pal.divider),
-                              Builder(
-                                builder: (_) {
-                                  final r = fRoles[i];
-                                  final permCnt = (r['permissionKeys'] is List)
-                                      ? (r['permissionKeys'] as List).length
-                                      : (r['permissions'] is List)
-                                          ? (r['permissions'] as List).length
-                                          : asInt(r['permissionCount']);
-                                  return InkWell(
-                                    borderRadius: BorderRadius.circular(10),
-                                    onTap: () => _openRolePermissionsInspector(
-                                      r,
-                                      perms,
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 4,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  '${r['name'] ?? r['key'] ?? 'Role'}',
-                                                  style: T.body(
-                                                    14,
-                                                    weight: FontWeight.w700,
-                                                    color: Pal.ink,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  '$permCnt permissions',
-                                                  style: T.body(
-                                                    11.8,
-                                                    color: Pal.muted,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          InkWell(
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            onTap: () => _openCreateRoleModal(
-                                              perms,
-                                              existingRole: r,
-                                            ),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  const Icon(
-                                                    Icons.edit_outlined,
-                                                    size: 15,
-                                                    color: Pal.goldDeep,
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  Text(
-                                                    'Edit',
-                                                    style: T.body(
-                                                      12.8,
-                                                      weight: FontWeight.w700,
-                                                      color: Pal.goldDeep,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ],
-                        ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // Card 2: `Members` (`image-57.png`)
-            SaasFormCard(
-              title: 'Members',
-              icon: Icons.people_outline_rounded,
-              child: _loading
-                  ? const Skeleton(height: 76)
-                  : fMembers.isEmpty
-                      ? const SaasEmptyBox('No tenant members found.')
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (var i = 0; i < fMembers.length; i++) ...[
-                              if (i > 0)
-                                const Divider(height: 18, color: Pal.divider),
-                              Builder(
-                                builder: (_) {
-                                  final m = fMembers[i];
-                                  final u = asMap(m['user']);
-                                  final disp =
-                                      '${u['displayName'] ?? m['displayName'] ?? u['email'] ?? 'Member'}';
-                                  final email =
-                                      '${u['email'] ?? m['email'] ?? ''}';
-                                  final rCnt = _memberRoleCount(m);
-                                  final bCnt = _memberBranchScopeCount(m);
-                                  return Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              disp,
-                                              style: T.body(
-                                                14,
-                                                weight: FontWeight.w700,
-                                                color: Pal.ink,
-                                              ),
-                                            ),
-                                            if (email.isNotEmpty) ...[
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                email,
-                                                style: T.body(
-                                                  12,
-                                                  color: Pal.muted,
-                                                ),
-                                              ),
-                                            ],
-                                            const SizedBox(height: 3),
-                                            Text(
-                                              '$rCnt roles · $bCnt branch scopes',
-                                              style: T.body(
-                                                11.6,
-                                                color: Pal.muted,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      InkWell(
-                                        borderRadius: BorderRadius.circular(8),
-                                        onTap: () =>
-                                            _openEditMemberModal(m, roles),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 6,
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const Icon(
-                                                Icons.edit_outlined,
-                                                size: 15,
-                                                color: Pal.goldDeep,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                'Edit',
-                                                style: T.body(
-                                                  12.8,
-                                                  weight: FontWeight.w700,
-                                                  color: Pal.goldDeep,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ],
-                          ],
-                        ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Section 2: `Support access` (`image-57.png` bottom!)
+            // `Roles` Card (`image-70.png`)
             Container(
-              padding: const EdgeInsets.all(15),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Pal.card,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Pal.border),
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
                       const Icon(
-                        Icons.headset_mic_outlined,
-                        size: 20,
-                        color: Color(0xFF9333EA),
+                        Icons.vpn_key_outlined,
+                        size: 17,
+                        color: Pal.goldDeep,
                       ),
                       const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Support access',
-                          style: T.body(
-                            16,
-                            weight: FontWeight.w800,
-                            color: Pal.ink,
-                          ),
+                      Text(
+                        'Roles',
+                        style: T.body(
+                          14.5,
+                          weight: FontWeight.w800,
+                          color: Pal.ink,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Tenant-controlled, time-limited platform support grants.',
-                    style: T.body(12.2, color: Pal.muted),
-                  ),
                   const SizedBox(height: 12),
-                  if (_loading)
+                  if (_loading && _access.isEmpty)
                     const Skeleton(height: 68)
-                  else if (fGrants.isEmpty)
-                    const SaasEmptyBox(
-                      'No time-limited platform support grants requested.',
-                    )
-                  else ...[
-                    SaasField(
-                      label: 'Decision reason (minimum 10 characters)',
-                      controller: _supportDecisionReason,
-                    ),
-                    const SizedBox(height: 10),
-                    for (final g in fGrants)
-                      LuxuryRecordCard(
-                        icon: Icons.policy_outlined,
-                        code:
-                            '${asMap(asMap(g['operator'])['user'])['displayName'] ?? 'Platform Support'}',
-                        status: '${g['state'] ?? 'REQUESTED'}',
-                        lines: [
-                          ('Mode', '${g['mode'] ?? 'READ_ONLY'}'),
-                          if ('${g['reason'] ?? ''}'.isNotEmpty)
-                            ('Reason', '${g['reason']}'),
-                          if ('${g['expiresAt'] ?? ''}'.isNotEmpty)
-                            ('Expires', fmtDateTime('${g['expiresAt']}')),
-                        ],
-                        amountLabel: 'Grant',
-                        amountValue: statusLabel('${g['state'] ?? 'REQUESTED'}'),
-                        actions: [
-                          if ('${g['state']}' == 'REQUESTED') ...[
-                            GoldButton(
-                              label: 'Approve',
-                              compact: true,
-                              busy: _busy,
-                              onPressed: () =>
-                                  _decideSupportGrant(g, 'approve'),
+                  else if (roles.isEmpty)
+                    const SaasEmptyBox('No tenant roles found.')
+                  else
+                    for (var i = 0; i < roles.length; i++) ...[
+                      if (i > 0)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Divider(height: 1, color: Pal.divider),
+                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${roles[i]['displayName'] ?? roles[i]['name'] ?? roles[i]['key'] ?? 'Role'}',
+                                  style: T.body(
+                                    14,
+                                    weight: FontWeight.w700,
+                                    color: Pal.ink,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${_rolePermCount(roles[i])} permissions',
+                                  style: T.body(12, color: Pal.muted),
+                                ),
+                              ],
                             ),
-                            OutlinedButton(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _decideSupportGrant(g, 'reject'),
-                              child: const Text('Reject'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () =>
+                                _openRoleModal(existingRole: roles[i]),
+                            icon: const Icon(Icons.edit_outlined, size: 14),
+                            label: const Text('Edit'),
+                            style: OutlinedButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              foregroundColor: Pal.ink,
+                              side: const BorderSide(color: Pal.border),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 11,
+                                vertical: 7,
+                              ),
+                              textStyle: T.body(12, weight: FontWeight.w600),
                             ),
-                          ],
-                          if ('${g['state']}' == 'APPROVED')
-                            OutlinedButton(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _decideSupportGrant(g, 'revoke'),
-                              child: const Text('Revoke'),
-                            ),
+                          ),
                         ],
                       ),
-                  ],
+                    ],
                 ],
               ),
+            ),
+            const SizedBox(height: 14),
+
+            // `Members` Card (`image-70.png`)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.people_outline_rounded,
+                        size: 18,
+                        color: Pal.goldDeep,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Members',
+                        style: T.body(
+                          14.5,
+                          weight: FontWeight.w800,
+                          color: Pal.ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_loading && _access.isEmpty)
+                    const Skeleton(height: 68)
+                  else if (members.isEmpty)
+                    const SaasEmptyBox(
+                      'No tenant member assignments returned.',
+                    )
+                  else
+                    for (var i = 0; i < members.length; i++) ...[
+                      if (i > 0)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Divider(height: 1, color: Pal.divider),
+                        ),
+                      Builder(
+                        builder: (_) {
+                          final m = members[i];
+                          final u = asMap(m['user']);
+                          final roleObjs = asList(
+                            m,
+                            keys: const ['roles', 'roleAssignments', 'scopes'],
+                          );
+                          final roleLabel = roleObjs.isNotEmpty
+                              ? roleObjs
+                                    .map(
+                                      (r) =>
+                                          '${asMap(r['role'])['name'] ?? r['roleName'] ?? r['name'] ?? r['key'] ?? ''}',
+                                    )
+                                    .where((s) => s.isNotEmpty)
+                                    .join(', ')
+                              : '${m['roleName'] ?? m['state'] ?? 'Active'}';
+                          return Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${u['displayName'] ?? m['displayName'] ?? u['email'] ?? m['email'] ?? 'Member'}',
+                                      style: T.body(
+                                        14,
+                                        weight: FontWeight.w700,
+                                        color: Pal.ink,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      [
+                                        if ('${u['email'] ?? m['email'] ?? ''}'
+                                            .isNotEmpty)
+                                          '${u['email'] ?? m['email']}',
+                                        if (roleLabel.isNotEmpty) roleLabel,
+                                      ].join(' · '),
+                                      style: T.body(12, color: Pal.muted),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () =>
+                                    _openEditMemberModal(m, allRoles),
+                                icon: const Icon(
+                                  Icons.edit_outlined,
+                                  size: 14,
+                                ),
+                                label: const Text('Edit'),
+                                style: OutlinedButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  foregroundColor: Pal.ink,
+                                  side: const BorderSide(color: Pal.border),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 11,
+                                    vertical: 7,
+                                  ),
+                                  textStyle: T.body(
+                                    12,
+                                    weight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+
+            // `Support access` Section (`image-70.png` bottom)
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFBF3DC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFEBD79C)),
+                  ),
+                  child: const Icon(
+                    Icons.headset_mic_outlined,
+                    size: 18,
+                    color: Pal.goldDeep,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Support access',
+                        style: T.body(
+                          16,
+                          weight: FontWeight.w800,
+                          color: Pal.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Tenant-controlled, time-limited platform support grants.',
+                        style: T.body(12, color: Pal.muted),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Pal.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Pal.border),
+              ),
+              child: _grants.isEmpty
+                  ? const SaasEmptyBox(
+                      'No active or pending platform support grants.',
+                    )
+                  : Column(
+                      children: [
+                        for (var i = 0; i < _grants.length; i++) ...[
+                          if (i > 0)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: Divider(height: 1, color: Pal.divider),
+                            ),
+                          Builder(
+                            builder: (_) {
+                              final g = _grants[i];
+                              final st =
+                                  '${g['state'] ?? g['status'] ?? 'REQUESTED'}'
+                                      .toUpperCase();
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${g['ticketReference'] ?? g['reason'] ?? 'Support Grant'}',
+                                          style: T.body(
+                                            13.5,
+                                            weight: FontWeight.w700,
+                                            color: Pal.ink,
+                                          ),
+                                        ),
+                                      ),
+                                      StatusChip(st),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Scope: ${g['scope'] ?? 'READ_ONLY'} · Expires: ${formatDate(g['expiresAt'])}',
+                                    style: T.body(12, color: Pal.muted),
+                                  ),
+                                  if (st == 'REQUESTED' ||
+                                      st == 'PENDING' ||
+                                      st == 'APPROVED' ||
+                                      st == 'ACTIVE') ...[
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 6,
+                                      children: [
+                                        if (st == 'REQUESTED' ||
+                                            st == 'PENDING') ...[
+                                          OutlinedButton(
+                                            onPressed: () =>
+                                                _decideGrant(g, 'approve'),
+                                            child: const Text('Approve'),
+                                          ),
+                                          OutlinedButton(
+                                            onPressed: () =>
+                                                _decideGrant(g, 'reject'),
+                                            child: const Text('Reject'),
+                                          ),
+                                        ],
+                                        if (st == 'APPROVED' || st == 'ACTIVE')
+                                          OutlinedButton(
+                                            onPressed: () =>
+                                                _decideGrant(g, 'revoke'),
+                                            child: const Text('Revoke'),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              );
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
             ),
           ],
         ),
@@ -8045,20 +8246,17 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
   }
 }
 
-/// Exact `Create tenant role` / `Edit tenant role` modal dialog (`image-70.png`):
-/// - Title: `Create tenant role` (`Choose the minimum permissions required for this role.`)
-/// - `Role key` (`inventory-controller`) + `Display name`
-/// - `Permissions` heading + scrollable white bordered permission cards with
-///   Checkbox + bold key (`accounting.fiscal.approve`) + description
-/// - Footer: `Cancel` + golden `Create role` / `Save role` button
+/// Exact 1:1 `Create tenant role` modal (`image-70.png`) — keyboard-safe & overflow-free
 class _TenantRoleDialog extends StatefulWidget {
   const _TenantRoleDialog({
-    required this.permissions,
+    required this.catalog,
     this.existingRole,
+    this.initialPermissions = const {},
   });
 
-  final List<Map<String, dynamic>> permissions;
+  final List<({String key, String description})> catalog;
   final Map<String, dynamic>? existingRole;
+  final Set<String> initialPermissions;
 
   @override
   State<_TenantRoleDialog> createState() => _TenantRoleDialogState();
@@ -8067,87 +8265,111 @@ class _TenantRoleDialog extends StatefulWidget {
 class _TenantRoleDialogState extends State<_TenantRoleDialog> {
   late final TextEditingController _roleKeyCtrl;
   late final TextEditingController _displayNameCtrl;
-  final _filterCtrl = TextEditingController();
-  final Set<String> _selectedKeys = <String>{};
+  final _scrollCtrl = ScrollController();
+  late final Set<String> _selectedPerms;
 
+  bool _keyMissing = false;
+  bool _nameMissing = false;
   String? _modalError;
   bool _busy = false;
-  bool _showFilter = false;
 
-  bool get _isEditing => widget.existingRole != null;
+  bool get _isEdit => widget.existingRole != null;
 
   @override
   void initState() {
     super.initState();
-    final role = widget.existingRole;
-    _roleKeyCtrl = TextEditingController(text: '${role?['key'] ?? ''}');
-    _displayNameCtrl = TextEditingController(text: '${role?['name'] ?? ''}');
-    if (role != null) {
-      for (final rawKey in [
-        if (role['permissionKeys'] is List) ...(role['permissionKeys'] as List),
-        if (role['permissions'] is List) ...(role['permissions'] as List),
-      ]) {
-        if (rawKey is Map) {
-          final k = '${rawKey['key'] ?? rawKey['code'] ?? ''}'.trim();
-          if (k.isNotEmpty) _selectedKeys.add(k);
-        } else if (rawKey != null && '$rawKey'.trim().isNotEmpty) {
-          _selectedKeys.add('$rawKey'.trim());
-        }
-      }
-    }
+    final r = widget.existingRole;
+    _roleKeyCtrl = TextEditingController(
+      text: r != null ? '${r['key'] ?? r['roleKey'] ?? ''}' : '',
+    );
+    _displayNameCtrl = TextEditingController(
+      text: r != null ? '${r['displayName'] ?? r['name'] ?? ''}' : '',
+    );
+    _selectedPerms = {...widget.initialPermissions};
   }
 
   @override
   void dispose() {
     _roleKeyCtrl.dispose();
     _displayNameCtrl.dispose();
-    _filterCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final sanitizedKey = _roleKeyCtrl.text
+  String _slugifyKey(String raw) {
+    return raw
         .trim()
         .toLowerCase()
-        .replaceAll('_', '-')
-        .replaceAll(RegExp(r'[^a-z0-9-]'), '');
+        .replaceAll(RegExp(r'[^a-z0-9_-]+'), '-')
+        .replaceAll(RegExp(r'-{2,}'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+  }
+
+  Future<void> _submit() async {
+    final sanitizedKey = _slugifyKey(_roleKeyCtrl.text);
     final disp = _displayNameCtrl.text.trim();
-    if (sanitizedKey.length < 2 || disp.length < 2 || _selectedKeys.isEmpty) {
-      setState(
-        () => _modalError =
-            'Enter Role key (e.g. inventory-controller), Display name, and select at least 1 permission.',
-      );
+    if ((!_isEdit && sanitizedKey.isEmpty) || disp.isEmpty) {
+      setState(() {
+        _keyMissing = !_isEdit && sanitizedKey.isEmpty;
+        _nameMissing = disp.isEmpty;
+      });
+      return;
+    }
+    if (_selectedPerms.isEmpty) {
+      setState(() {
+        _modalError = 'Select at least one permission for this role.';
+      });
       return;
     }
 
     setState(() {
       _busy = true;
+      _keyMissing = false;
+      _nameMissing = false;
       _modalError = null;
     });
 
     final api = context.read<ApiClient>();
-    final sortedPerms = _selectedKeys.toList()..sort();
+    final sortedPerms = _selectedPerms.toList()..sort();
 
     try {
-      if (_isEditing) {
+      if (_isEdit) {
         final roleId = '${widget.existingRole!['id'] ?? ''}'.trim();
-        final payload = <String, dynamic>{
-          'expectedVersion': asInt(widget.existingRole!['version'], fallback: 1),
-          'name': disp,
-          'permissionKeys': sortedPerms,
-        };
+        final ver = asInt(widget.existingRole!['version'], fallback: 1);
         final attempts = <Future<dynamic> Function()>[
-          () => api.patch('/access/roles/$roleId', idempotent: true, body: payload),
-          () => api.put('/access/roles/$roleId', idempotent: true, body: payload),
-          () => api.put(
-                '/access/roles/$roleId/permissions',
+          () => api.patch(
+                '/access/roles/$roleId',
                 idempotent: true,
-                body: payload,
+                body: {
+                  'name': disp,
+                  'permissionKeys': sortedPerms,
+                  'expectedVersion': ver,
+                },
+              ),
+          () => api.patch(
+                '/access/roles/$roleId',
+                idempotent: true,
+                body: {
+                  'displayName': disp,
+                  'permissionKeys': sortedPerms,
+                  'expectedVersion': ver,
+                },
+              ),
+          () => api.put(
+                '/access/roles/$roleId',
+                idempotent: true,
+                body: {
+                  'name': disp,
+                  'permissionKeys': sortedPerms,
+                },
               ),
           () => api.post(
                 '/access/roles/$roleId/permissions',
                 idempotent: true,
-                body: payload,
+                body: {
+                  'name': disp,
+                  'permissionKeys': sortedPerms,
+                },
               ),
         ];
         ApiException? lastErr;
@@ -8159,7 +8381,10 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
             break;
           } on ApiException catch (e) {
             lastErr = e;
-            if ((e.status == 404 || e.status == 405) &&
+            if ((e.status == 400 ||
+                    e.status == 404 ||
+                    e.status == 405 ||
+                    e.status == 422) &&
                 i + 1 < attempts.length) {
               continue;
             }
@@ -8168,15 +8393,62 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
         }
         if (!ok && lastErr != null) throw lastErr;
       } else {
-        await api.post(
-          '/access/roles',
-          idempotent: true,
-          body: {
-            'key': sanitizedKey,
-            'name': disp,
-            'permissionKeys': sortedPerms,
-          },
-        );
+        final createAttempts = <Future<dynamic> Function()>[
+          () => api.post(
+                '/access/roles',
+                idempotent: true,
+                body: {
+                  'key': sanitizedKey,
+                  'name': disp,
+                  'permissionKeys': sortedPerms,
+                },
+              ),
+          () => api.post(
+                '/access/roles',
+                idempotent: true,
+                body: {
+                  'key': sanitizedKey,
+                  'displayName': disp,
+                  'permissionKeys': sortedPerms,
+                },
+              ),
+          () => api.post(
+                '/access/roles',
+                idempotent: true,
+                body: {
+                  'roleKey': sanitizedKey,
+                  'displayName': disp,
+                  'permissionKeys': sortedPerms,
+                },
+              ),
+          () => api.post(
+                '/access/roles',
+                idempotent: true,
+                body: {
+                  'key': sanitizedKey,
+                  'name': disp,
+                  'permissions': sortedPerms,
+                },
+              ),
+        ];
+
+        ApiException? lastErr;
+        var ok = false;
+        for (var i = 0; i < createAttempts.length; i++) {
+          try {
+            await createAttempts[i]();
+            ok = true;
+            break;
+          } on ApiException catch (e) {
+            lastErr = e;
+            if ((e.status == 400 || e.status == 422) &&
+                i + 1 < createAttempts.length) {
+              continue;
+            }
+            rethrow;
+          }
+        }
+        if (!ok && lastErr != null) throw lastErr;
       }
 
       if (!mounted) return;
@@ -8185,9 +8457,9 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
       messenger?.showSnackBar(
         SnackBar(
           content: Text(
-            _isEditing
-                ? 'Tenant role $disp updated.'
-                : 'Tenant role $disp created.',
+            _isEdit
+                ? 'Tenant role "$disp" updated.'
+                : 'Tenant role "$disp" created.',
           ),
         ),
       );
@@ -8201,291 +8473,274 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
     }
   }
 
+  Widget _buildRoleInput({
+    required String label,
+    required TextEditingController controller,
+    String? hint,
+    bool readOnly = false,
+    bool hasError = false,
+    required ValueChanged<String> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: T.body(12.2, weight: FontWeight.w700, color: Pal.ink),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          readOnly: readOnly,
+          style: T.body(13.5, color: Pal.ink),
+          onChanged: onChanged,
+          decoration: InputDecoration(
+            hintText: hint,
+            filled: true,
+            fillColor: readOnly ? const Color(0xFFF5F3EE) : Colors.white,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 11,
+            ),
+            errorText: hasError ? 'Please fill in this field.' : null,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final pf = _filterCtrl.text.trim().toLowerCase();
-    final shownPerms = widget.permissions.where((p) {
-      if (pf.isEmpty) return true;
-      return '${p['key'] ?? ''} ${p['description'] ?? ''}'
-          .toLowerCase()
-          .contains(pf);
-    }).toList();
-
-    final maxDialogHeight = MediaQuery.of(context).size.height * 0.86;
+    final screenSize = MediaQuery.sizeOf(context);
+    final kbBottom = MediaQuery.viewInsetsOf(context).bottom;
+    final availableHeight = (screenSize.height - kbBottom - 36).clamp(
+      260.0,
+      680.0,
+    );
 
     return Dialog(
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      elevation: 14,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: const BorderSide(color: Pal.border),
+        side: const BorderSide(color: Color(0xFFE8E2D5)),
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 540,
-          maxHeight: maxDialogHeight,
+          maxWidth: 520,
+          maxHeight: availableHeight,
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header (`Create tenant role` — `image-70.png`)
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _isEditing ? 'Edit tenant role' : 'Create tenant role',
-                          style: T.body(
-                            18,
-                            weight: FontWeight.w800,
-                            color: Pal.ink,
-                          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Flexible(
+              child: Scrollbar(
+                controller: _scrollCtrl,
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: _scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _isEdit ? 'Edit tenant role' : 'Create tenant role',
+                        style: T.body(
+                          18.5,
+                          weight: FontWeight.w800,
+                          color: Pal.ink,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Choose the minimum permissions required for this role.',
-                          style: T.body(12.6, color: Pal.muted),
-                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Choose the minimum permissions required for this role.',
+                        style: T.body(12.8, color: Pal.muted),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_modalError != null) ...[
+                        ErrorBanner(_modalError!),
+                        const SizedBox(height: 12),
                       ],
-                    ),
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    onPressed:
-                        _busy ? null : () => Navigator.of(context).pop(false),
-                    icon: const Icon(Icons.close_rounded, size: 20),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              if (_modalError != null) ...[
-                ErrorBanner(_modalError!),
-                const SizedBox(height: 10),
-              ],
-
-              // `Role key` + `Display name` side-by-side (`image-70.png`)
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Role key',
-                          style: T.body(
-                            12.4,
-                            weight: FontWeight.w700,
-                            color: Pal.ink,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: _roleKeyCtrl,
-                          enabled: !_isEditing,
-                          style: T.body(13.5, color: Pal.ink),
-                          decoration: const InputDecoration(
-                            hintText: 'inventory-controller',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Display name',
-                          style: T.body(
-                            12.4,
-                            weight: FontWeight.w700,
-                            color: Pal.ink,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: _displayNameCtrl,
-                          style: T.body(13.5, color: Pal.ink),
-                          decoration: const InputDecoration(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              // `Permissions` heading + quick search toggle
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Permissions',
-                      style: T.body(
-                        13.2,
-                        weight: FontWeight.w800,
-                        color: Pal.ink,
-                      ),
-                    ),
-                  ),
-                  if (_selectedKeys.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: Text(
-                        '${_selectedKeys.length} selected',
-                        style: T.mono(
-                          11.4,
-                          weight: FontWeight.w700,
-                          color: Pal.goldDeep,
-                        ),
-                      ),
-                    ),
-                  InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => setState(() {
-                      _showFilter = !_showFilter;
-                      if (!_showFilter) _filterCtrl.clear();
-                    }),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 3,
-                      ),
-                      child: Icon(
-                        _showFilter
-                            ? Icons.search_off_rounded
-                            : Icons.search_rounded,
-                        size: 18,
-                        color: Pal.muted,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (_showFilter) ...[
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _filterCtrl,
-                  style: T.body(13, color: Pal.ink),
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search_rounded, size: 18),
-                    hintText: 'Filter permissions (e.g. accounting, sales)...',
-                  ),
-                ),
-              ],
-              const SizedBox(height: 8),
-
-              // Scrollable White Bordered Permission Cards (`image-70.png` 1:1)
-              Expanded(
-                child: shownPerms.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No matching permissions found.',
-                          style: T.body(12.5, color: Pal.muted),
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: shownPerms.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (_, idx) {
-                          final p = shownPerms[idx];
-                          final pKey = '${p['key'] ?? ''}';
-                          final pDesc = '${p['description'] ?? ''}'.trim();
-                          final checked = _selectedKeys.contains(pKey);
-                          return InkWell(
-                            borderRadius: BorderRadius.circular(11),
-                            onTap: () => setState(() {
-                              if (checked) {
-                                _selectedKeys.remove(pKey);
-                              } else {
-                                _selectedKeys.add(pKey);
+                      LayoutBuilder(
+                        builder: (ctx, c) {
+                          final keyField = _buildRoleInput(
+                            label: 'Role key',
+                            controller: _roleKeyCtrl,
+                            hint: 'inventory-controller',
+                            readOnly: _isEdit,
+                            hasError: _keyMissing,
+                            onChanged: (_) {
+                              if (_keyMissing) {
+                                setState(() => _keyMissing = false);
                               }
-                            }),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 11,
+                            },
+                          );
+                          final nameField = _buildRoleInput(
+                            label: 'Display name',
+                            controller: _displayNameCtrl,
+                            hasError: _nameMissing,
+                            onChanged: (_) {
+                              if (_nameMissing) {
+                                setState(() => _nameMissing = false);
+                              }
+                            },
+                          );
+                          if (c.maxWidth < 290) {
+                            return Column(
+                              children: [
+                                keyField,
+                                const SizedBox(height: 12),
+                                nameField,
+                              ],
+                            );
+                          }
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: keyField),
+                              const SizedBox(width: 12),
+                              Expanded(child: nameField),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Permissions',
+                              style: T.body(
+                                13.5,
+                                weight: FontWeight.w800,
+                                color: Pal.ink,
                               ),
-                              decoration: BoxDecoration(
-                                color: checked
-                                    ? const Color(0xFFFFFCF3)
-                                    : Colors.white,
-                                borderRadius: BorderRadius.circular(11),
-                                border: Border.all(
-                                  color: checked ? Pal.gold : Pal.border,
-                                  width: checked ? 1.3 : 1.0,
+                            ),
+                          ),
+                          if (_selectedPerms.isNotEmpty)
+                            Text(
+                              '${_selectedPerms.length} selected',
+                              style: T.body(
+                                11.8,
+                                weight: FontWeight.w700,
+                                color: Pal.goldDeep,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      for (var i = 0; i < widget.catalog.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 8),
+                        Builder(
+                          builder: (_) {
+                            final item = widget.catalog[i];
+                            final checked =
+                                _selectedPerms.contains(item.key);
+                            return InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () {
+                                setState(() {
+                                  if (checked) {
+                                    _selectedPerms.remove(item.key);
+                                  } else {
+                                    _selectedPerms.add(item.key);
+                                  }
+                                });
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.fromLTRB(
+                                  8,
+                                  10,
+                                  12,
+                                  10,
                                 ),
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: Checkbox(
-                                      value: checked,
-                                      activeColor: Pal.goldDeep,
-                                      materialTapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                      onChanged: (v) => setState(() {
-                                        if (v == true) {
-                                          _selectedKeys.add(pKey);
-                                        } else {
-                                          _selectedKeys.remove(pKey);
-                                        }
-                                      }),
-                                    ),
+                                decoration: BoxDecoration(
+                                  color: checked
+                                      ? const Color(0xFFFFFCF3)
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: checked
+                                        ? Pal.borderGold
+                                        : const Color(0xFFE6E1D6),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          pKey,
-                                          style: T.body(
-                                            13.2,
-                                            weight: FontWeight.w700,
-                                            color: Pal.ink,
-                                          ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      width: 28,
+                                      height: 24,
+                                      child: Checkbox(
+                                        value: checked,
+                                        activeColor: Pal.gold,
+                                        visualDensity: VisualDensity.compact,
+                                        materialTapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                        side: const BorderSide(
+                                          color: Color(0xFFBFB8AA),
+                                          width: 1.4,
                                         ),
-                                        if (pDesc.isNotEmpty) ...[
-                                          const SizedBox(height: 2),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                        ),
+                                        onChanged: (v) {
+                                          setState(() {
+                                            if (v == true) {
+                                              _selectedPerms.add(item.key);
+                                            } else {
+                                              _selectedPerms.remove(item.key);
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
                                           Text(
-                                            pDesc,
+                                            item.key,
                                             style: T.body(
-                                              11.8,
+                                              13,
+                                              weight: FontWeight.w700,
+                                              color: Pal.ink,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            item.description,
+                                            style: T.body(
+                                              12,
                                               color: Pal.muted,
                                             ),
                                           ),
                                         ],
-                                      ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
+                            );
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-
-              const Padding(
-                padding: EdgeInsets.only(top: 12, bottom: 10),
-                child: Divider(height: 1, color: Pal.divider),
-              ),
-              Row(
+            ),
+            const Divider(height: 1, color: Color(0xFFEEE9DE)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
@@ -8496,20 +8751,20 @@ class _TenantRoleDialogState extends State<_TenantRoleDialog> {
                       style: T.body(
                         13.5,
                         weight: FontWeight.w600,
-                        color: Pal.muted,
+                        color: const Color(0xFF5F5A52),
                       ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   GoldButton(
-                    label: _isEditing ? 'Save role' : 'Create role',
+                    label: _isEdit ? 'Save role' : 'Create role',
                     busy: _busy,
                     onPressed: _busy ? null : _submit,
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
