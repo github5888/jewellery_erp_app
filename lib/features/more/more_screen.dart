@@ -249,7 +249,7 @@ class _MoreScreenState extends State<MoreScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
-          // Top Brand + Headquarters Showroom Context Card (`Jewellery ERP SAAS` + `Kalyan Jewellers · Headquarters Showroom`)
+          // Top Brand + Headquarters Showroom Context Card (`Karvix SAAS` + Showroom Context)
           LuxuryHeroCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -267,7 +267,7 @@ class _MoreScreenState extends State<MoreScreen> {
                             children: [
                               Flexible(
                                 child: Text(
-                                  'Jewellery ERP',
+                                  'Karvix',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: T.body(

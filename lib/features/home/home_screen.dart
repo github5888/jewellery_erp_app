@@ -209,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final rates = context.watch<RatesController>();
 
     final storeBrand =
-        app.tenantName.trim().isNotEmpty ? app.tenantName.trim() : 'Jewellery ERP';
+        app.tenantName.trim().isNotEmpty ? app.tenantName.trim() : 'Karvix';
     final branchCode = app.branchCode.trim().isNotEmpty ? app.branchCode.trim() : 'MAIN';
     final branchLabel = [
       if (app.branchName.trim().isNotEmpty) app.branchName.trim(),

@@ -264,7 +264,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             const GemMark(size: 56, darkSurface: true),
                             const SizedBox(height: 14),
                             Text(
-                              'Jewellery ERP',
+                              'Karvix',
                               textAlign: TextAlign.center,
                               style: T.display(27, color: const Color(0xFFFDF8EE), w: FontWeight.w600),
                             ),

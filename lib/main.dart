@@ -48,7 +48,7 @@ class JewelleryErpApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'Jewellery ERP',
+        title: 'Karvix',
         debugShowCheckedModeBanner: false,
         theme: buildTheme(),
         home: const _Gate(),
