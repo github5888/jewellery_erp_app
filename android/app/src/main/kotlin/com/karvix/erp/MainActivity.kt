@@ -1,4 +1,4 @@
-package com.example.jewellery_erp
+package com.karvix.erp
 
 import android.app.Activity
 import android.content.ContentValues
@@ -26,7 +26,7 @@ import kotlin.math.roundToInt
 
 class MainActivity : FlutterActivity() {
     companion object {
-        private const val CHANNEL = "jewellery_erp/device"
+        private const val CHANNEL = "com.karvix.erp/device"
         private const val REQ_PICK_IMAGE = 9411
     }
 
@@ -211,7 +211,7 @@ class MainActivity : FlutterActivity() {
 
     private fun handleSaveFileToDownloads(call: MethodCall, result: MethodChannel.Result) {
         val bytes = call.argument<ByteArray>("bytes")
-        val rawName = call.argument<String>("fileName") ?: "JewelleryERP-Document.pdf"
+        val rawName = call.argument<String>("fileName") ?: "Karvix-Document.pdf"
         val mimeType = call.argument<String>("mimeType") ?: "application/pdf"
 
         if (bytes == null || bytes.isEmpty()) {
@@ -227,7 +227,7 @@ class MainActivity : FlutterActivity() {
                     put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
                     put(
                         MediaStore.MediaColumns.RELATIVE_PATH,
-                        Environment.DIRECTORY_DOWNLOADS + "/JewelleryERP"
+                        Environment.DIRECTORY_DOWNLOADS + "/Karvix"
                     )
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
@@ -247,14 +247,14 @@ class MainActivity : FlutterActivity() {
 
                 result.success(
                     mapOf(
-                        "savedPath" to "Downloads/JewelleryERP/$safeName",
+                        "savedPath" to "Downloads/Karvix/$safeName",
                         "uri" to itemUri.toString()
                     )
                 )
             } else {
                 val dir = File(
                     getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir,
-                    "JewelleryERP"
+                    "Karvix"
                 )
                 if (!dir.exists()) dir.mkdirs()
                 val outFile = File(dir, safeName)
@@ -318,7 +318,7 @@ class MainActivity : FlutterActivity() {
 
     private fun handlePrintHtml(call: MethodCall, result: MethodChannel.Result) {
         val html = call.argument<String>("html") ?: ""
-        val jobName = call.argument<String>("jobName") ?: "JewelleryERP-Document"
+        val jobName = call.argument<String>("jobName") ?: "Karvix-Document"
         if (html.isEmpty()) {
             result.error("EMPTY_HTML", "Empty HTML document.", null)
             return

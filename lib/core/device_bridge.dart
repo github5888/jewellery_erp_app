@@ -26,14 +26,14 @@ class SavedDownloadResult {
   final String uri;
 }
 
-/// Native device bridge (`MethodChannel('jewellery_erp/device')`) for:
+/// Native device bridge (`MethodChannel('com.karvix.erp/device')`) for:
 /// 1. Picking a showroom/company logo directly from **Device Photos / Gallery** or **Files**.
 /// 2. Downloading any Invoice, Payment Receipt, Voucher, Statement, or Report `.pdf`
-///    straight into `Downloads/JewelleryERP/` and opening/sharing it on the phone.
+///    straight into `Downloads/Karvix/` and opening/sharing it on the phone.
 class DeviceBridge {
   DeviceBridge._();
 
-  static const MethodChannel _ch = MethodChannel('jewellery_erp/device');
+  static const MethodChannel _ch = MethodChannel('com.karvix.erp/device');
 
   /// Opens the native Android Device Photos / Gallery (`mode = 'photos'`) or
   /// system file browser (`mode = 'files'`) and returns normalized PNG/JPEG/WebP bytes.
@@ -65,7 +65,7 @@ class DeviceBridge {
     return null;
   }
 
-  /// Writes [bytes] into `Downloads/JewelleryERP/[fileName]` on Android (via
+  /// Writes [bytes] into `Downloads/Karvix/[fileName]` on Android (via
   /// `MediaStore.Downloads`) and on Windows/macOS/Linux desktop `Downloads`.
   static Future<SavedDownloadResult> saveToDownloads({
     required Uint8List bytes,
@@ -83,7 +83,7 @@ class DeviceBridge {
         });
         if (res is Map) {
           return SavedDownloadResult(
-            savedPath: '${res['savedPath'] ?? 'Downloads/JewelleryERP/$safeName'}',
+            savedPath: '${res['savedPath'] ?? 'Downloads/Karvix/$safeName'}',
             uri: '${res['uri'] ?? ''}',
           );
         }
@@ -96,7 +96,7 @@ class DeviceBridge {
       final home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? '';
       if (home.isNotEmpty) {
         final sep = Platform.pathSeparator;
-        final dir = Directory('$home${sep}Downloads${sep}JewelleryERP');
+        final dir = Directory('$home${sep}Downloads${sep}Karvix');
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
@@ -107,7 +107,7 @@ class DeviceBridge {
     }
 
     final docsDir = await getApplicationDocumentsDirectory();
-    final outDir = Directory('${docsDir.path}${Platform.pathSeparator}JewelleryERP');
+    final outDir = Directory('${docsDir.path}${Platform.pathSeparator}Karvix');
     if (!await outDir.exists()) {
       await outDir.create(recursive: true);
     }
